@@ -29,6 +29,7 @@ First public WMB+ beta firmware for XIAO ESP32S3 WeighMyBru-compatible scale bui
 
 - `wmb-plus-0.2.0-beta.1-xiao-app.bin`
 - `wmb-plus-0.2.0-beta.1-xiao-factory-minimal.bin`
+- `wmb-plus-0.2.0-beta.1-xiao-littlefs.bin`
 - `wmb-plus-0.2.0-beta.1-sha256.txt`
 
 ## Known limitations
@@ -36,7 +37,7 @@ First public WMB+ beta firmware for XIAO ESP32S3 WeighMyBru-compatible scale bui
 - Battery percentage is voltage-estimated.
 - Charging and runtime estimates are experimental.
 - XIAO ESP32S3 is the only beta-supported prebuilt target in this release.
-- The minimal factory image does not include LittleFS web UI assets.
+- The minimal factory image does not include LittleFS web UI assets; flash the separate LittleFS image only if web UI assets should be updated.
 - Calibration is per-device and must be verified by the builder.
 - 80 SPS requires HX711 hardware support/configuration.
 

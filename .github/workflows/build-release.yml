@@ -1,9 +1,10 @@
 name: Build Release Binaries
 
 on:
-  push:
-    tags: ['v*']  # Trigger on version tags like v2.1.0
-  workflow_dispatch:  # Manual trigger for testing
+  # WMB+ beta releases are currently created manually so prerelease notes,
+  # asset names, and supported boards stay explicit. Keep this workflow manual
+  # until release automation is rewritten for WMB+ instead of upstream naming.
+  workflow_dispatch:
     inputs:
       version_override:
         description: 'Override version (e.g., 2.1.0-beta)'
@@ -56,7 +57,7 @@ jobs:
         # Extract build info
         BUILD_NUMBER=$GITHUB_RUN_NUMBER
         COMMIT_HASH=$(git rev-parse --short HEAD)
-        BUILD_DATE=$(date -u +"%b %d %Y")
+        BUILD_DATE=$(date -u +"%Y-%m-%d")
         BUILD_TIME=$(date -u +"%H:%M:%S")
         
         echo "BUILD_NUMBER=$BUILD_NUMBER" >> $GITHUB_OUTPUT
@@ -70,7 +71,8 @@ jobs:
         
     - name: Build firmware
       run: |
-        # Set build flags with version info
+        # Set build flags with version info. Keep values shell-token-safe:
+        # PlatformIO splits PLATFORMIO_BUILD_FLAGS on whitespace.
         export PLATFORMIO_BUILD_FLAGS="\
           -DWEIGHMYBRU_BUILD_NUMBER=${{ steps.version.outputs.BUILD_NUMBER }} \
           -DWEIGHMYBRU_COMMIT_HASH=\\\"${{ steps.version.outputs.COMMIT_HASH }}\\\" \
@@ -222,10 +224,10 @@ jobs:
       uses: softprops/action-gh-release@v1
       with:
         tag_name: v${{ steps.version.outputs.VERSION }}
-        name: WeighMyBru² v${{ steps.version.outputs.VERSION }}
+        name: WMB+ v${{ steps.version.outputs.VERSION }}
         files: release-final/*
         body: |
-          ## WeighMyBru² v${{ steps.version.outputs.VERSION }}
+          ## WMB+ v${{ steps.version.outputs.VERSION }}
           
           ### 📦 Release Binaries
           
@@ -247,13 +249,13 @@ jobs:
           ### 📋 Requirements
           - ESP32-S3 Supermini or XIAO ESP32S3 board
           - Load cell and HX711 amplifier
-          - See [README.md](https://github.com/031devstudios/weighmybru2/blob/master/README.md) for wiring
+          - See [README.md](https://github.com/danielfcurrie-alt/weighmybru2/blob/master/README.md) for beta notes and wiring references
           
           ### 🔧 Build Information
           - Build: #${{ github.run_number }}
           - Commit: ${{ github.sha }}
           - Date: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
         draft: false
-        prerelease: false
+        prerelease: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -34,7 +34,7 @@ jobs:
       run: |
         BUILD_NUMBER=$GITHUB_RUN_NUMBER
         COMMIT_HASH=$(git rev-parse --short HEAD)
-        BUILD_DATE=$(date -u +"%b %d %Y")
+        BUILD_DATE=$(date -u +"%Y-%m-%d")
         BUILD_TIME=$(date -u +"%H:%M:%S")
         
         echo "BUILD_NUMBER=$BUILD_NUMBER" >> $GITHUB_OUTPUT
@@ -48,7 +48,8 @@ jobs:
         
     - name: Build firmware
       run: |
-        # Set build flags for development builds
+        # Set build flags for development builds. Keep values shell-token-safe:
+        # PlatformIO splits PLATFORMIO_BUILD_FLAGS on whitespace.
         export PLATFORMIO_BUILD_FLAGS="\
           -DWEIGHMYBRU_BUILD_NUMBER=${{ steps.build_info.outputs.BUILD_NUMBER }} \
           -DWEIGHMYBRU_COMMIT_HASH=\\\"${{ steps.build_info.outputs.COMMIT_HASH }}\\\" \

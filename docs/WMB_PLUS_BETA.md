@@ -45,7 +45,7 @@ The compatibility lanes stay conservative:
 - Battery percentage is voltage-estimated. It is useful but not a fuel-gauge-grade measurement.
 - Charging/time-remaining estimates are experimental.
 - XIAO ESP32S3 is the only board treated as beta-supported in this release.
-- The web UI requires LittleFS to be flashed separately. The first beta release assets do not include a LittleFS image.
+- The web UI requires LittleFS to be flashed separately. The beta release includes a separate LittleFS image for testers who want to update web UI assets.
 - Calibration remains per-device and must be checked by the builder.
 - 80 SPS requires the HX711 hardware rate pin/jumper to be configured correctly.
 
