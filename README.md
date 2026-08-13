@@ -59,6 +59,8 @@ Release assets:
 
 For first-time beta installs or migration from `0.2.0-beta.1`, use `wmb-plus-0.2.0-beta.2-xiao-factory-full.bin` at `0x0`. It includes bootloader, dual-OTA partition table, app firmware, and LittleFS web UI.
 
+Calibration should be preserved. The XIAO factory-full image writes the bootloader, partition table, app firmware, and LittleFS web UI, but it does not run `erase_flash` and does not overwrite the ESP32 NVS area at `0x9000` where WeighMyBru stores calibration. After flashing, verify with a known weight, especially on a newly built or unusual partition-layout device. Calibration can be lost if you explicitly run `erase_flash`, use a reset-NVS/factory-reset endpoint, or come from a nonstandard layout.
+
 Important: the originally published `0.2.0-beta.1` XIAO fallback assets used LittleFS at `0x310000` and appeared to use a legacy/single-app partition layout. `0.2.0-beta.2` is the corrected dual-OTA release.
 
 ## What WMB+ adds
