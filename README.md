@@ -39,8 +39,6 @@ Current GitHub repository status:
 - GitHub fork metadata: yes, forked from [`031devstudios/weighmybru2`](https://github.com/031devstudios/weighmybru2)
 - Upstream goal: split proven pieces into focused pull requests later
 
-An earlier standalone beta repository existed at `danielfcurrie-alt/wmb-plus-firmware`. The active beta location is this fork.
-
 ## Current beta release
 
 Latest beta:
@@ -105,19 +103,13 @@ Early hardware validation on a XIAO ESP32S3 reference build:
 
 More tester reports are needed before upstream pull requests are split out.
 
-## Testing with apps
+## Testing and compatible apps
 
 For firmware and transport-quality testing, use **ScaleBench**:
 
 - ScaleBench GitHub: <https://github.com/danielfcurrie-alt/ScaleBench>
 
 ScaleBench can record supported Bluetooth scale streams, calculate a comparable scale-quality score, inspect packet cadence/gaps/rejections, and export JSON recordings for debugging. This is the preferred tool when reporting WMB+ beta firmware behavior because it captures both compatibility-path data and WMB+ telemetry when available.
-
-For espresso shot recording with WMB+ support, use **Crema for iOS**:
-
-- Crema TestFlight: <https://testflight.apple.com/join/6Jf7r3pu>
-
-Crema can use WMB+ capabilities such as standard BLE battery and atomic tare/start when the firmware exposes them.
 
 Existing compatibility apps should continue to work normally:
 
@@ -133,7 +125,6 @@ If you see a regression in Bean Conqueror, GaggiMate, or Gaggiuino compared with
 - [Rollback instructions](docs/ROLLBACK.md)
 - [Compatibility checklist](docs/COMPATIBILITY.md)
 - [Tester checklist](docs/TESTING.md)
-- [Codex release install prompt](docs/CODEX_RELEASE_INSTALL_PROMPT.md)
 - [USB serial protocol](docs/USB_SERIAL.md)
 - [WMB+ BLE protocol](docs/WMB_PLUS_PROTOCOL.md)
 - [Release notes](docs/RELEASE_NOTES_0.2.0-beta.2.md)
@@ -171,8 +162,6 @@ esptool.py --chip esp32s3 --port /dev/cu.usbmodemXXXX --baud 460800 write_flash 
 ```
 
 XIAO `0.2.0-beta.2` uses two 3MB OTA app slots and places LittleFS at `0x610000`. SuperMini dual-OTA uses two 1.5MB OTA app slots and places LittleFS at `0x310000`. If your installed image reports a legacy/single-app layout, do not rely on app OTA until you install the `0.2.0-beta.2` full factory image.
-
-If you want Codex to perform the release-asset install with guardrails, use the copy/paste [Codex release install prompt](docs/CODEX_RELEASE_INSTALL_PROMPT.md).
 
 Verify over serial at `115200` by sending:
 
@@ -294,7 +283,7 @@ GaggiMate now fully supports WeighMyBru scale.
 
 ## Installation
 
-Installation instructions are currently under development, for now follow the [link](https://031devstudios.github.io/weighmybru-docs/#/installation/flashing) for step-by-step installation instructions. Additionally, a video is available on [YouTube](https://www.youtube.com/watch?v=O5SP40Liuq0)
+For WMB+ beta installs, start with the [flashing instructions](docs/FLASHING.md) and the current [GitHub release](https://github.com/danielfcurrie-alt/weighmybru2/releases/tag/v0.2.0-beta.2). Use the XIAO `factory-full` image for first install or migration from `0.2.0-beta.1`.
 
 ```
   this project requires VSCode with PlatformIO extension installed

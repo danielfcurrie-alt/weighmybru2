@@ -244,7 +244,7 @@ generate_manifest() {
   "version": "$VERSION", 
   "home_assistant_domain": "weighmybru",
   "new_install_prompt_erase": true,
-  "funding_url": "https://github.com/031devstudios/weighmybru2",
+  "funding_url": "https://github.com/danielfcurrie-alt/weighmybru2",
   "builds": [
     {
       "chipFamily": "ESP32-S3",
