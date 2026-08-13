@@ -1,6 +1,7 @@
 name: Build Development
 
 on:
+  workflow_dispatch:
   push:
     branches: [ main, master, develop, 'feature/*' ]
   pull_request:
