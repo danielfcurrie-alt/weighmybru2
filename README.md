@@ -45,19 +45,34 @@ Latest beta:
 
 - [WMB+ 0.2.0-beta.2 release](https://github.com/danielfcurrie-alt/weighmybru2/releases/tag/v0.2.0-beta.2)
 
-Primary supported beta board:
+Supported beta boards:
 
-- Seeed Studio XIAO ESP32S3
+- **Primary tested reference:** Seeed Studio XIAO ESP32S3
+- **Available beta build:** ESP32-S3 SuperMini / SuperMini-style board
 
 Release assets:
+
+XIAO ESP32S3:
 
 - `wmb-plus-0.2.0-beta.2-xiao-app.bin`
 - `wmb-plus-0.2.0-beta.2-xiao-factory-full.bin`
 - `wmb-plus-0.2.0-beta.2-xiao-factory-minimal.bin`
 - `wmb-plus-0.2.0-beta.2-xiao-littlefs.bin`
+
+ESP32-S3 SuperMini:
+
+- `wmb-plus-0.2.0-beta.2-supermini-app.bin`
+- `wmb-plus-0.2.0-beta.2-supermini-factory-full.bin`
+- `wmb-plus-0.2.0-beta.2-supermini-factory-minimal.bin`
+- `wmb-plus-0.2.0-beta.2-supermini-littlefs.bin`
+
+Shared:
+
 - `wmb-plus-0.2.0-beta.2-sha256.txt`
 
 For first-time beta installs or migration from `0.2.0-beta.1`, use `wmb-plus-0.2.0-beta.2-xiao-factory-full.bin` at `0x0`. It includes bootloader, dual-OTA partition table, app firmware, and LittleFS web UI.
+
+For SuperMini installs, use the matching `supermini` asset names. Do not flash XIAO images onto a SuperMini or SuperMini images onto a XIAO. XIAO uses an 8MB factory image; SuperMini uses a 4MB factory image.
 
 Calibration should be preserved. The XIAO factory-full image writes the bootloader, partition table, app firmware, and LittleFS web UI, but it does not run `erase_flash` and does not overwrite the ESP32 NVS area at `0x9000` where WeighMyBru stores calibration. After flashing, verify with a known weight, especially on a newly built or unusual partition-layout device. Calibration can be lost if you explicitly run `erase_flash`, use a reset-NVS/factory-reset endpoint, or come from a nonstandard layout.
 
