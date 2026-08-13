@@ -34,7 +34,7 @@ Standard BLE Battery Service:
 
 ### Bean Conqueror style Float32 clients
 
-Expected:
+Validated on the XIAO reference beta build:
 
 - Reads live weight from `6E400004`.
 - Receives a pure 4-byte little-endian Float32 only.

@@ -14,7 +14,7 @@ Main reasons to try it:
 - **Grind/brew by weight with no machine mods:** the scale can directly call local Tasmota or Shelly HTTP webhooks from the StopMyBru screen, so a smart plug/relay can stop a grinder or brewer at target weight without modifying the machine. WMB+ can also learn the cutoff offset for that setup, so it compensates for beans/liquid that arrive after power is cut.
 - **Better feature telemetry:** WMB+ adds an extended stream for timestamp, sequence, flow, battery, status flags, firmware scale quality, cadence, and diagnostics.
 - **Bump/glitch diagnostics:** the firmware can identify likely bumps, one-frame ADC/load-cell glitches, cadence problems, and scale-quality changes instead of leaving every app to guess.
-- **Compatibility stays on:** Bean Conqueror and WeighMyBru/GaggiMate/Gaggiuino-style clients should continue to work through their existing Bluetooth paths.
+- **Compatibility stays on:** Bean Conqueror has been hardware-tested through the Float32 Bluetooth path. WeighMyBru/GaggiMate/Gaggiuino-style clients should continue to work through their existing 20-byte Bluetooth path.
 - **Standard BLE battery:** exposes battery through the standard `180F / 2A19` Battery Service instead of hiding it in a web-only path.
 - **Battery learning:** voltage-only runtime and charge estimates improve over time by learning local charge/discharge rates.
 - **Web OTA updates:** after one USB install with the dual-OTA partition table, future app firmware and web UI/LittleFS images can be uploaded from the scale’s Updates page.
@@ -111,7 +111,7 @@ The Bluetooth extension packet is documented in [WMB+ BLE protocol](docs/WMB_PLU
 Early hardware validation on a XIAO ESP32S3 reference build:
 
 - BLE advertises as `WeighMyBru+`.
-- Bean Conqueror reads weight through the Float32 compatibility path.
+- Bean Conqueror has been hardware-tested and reads live weight through the Float32 compatibility path.
 - USB serial stream works at approximately 80 Hz with zero reported USB drops in initial testing.
 - WMB+-aware paths report approximately 79-80 Hz on the reference 80 SPS HX711 build.
 - Standard battery field is visible to WMB+ aware tooling.
@@ -128,9 +128,9 @@ For firmware and transport-quality testing, use **ScaleBench**:
 
 ScaleBench can record supported Bluetooth scale streams, calculate a comparable scale-quality score, inspect packet cadence/gaps/rejections, and export JSON recordings for debugging. This is the preferred tool when reporting WMB+ beta firmware behavior because it captures both compatibility-path data and WMB+ telemetry when available.
 
-Existing compatibility apps should continue to work normally:
+Existing compatibility apps:
 
-- Bean Conqueror should continue to read the pure 4-byte Float32 stream.
+- Bean Conqueror has been hardware-tested and reads the pure 4-byte Float32 stream.
 - GaggiMate / Gaggiuino-style WeighMyBru clients should continue to read the 20-byte WeighMyBru-compatible stream.
 
 If you see a regression in Bean Conqueror, GaggiMate, or Gaggiuino compared with stock WeighMyBru behavior, please report it as a compatibility bug.
