@@ -148,13 +148,13 @@ If you see a regression in Bean Conqueror, GaggiMate, or Gaggiuino compared with
 
 ## Quick flash commands
 
-App-only upgrade for an existing compatible XIAO ESP32S3 install:
+Download the matching release assets first, verify the SHA-256 file, and replace `/dev/cu.usbmodemXXXX` with your actual serial port. Do not run `erase_flash` for normal beta installs.
 
-```bash
-esptool.py --chip esp32s3 --port /dev/cu.usbmodemXXXX --baud 460800 write_flash 0x10000 wmb-plus-0.2.0-beta.2-xiao-app.bin
-```
+### XIAO ESP32S3
 
-Recommended fresh firmware install for XIAO ESP32S3:
+Use these for the primary 8MB XIAO build. XIAO LittleFS is at `0x610000`.
+
+Recommended fresh install or migration from `0.2.0-beta.1`:
 
 ```bash
 esptool.py --chip esp32s3 --port /dev/cu.usbmodemXXXX --baud 460800 write_flash 0x0 wmb-plus-0.2.0-beta.2-xiao-factory-full.bin
@@ -166,19 +166,62 @@ App-only upgrade after the `0.2.0-beta.2` dual-OTA layout is already installed:
 esptool.py --chip esp32s3 --port /dev/cu.usbmodemXXXX --baud 460800 write_flash 0x10000 wmb-plus-0.2.0-beta.2-xiao-app.bin
 ```
 
-Advanced minimal firmware install for XIAO ESP32S3, intentionally leaving LittleFS untouched:
-
-```bash
-esptool.py --chip esp32s3 --port /dev/cu.usbmodemXXXX --baud 460800 write_flash 0x0 wmb-plus-0.2.0-beta.2-xiao-factory-minimal.bin
-```
-
-Separate web UI filesystem image for `0.2.0-beta.2` XIAO dual-OTA:
+Web UI / LittleFS-only update:
 
 ```bash
 esptool.py --chip esp32s3 --port /dev/cu.usbmodemXXXX --baud 460800 write_flash 0x610000 wmb-plus-0.2.0-beta.2-xiao-littlefs.bin
 ```
 
-XIAO `0.2.0-beta.2` uses two 3MB OTA app slots and places LittleFS at `0x610000`. SuperMini dual-OTA uses two 1.5MB OTA app slots and places LittleFS at `0x310000`. If your installed image reports a legacy/single-app layout, do not rely on app OTA until you install the `0.2.0-beta.2` full factory image.
+### ESP32-S3 SuperMini
+
+Use these for the 4MB ESP32-S3 SuperMini / SuperMini-style build. SuperMini LittleFS is at `0x310000`.
+
+Recommended fresh install:
+
+```bash
+esptool.py --chip esp32s3 --port /dev/cu.usbmodemXXXX --baud 460800 write_flash 0x0 wmb-plus-0.2.0-beta.2-supermini-factory-full.bin
+```
+
+App-only upgrade after the `0.2.0-beta.2` dual-OTA layout is already installed:
+
+```bash
+esptool.py --chip esp32s3 --port /dev/cu.usbmodemXXXX --baud 460800 write_flash 0x10000 wmb-plus-0.2.0-beta.2-supermini-app.bin
+```
+
+Web UI / LittleFS-only update:
+
+```bash
+esptool.py --chip esp32s3 --port /dev/cu.usbmodemXXXX --baud 460800 write_flash 0x310000 wmb-plus-0.2.0-beta.2-supermini-littlefs.bin
+```
+
+Minimal factory images are also published for advanced cases where you intentionally want to install firmware without updating the web UI filesystem. Most testers should use `factory-full`.
+
+XIAO `0.2.0-beta.2` uses two 3MB OTA app slots and places LittleFS at `0x610000`. SuperMini dual-OTA uses two 1.5MB OTA app slots and places LittleFS at `0x310000`. Do not cross-flash board assets. If your installed image reports a legacy/single-app layout, do not rely on app OTA until you install the matching `0.2.0-beta.2` full factory image.
+
+### Optional Codex install prompt
+
+If you want Codex or another coding agent to install from release assets with guardrails, use this prompt:
+
+```text
+Install WMB+ v0.2.0-beta.2 from GitHub release assets for my board: <XIAO ESP32S3 or ESP32-S3 SuperMini>.
+
+Release repo: https://github.com/danielfcurrie-alt/weighmybru2
+Release tag: v0.2.0-beta.2
+
+Download the matching factory-full asset and wmb-plus-0.2.0-beta.2-sha256.txt. Verify SHA-256 and image size before flashing:
+- XIAO factory-full must be 8,388,608 bytes.
+- SuperMini factory-full must be 4,194,304 bytes.
+
+Detect the ESP32-S3 serial port and flash size with esptool flash_id.
+
+Safety rules:
+- Do not run erase_flash.
+- Do not build from source.
+- Do not use assets for the other board.
+- Stop and ask before write_flash.
+
+After I confirm, flash the matching factory-full image at 0x0. Then open serial at 115200 and report firmware version, BLE name, LittleFS/web status, HX711 rate, battery, and calibration factor.
+```
 
 Verify over serial at `115200` by sending:
 
