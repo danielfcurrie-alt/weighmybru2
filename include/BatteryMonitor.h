@@ -24,6 +24,11 @@ public:
     String getChargeEstimateConfidence() const;
     int getChargeObservationMinutes() const;
     float getChargeRatePercentPerHour() const;
+    float getLearnedDischargeRatePercentPerHour() const;
+    float getLearnedChargeRatePercentPerHour() const;
+    uint16_t getLearnedDischargeObservations() const;
+    uint16_t getLearnedChargeObservations() const;
+    String getBatteryLearningConfidence() const;
     
     // Battery state indicators
     bool isCharging();
@@ -76,6 +81,11 @@ private:
     float chargeRatePercentPerHour = 0.0f;
     String chargeEstimateConfidence = "learning";
     String chargingState = "unknown";
+    float learnedDischargeRatePercentPerHour = 0.0f;
+    float learnedChargeRatePercentPerHour = 0.0f;
+    uint16_t learnedDischargeObservations = 0;
+    uint16_t learnedChargeObservations = 0;
+    unsigned long lastLearningSaveMillis = 0;
     unsigned long lastUpdate = 0;
     static constexpr unsigned long UPDATE_INTERVAL = 1000; // Update every 1 second
     static constexpr float VOLTAGE_EMA_ALPHA = 0.2f;
@@ -87,6 +97,13 @@ private:
     static constexpr float CHARGE_ESTIMATE_MIN_MINUTES = 3.0f;
     static constexpr float CHARGE_FULL_PERCENT = 98.5f;
     static constexpr float CHARGE_FULL_VOLTAGE = 4.15f;
+    static constexpr unsigned long LEARNING_SAVE_INTERVAL_MS = 15UL * 60UL * 1000UL;
+    static constexpr float LEARNING_MIN_DISCHARGE_OBSERVATION_MINUTES = 20.0f;
+    static constexpr float LEARNING_MIN_CHARGE_OBSERVATION_MINUTES = 15.0f;
+    static constexpr float LEARNING_MIN_DISCHARGE_RATE_PERCENT_PER_HOUR = 1.0f;
+    static constexpr float LEARNING_MAX_DISCHARGE_RATE_PERCENT_PER_HOUR = 80.0f;
+    static constexpr float LEARNING_MIN_CHARGE_RATE_PERCENT_PER_HOUR = 1.0f;
+    static constexpr float LEARNING_MAX_CHARGE_RATE_PERCENT_PER_HOUR = 120.0f;
     
     // Internal methods
     float readRawVoltage();
@@ -94,6 +111,10 @@ private:
     int quantizePercentage(int percentage) const;
     void updateRuntimeEstimate();
     void updateChargeEstimate();
+    void maybeLearnDischargeRate(float ratePercentPerHour, float elapsedMinutes);
+    void maybeLearnChargeRate(float ratePercentPerHour, float elapsedMinutes);
+    void loadLearningProfile();
+    void saveLearningProfile();
     void loadCalibration();
     void saveCalibration();
 };

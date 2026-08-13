@@ -116,6 +116,7 @@ static void printBatteryBenchmarkLog(bool force = false) {
       "BATTERY_BENCH ms=%lu uptimeMin=%.1f voltage=%.3f percent=%d rawPercent=%d valid=%s "
       "chargingState=%s charging=%s runtimeMin=%d runtimeConfidence=%s observationMin=%d dischargePctPerHour=%.3f "
       "chargeTo80Min=%d chargeTo100Min=%d chargeConfidence=%s chargeObservationMin=%d chargePctPerHour=%.3f "
+      "learnedDischargePctPerHour=%.3f learnedChargePctPerHour=%.3f learnedDischargeObs=%u learnedChargeObs=%u learningConfidence=%s "
       "wifiEnabled=%s wifiMode=%s wifiSleep=%s bleConnected=%s display=%s hx711=%s hx711Hz=%.2f hx711Mode=%s "
       "scaleHz=%.2f extendedNotifyHz=%.2f float32NotifyHz=%.2f batteryNotifyHz=%.2f "
       "sampleSequence=%lu extendedNotifies=%lu float32Notifies=%lu batteryNotifies=%lu heap=%lu psram=%lu\n",
@@ -136,6 +137,11 @@ static void printBatteryBenchmarkLog(bool force = false) {
       chargeConfidence.c_str(),
       batteryMonitor.getChargeObservationMinutes(),
       batteryMonitor.getChargeRatePercentPerHour(),
+      batteryMonitor.getLearnedDischargeRatePercentPerHour(),
+      batteryMonitor.getLearnedChargeRatePercentPerHour(),
+      batteryMonitor.getLearnedDischargeObservations(),
+      batteryMonitor.getLearnedChargeObservations(),
+      batteryMonitor.getBatteryLearningConfidence().c_str(),
       boolText(wifiEnabled),
       wifiModeName(wifiMode),
       boolText(WiFi.getSleep()),
@@ -259,6 +265,12 @@ static void printConfigDiagnostics() {
                 batteryMonitor.getChargeEstimateConfidence().c_str(),
                 batteryMonitor.getChargeObservationMinutes(),
                 batteryMonitor.getChargeRatePercentPerHour());
+  Serial.printf("Battery learned profile: confidence=%s discharge=%.3f%%/h (%u obs) charge=%.3f%%/h (%u obs)\n",
+                batteryMonitor.getBatteryLearningConfidence().c_str(),
+                batteryMonitor.getLearnedDischargeRatePercentPerHour(),
+                batteryMonitor.getLearnedDischargeObservations(),
+                batteryMonitor.getLearnedChargeRatePercentPerHour(),
+                batteryMonitor.getLearnedChargeObservations());
   Serial.printf("Scale connected=%s calibration=%.6f\n",
                 scale.isHX711Connected() ? "true" : "false",
                 scale.getCalibrationFactor());

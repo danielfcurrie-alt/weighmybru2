@@ -4,11 +4,13 @@ WMB+ is an alternate beta firmware for WeighMyBru-compatible ESP32-S3 coffee sca
 
 The first public beta is intentionally a cumulative tester firmware. The goal is to validate the full capability set on real hardware before splitting the stable pieces into smaller upstream pull requests.
 
+The headline improvement is real 80 SPS operation. On the reference 80 SPS HX711 build, stock-compatible behavior was effectively around 8-9 SPS. WMB+ exposes about 79-80 SPS through WMB+-aware BLE and USB paths instead of leaving the hardware handicapped.
+
 ## Beta identity
 
 - Firmware name: `WMB+`
 - BLE name: `WeighMyBru+`
-- Version: `0.2.0-beta.1`
+- Version: `0.2.0-beta.2`
 - Primary tested board: Seeed Studio XIAO ESP32S3
 - Primary tested HX711 mode: 80 SPS hardware configuration
 
@@ -17,11 +19,13 @@ The first public beta is intentionally a cumulative tester firmware. The goal is
 - Stock-compatible WeighMyBru BLE service.
 - 20-byte WeighMyBru/GaggiMate-compatible characteristic.
 - 4-byte Float32 Bean Conqueror-compatible characteristic.
+- Real 80 SPS acquisition and WMB+ telemetry on 80 SPS HX711 hardware.
+- Clean 20 Hz legacy Float32 compatibility stream derived from the high-rate acquisition path.
+- Extended timestamp, sequence, flow, battery, status, quality, cadence, and diagnostic fields.
 - Standard BLE Battery Service `180F / 2A19`.
+- Learned voltage-based battery runtime and charge estimates persisted across reboots.
 - Optional WMB+ capabilities characteristic.
-- Higher-rate extended telemetry when the app supports it.
 - 80 SPS HX711 cadence diagnostics.
-- Clean 20 Hz legacy Float32 compatibility stream.
 - Physical-parity BLE tare path.
 - Atomic tare/start command.
 - Firmware-side scale quality diagnostics.
@@ -29,6 +33,9 @@ The first public beta is intentionally a cumulative tester firmware. The goal is
 - One-frame glitch rejection.
 - Near-zero stability cleanup.
 - USB-C serial weight capture.
+- StopMyBru HTTP webhook relay support for local Tasmota/Shelly-style devices.
+- StopMyBru target stop learning for grinder/brewer overshoot compensation.
+- Web update UI support. App OTA requires the dual-OTA factory image included in `0.2.0-beta.2`.
 - WiFi disabled-by-default workflow.
 - Deeper pre-sleep peripheral shutdown.
 
@@ -43,9 +50,13 @@ The compatibility lanes stay conservative:
 ## Known limitations
 
 - Battery percentage is voltage-estimated. It is useful but not a fuel-gauge-grade measurement.
-- Charging/time-remaining estimates are experimental.
+- Charging/time-remaining estimates are experimental. WMB+ learns observed charge/discharge rates over time, but without a charger status pin or fuel gauge this remains an estimate.
 - XIAO ESP32S3 is the only board treated as beta-supported in this release.
-- The web UI requires LittleFS to be flashed separately. The beta release includes a separate LittleFS image for testers who want to update web UI assets.
+- The originally published `0.2.0-beta.1` XIAO fallback asset used LittleFS at `0x310000` and appeared to use a legacy/single-app layout.
+- `0.2.0-beta.2` XIAO factory-full uses the dual-OTA layout with LittleFS at `0x610000`.
+- App firmware OTA requires the WMB+ dual-OTA partition table. Devices flashed with beta.1 or another legacy/single-app layout need a `0.2.0-beta.2` full factory flash before app OTA is available.
+- HTTP webhook relay support requires WiFi to be connected to the same local network as the relay. Local `http://` URLs are supported; HTTPS is intentionally not part of the beta path.
+- StopMyBru target stop learning is based on settled scale weight after automatic target cutoff. It intentionally ignores large errors and manual OFF actions.
 - Calibration remains per-device and must be checked by the builder.
 - 80 SPS requires the HX711 hardware rate pin/jumper to be configured correctly.
 

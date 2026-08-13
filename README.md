@@ -2,7 +2,30 @@
 
 WMB+ is an alternate beta firmware for WeighMyBru-compatible ESP32-S3 espresso scale builds.
 
-It keeps the stock-compatible WeighMyBru Bluetooth paths available, then layers optional WMB+ capabilities on top: standard BLE battery, higher-rate telemetry, 80 SPS diagnostics, USB-C serial capture, app/physical tare parity, atomic tare/start, and firmware-side scale-quality diagnostics.
+It keeps the stock-compatible WeighMyBru Bluetooth paths available, then layers optional WMB+ capabilities on top. Existing apps can keep using the conservative compatibility streams; WMB+-aware tools can use richer telemetry.
+
+## Why should I use this?
+
+Use WMB+ if you want a WeighMyBru-compatible scale that actually uses 80 SPS HX711 hardware, adds richer scale diagnostics, and keeps existing app compatibility.
+
+Main reasons to try it:
+
+- **Real 80 SPS support:** this is the main reason to use WMB+. On the reference 80 SPS build, stock-compatible behavior was effectively around 8-9 SPS; WMB+ now delivers about 79-80 SPS through WMB+-aware paths instead of handicapping the hardware.
+- **Grind/brew by weight with no machine mods:** the scale can directly call local Tasmota or Shelly HTTP webhooks from the StopMyBru screen, so a smart plug/relay can stop a grinder or brewer at target weight without modifying the machine. WMB+ can also learn the cutoff offset for that setup, so it compensates for beans/liquid that arrive after power is cut.
+- **Better feature telemetry:** WMB+ adds an extended stream for timestamp, sequence, flow, battery, status flags, firmware scale quality, cadence, and diagnostics.
+- **Bump/glitch diagnostics:** the firmware can identify likely bumps, one-frame ADC/load-cell glitches, cadence problems, and scale-quality changes instead of leaving every app to guess.
+- **Compatibility stays on:** Bean Conqueror and WeighMyBru/GaggiMate/Gaggiuino-style clients should continue to work through their existing Bluetooth paths.
+- **Standard BLE battery:** exposes battery through the standard `180F / 2A19` Battery Service instead of hiding it in a web-only path.
+- **Battery learning:** voltage-only runtime and charge estimates improve over time by learning local charge/discharge rates.
+- **Web OTA updates:** after one USB install with the dual-OTA partition table, future app firmware and web UI/LittleFS images can be uploaded from the scale’s Updates page.
+- **Cleaner app tare behavior:** app-triggered tare goes through the same delayed/settled path as the physical tare button.
+- **Atomic tare/start:** WMB+-aware apps can issue one command to tare and start a shot timer together.
+- **Clean compatibility pacing:** legacy Float32 clients get a clean 20 Hz compatibility stream derived from the high-rate acquisition path.
+- **USB-C serial capture:** ScaleBench or a terminal can record high-rate wired samples directly over USB CDC serial.
+- **Firmware-side quality monitoring:** the scale tracks sample cadence, long gaps, bump/glitch diagnostics, current quality, and lifetime quality.
+- **Webhook stop targets:** StopMyBru can drive local HTTP relays such as Tasmota and Shelly in addition to the ESP-NOW relay module.
+- **Power controls:** WiFi can stay disabled for battery saving, and sleep shuts down HX711/display paths where supported.
+- **Rollback-friendly beta:** the release provides app-only and factory images so testers can choose the least invasive flash path for their device.
 
 This is beta firmware for testers. It is not an official upstream WeighMyBru release.
 
@@ -22,7 +45,7 @@ An earlier standalone beta repository existed at `danielfcurrie-alt/wmb-plus-fir
 
 Latest beta:
 
-- [WMB+ 0.2.0-beta.1 release](https://github.com/danielfcurrie-alt/weighmybru2/releases/tag/v0.2.0-beta.1)
+- [WMB+ 0.2.0-beta.2 release](https://github.com/danielfcurrie-alt/weighmybru2/releases/tag/v0.2.0-beta.2)
 
 Primary supported beta board:
 
@@ -30,12 +53,15 @@ Primary supported beta board:
 
 Release assets:
 
-- `wmb-plus-0.2.0-beta.1-xiao-app.bin`
-- `wmb-plus-0.2.0-beta.1-xiao-factory-minimal.bin`
-- `wmb-plus-0.2.0-beta.1-xiao-littlefs.bin`
-- `wmb-plus-0.2.0-beta.1-sha256.txt`
+- `wmb-plus-0.2.0-beta.2-xiao-app.bin`
+- `wmb-plus-0.2.0-beta.2-xiao-factory-full.bin`
+- `wmb-plus-0.2.0-beta.2-xiao-factory-minimal.bin`
+- `wmb-plus-0.2.0-beta.2-xiao-littlefs.bin`
+- `wmb-plus-0.2.0-beta.2-sha256.txt`
 
-The LittleFS web UI image is packaged separately. The scale, BLE, USB serial, display, battery, tare, and sleep features are firmware features and do not require a web UI filesystem update.
+For first-time beta installs or migration from `0.2.0-beta.1`, use `wmb-plus-0.2.0-beta.2-xiao-factory-full.bin` at `0x0`. It includes bootloader, dual-OTA partition table, app firmware, and LittleFS web UI.
+
+Important: the originally published `0.2.0-beta.1` XIAO fallback assets used LittleFS at `0x310000` and appeared to use a legacy/single-app partition layout. `0.2.0-beta.2` is the corrected dual-OTA release.
 
 ## What WMB+ adds
 
@@ -43,12 +69,13 @@ The LittleFS web UI image is packaged separately. The scale, BLE, USB serial, di
 - Stock-compatible WeighMyBru BLE service remains present.
 - 20-byte WeighMyBru/GaggiMate-compatible weight characteristic remains present.
 - 4-byte Float32 Bean Conqueror-compatible characteristic remains pure Float32 weight.
+- Real 80 SPS acquisition and WMB+ telemetry on 80 SPS HX711 hardware.
+- Clean 20 Hz legacy Float32 stream derived from the high-rate acquisition path.
 - Standard BLE Battery Service `180F / 2A19`.
+- Learned battery runtime/charge estimates persisted across reboots.
 - WMB+ capabilities characteristic.
 - WMB+ extended telemetry packet.
-- Fresh-sample notification cadence for capable clients.
-- Legacy Float32 stream paced at 20 Hz.
-- 80 SPS HX711 cadence diagnostics.
+- Fresh-sample notification cadence and HX711 cadence diagnostics for capable clients.
 - Physical-parity BLE tare behavior.
 - Atomic tare/start command.
 - Firmware-side scale quality and lifetime quality diagnostics.
@@ -56,8 +83,13 @@ The LittleFS web UI image is packaged separately. The scale, BLE, USB serial, di
 - One-frame glitch rejection.
 - Near-zero stability cleanup.
 - USB-C serial weight capture.
+- StopMyBru HTTP webhook relay support for local Tasmota/Shelly-style devices.
+- StopMyBru target stop learning to compensate for grinder/brewer overshoot after relay cutoff.
+- Web OTA upload for app firmware and LittleFS web UI images.
 - WiFi-disabled workflow for lower battery draw.
 - HX711/display shutdown before ESP32 deep sleep where supported.
+
+The Bluetooth extension packet is documented in [WMB+ BLE protocol](docs/WMB_PLUS_PROTOCOL.md). The USB-C text stream is documented in [USB serial protocol](docs/USB_SERIAL.md).
 
 ## Validated so far
 
@@ -66,11 +98,33 @@ Early hardware validation on a XIAO ESP32S3 reference build:
 - BLE advertises as `WeighMyBru+`.
 - Bean Conqueror reads weight through the Float32 compatibility path.
 - USB serial stream works at approximately 80 Hz with zero reported USB drops in initial testing.
+- WMB+-aware paths report approximately 79-80 Hz on the reference 80 SPS HX711 build.
 - Standard battery field is visible to WMB+ aware tooling.
 - WiFi can remain disabled.
 - Firmware quality diagnostics report high quality on clean captures.
 
 More tester reports are needed before upstream pull requests are split out.
+
+## Testing with apps
+
+For firmware and transport-quality testing, use **ScaleBench**:
+
+- ScaleBench GitHub: <https://github.com/danielfcurrie-alt/ScaleBench>
+
+ScaleBench can record supported Bluetooth scale streams, calculate a comparable scale-quality score, inspect packet cadence/gaps/rejections, and export JSON recordings for debugging. This is the preferred tool when reporting WMB+ beta firmware behavior because it captures both compatibility-path data and WMB+ telemetry when available.
+
+For espresso shot recording with WMB+ support, use **Crema for iOS**:
+
+- Crema TestFlight: <https://testflight.apple.com/join/6Jf7r3pu>
+
+Crema can use WMB+ capabilities such as standard BLE battery and atomic tare/start when the firmware exposes them.
+
+Existing compatibility apps should continue to work normally:
+
+- Bean Conqueror should continue to read the pure 4-byte Float32 stream.
+- GaggiMate / Gaggiuino-style WeighMyBru clients should continue to read the 20-byte WeighMyBru-compatible stream.
+
+If you see a regression in Bean Conqueror, GaggiMate, or Gaggiuino compared with stock WeighMyBru behavior, please report it as a compatibility bug.
 
 ## Start here
 
@@ -79,29 +133,46 @@ More tester reports are needed before upstream pull requests are split out.
 - [Rollback instructions](docs/ROLLBACK.md)
 - [Compatibility checklist](docs/COMPATIBILITY.md)
 - [Tester checklist](docs/TESTING.md)
+- [Codex release install prompt](docs/CODEX_RELEASE_INSTALL_PROMPT.md)
 - [USB serial protocol](docs/USB_SERIAL.md)
 - [WMB+ BLE protocol](docs/WMB_PLUS_PROTOCOL.md)
-- [Release notes](docs/RELEASE_NOTES_0.2.0-beta.1.md)
+- [Release notes](docs/RELEASE_NOTES_0.2.0-beta.2.md)
 
 ## Quick flash commands
 
 App-only upgrade for an existing compatible XIAO ESP32S3 install:
 
 ```bash
-esptool.py --chip esp32s3 --port /dev/cu.usbmodemXXXX --baud 460800 write_flash 0x10000 wmb-plus-0.2.0-beta.1-xiao-app.bin
+esptool.py --chip esp32s3 --port /dev/cu.usbmodemXXXX --baud 460800 write_flash 0x10000 wmb-plus-0.2.0-beta.2-xiao-app.bin
 ```
 
-Minimal fresh firmware install for XIAO ESP32S3:
+Recommended fresh firmware install for XIAO ESP32S3:
 
 ```bash
-esptool.py --chip esp32s3 --port /dev/cu.usbmodemXXXX --baud 460800 write_flash 0x0 wmb-plus-0.2.0-beta.1-xiao-factory-minimal.bin
+esptool.py --chip esp32s3 --port /dev/cu.usbmodemXXXX --baud 460800 write_flash 0x0 wmb-plus-0.2.0-beta.2-xiao-factory-full.bin
 ```
 
-Optional web UI filesystem image:
+App-only upgrade after the `0.2.0-beta.2` dual-OTA layout is already installed:
 
 ```bash
-esptool.py --chip esp32s3 --port /dev/cu.usbmodemXXXX --baud 460800 write_flash 0x310000 wmb-plus-0.2.0-beta.1-xiao-littlefs.bin
+esptool.py --chip esp32s3 --port /dev/cu.usbmodemXXXX --baud 460800 write_flash 0x10000 wmb-plus-0.2.0-beta.2-xiao-app.bin
 ```
+
+Advanced minimal firmware install for XIAO ESP32S3, intentionally leaving LittleFS untouched:
+
+```bash
+esptool.py --chip esp32s3 --port /dev/cu.usbmodemXXXX --baud 460800 write_flash 0x0 wmb-plus-0.2.0-beta.2-xiao-factory-minimal.bin
+```
+
+Separate web UI filesystem image for `0.2.0-beta.2` XIAO dual-OTA:
+
+```bash
+esptool.py --chip esp32s3 --port /dev/cu.usbmodemXXXX --baud 460800 write_flash 0x610000 wmb-plus-0.2.0-beta.2-xiao-littlefs.bin
+```
+
+XIAO `0.2.0-beta.2` uses two 3MB OTA app slots and places LittleFS at `0x610000`. SuperMini dual-OTA uses two 1.5MB OTA app slots and places LittleFS at `0x310000`. If your installed image reports a legacy/single-app layout, do not rely on app OTA until you install the `0.2.0-beta.2` full factory image.
+
+If you want Codex to perform the release-asset install with guardrails, use the copy/paste [Codex release install prompt](docs/CODEX_RELEASE_INSTALL_PROMPT.md).
 
 Verify over serial at `115200` by sending:
 
@@ -111,7 +182,7 @@ z
 
 Expected indicators:
 
-- `WMB+ v0.2.0-beta.1`
+- `WMB+ v0.2.0-beta.2`
 - `Board: XIAO ESP32S3`
 - BLE name `WeighMyBru+`
 - `legacyFloat32Cadence=20Hz`
@@ -167,9 +238,9 @@ Compatibility paths stay conservative:
 ## Known limitations
 
 - Battery percentage is voltage-estimated, not fuel-gauge-grade.
-- Charging and runtime estimates are experimental.
-- XIAO ESP32S3 is the only prebuilt beta target in `0.2.0-beta.1`.
-- The minimal factory image does not include LittleFS web UI assets; flash the separate LittleFS image only if you want the web UI assets updated.
+- Charging/runtime estimates are experimental; WMB+ learns charge/discharge rates over time, but this is still voltage-based intelligence, not a dedicated fuel gauge.
+- XIAO ESP32S3 is the only primary beta-supported target in `0.2.0-beta.2`.
+- App firmware OTA requires the new dual-OTA partition table. Existing devices on a legacy/single-app layout need the `0.2.0-beta.2` full factory flash before relying on app OTA.
 - Calibration is still per-device and must be verified by the builder.
 - 80 SPS requires the HX711 hardware rate pin/jumper to be configured correctly.
 

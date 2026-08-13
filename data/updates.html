@@ -30,28 +30,166 @@
       <a class="block px-4 py-2 mt-2 text-sm font-semibold text-gray-400 bg-transparent rounded-lg hover:text-stone-50 focus:text-stone-50 hover:bg-black-hover focus:bg-black-select focus:outline-none focus:shadow-outline" href="/smb.html"><i class="fa fa-coffee mr-2" aria-hidden="true" style="color: rgb(71, 168, 100);"></i>StopMyBru</a>
     </nav>
   </div>
-  <main class="flex-grow overflow-y-auto p-8">
+  <main class="flex-grow overflow-y-auto p-8" x-data="updatesApp()" x-init="init()">
     <h1 class="text-3xl text-white font-bold mb-4">Updates</h1>
-    <div class="bg-black-select p-6 rounded shadow max-w-xl">
-      <h2 class="text-2xl font-semibold mb-4">Firmware & Software Updates</h2>
-      <ul class="list-disc list-inside text-lg mb-4">
-        <li>Current version: <span id="firmware-version">Loading...</span></li>
-        <li>Hardcoded version: 2.2.0</li>
-      </ul>
-      <p class="text-base text-gray-200">Check back here for the latest updates to your WeighMyBru device. OTA coming soon.</p>
+    <div class="space-y-6 max-w-2xl">
+      <div class="bg-black-select p-6 rounded shadow">
+        <h2 class="text-2xl font-semibold mb-4">Firmware & Software Updates</h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+          <div><span class="text-gray-400">Current version</span> <span class="ml-2" x-text="device.version || 'Loading…'"></span></div>
+          <div><span class="text-gray-400">Board</span> <span class="ml-2" x-text="device.board || 'Loading…'"></span></div>
+          <div><span class="text-gray-400">Running partition</span> <span class="ml-2" x-text="ota.runningPartition || 'unknown'"></span></div>
+          <div><span class="text-gray-400">Next OTA partition</span> <span class="ml-2" x-text="ota.nextPartition || 'none'"></span></div>
+          <div><span class="text-gray-400">Firmware OTA</span>
+            <span class="ml-2"
+                  :class="ota.firmwareOtaSupported ? 'text-green-400' : 'text-yellow-400'"
+                  x-text="ota.firmwareOtaSupported ? 'Ready' : 'Needs dual-OTA partition table'"></span>
+          </div>
+          <div><span class="text-gray-400">Filesystem OTA</span>
+            <span class="ml-2"
+                  :class="ota.filesystemOtaSupported ? 'text-green-400' : 'text-yellow-400'"
+                  x-text="ota.filesystemOtaSupported ? 'Ready' : 'Unavailable'"></span>
+          </div>
+        </div>
+
+        <p class="text-gray-400 text-sm mt-4">
+          Web OTA is local-network only. Keep the scale powered and close to WiFi during upload.
+          A successful update automatically restarts the scale.
+        </p>
+        <p x-show="!ota.firmwareOtaSupported" class="text-yellow-400 text-sm mt-3">
+          App firmware OTA requires the new dual-OTA partition table. If this device was flashed with the older single-app layout,
+          flash the factory image once over USB; future app updates can then happen from this page.
+        </p>
+      </div>
+
+      <div class="bg-black-select p-6 rounded shadow">
+        <h2 class="text-xl font-semibold mb-1">App Firmware OTA</h2>
+        <p class="text-gray-400 text-sm mb-4">
+          Upload the WMB+ app firmware `.bin`, usually the release asset ending in <code>-app.bin</code>.
+        </p>
+
+        <input x-ref="firmwareFile" type="file" accept=".bin,application/octet-stream"
+               class="block w-full text-sm text-gray-300 mb-4" />
+
+        <button @click="upload('firmware')"
+                :disabled="uploading || !ota.firmwareOtaSupported"
+                class="bg-gray-600 hover:bg-button-green active:bg-green-900 disabled:opacity-40 disabled:cursor-not-allowed text-white px-4 py-2 rounded">
+          Upload App Firmware
+        </button>
+      </div>
+
+      <div class="bg-black-select p-6 rounded shadow">
+        <h2 class="text-xl font-semibold mb-1">Web UI / LittleFS OTA</h2>
+        <p class="text-gray-400 text-sm mb-4">
+          Upload the LittleFS filesystem image `.bin`, usually the release asset ending in <code>-littlefs.bin</code>.
+          This updates dashboard/settings pages without changing the app firmware.
+        </p>
+
+        <input x-ref="filesystemFile" type="file" accept=".bin,application/octet-stream"
+               class="block w-full text-sm text-gray-300 mb-4" />
+
+        <button @click="upload('filesystem')"
+                :disabled="uploading || !ota.filesystemOtaSupported"
+                class="bg-gray-600 hover:bg-button-green active:bg-green-900 disabled:opacity-40 disabled:cursor-not-allowed text-white px-4 py-2 rounded">
+          Upload Web UI Filesystem
+        </button>
+      </div>
+
+      <div class="bg-black-select p-6 rounded shadow" x-show="message || uploading || ota.lastMessage">
+        <h2 class="text-xl font-semibold mb-3">Update Status</h2>
+        <div class="w-full bg-black-background rounded h-3 mb-3 overflow-hidden">
+          <div class="bg-green-600 h-3" :style="'width: ' + progress + '%'"></div>
+        </div>
+        <p class="text-sm" :class="messageError ? 'text-red-400' : 'text-green-400'" x-text="message || ota.lastMessage"></p>
+        <p class="text-xs text-gray-400 mt-2" x-show="uploading">
+          Uploading <span x-text="uploadTarget"></span>… <span x-text="progress"></span>%
+        </p>
+        <p class="text-xs text-yellow-400 mt-2" x-show="restartPending">
+          Update accepted. The scale is restarting; reconnect after it comes back online.
+        </p>
+      </div>
     </div>
   </main>
 </div>
 <script>
-// Fetch actual firmware version from API
-fetch('/api/dashboard')
-  .then(response => response.json())
-  .then(data => {
-    document.getElementById('firmware-version').textContent = data.device_version || 'Unknown';
-  })
-  .catch(err => {
-    document.getElementById('firmware-version').textContent = 'Error loading';
-  });
+function updatesApp() {
+  return {
+    device: {},
+    ota: {},
+    uploading: false,
+    uploadTarget: '',
+    progress: 0,
+    message: '',
+    messageError: false,
+    restartPending: false,
+
+    init() {
+      this.refresh();
+      setInterval(() => this.refresh(), 4000);
+    },
+
+    async refresh() {
+      try {
+        const deviceResponse = await fetch('/api/device/info');
+        if (deviceResponse.ok) this.device = await deviceResponse.json();
+      } catch (e) { /* device may be rebooting */ }
+
+      try {
+        const otaResponse = await fetch('/api/ota/status');
+        if (otaResponse.ok) this.ota = await otaResponse.json();
+      } catch (e) { /* device may be rebooting */ }
+    },
+
+    selectedFile(target) {
+      const ref = target === 'firmware' ? this.$refs.firmwareFile : this.$refs.filesystemFile;
+      if (!ref || !ref.files || ref.files.length === 0) return null;
+      return ref.files[0];
+    },
+
+    upload(target) {
+      const file = this.selectedFile(target);
+      if (!file) {
+        this.message = 'Choose a .bin file first.';
+        this.messageError = true;
+        return;
+      }
+
+      const endpoint = target === 'firmware' ? '/api/ota/firmware' : '/api/ota/filesystem';
+      const form = new FormData();
+      form.append('update', file, file.name);
+
+      this.uploading = true;
+      this.uploadTarget = target;
+      this.progress = 0;
+      this.message = `Uploading ${file.name}`;
+      this.messageError = false;
+      this.restartPending = false;
+
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', endpoint, true);
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable) {
+          this.progress = Math.round((event.loaded / event.total) * 100);
+        }
+      };
+      xhr.onload = () => {
+        this.uploading = false;
+        let response = {};
+        try { response = JSON.parse(xhr.responseText || '{}'); } catch (e) { response = {}; }
+        this.message = response.lastMessage || (xhr.status >= 200 && xhr.status < 300 ? 'Update accepted; restarting' : 'Update failed');
+        this.messageError = xhr.status < 200 || xhr.status >= 300;
+        this.restartPending = !this.messageError;
+        this.refresh();
+      };
+      xhr.onerror = () => {
+        this.uploading = false;
+        this.message = 'Upload failed: network error';
+        this.messageError = true;
+      };
+      xhr.send(form);
+    }
+  };
+}
 </script>
 </body>
 </html>

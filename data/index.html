@@ -673,7 +673,9 @@
             }
 
             batteryRuntime.innerText = batteryDetail;
-            batteryStatus.title = `Battery: ${data.battery_percentage}% · ${chargingState} · ${estimateLabel} · Confidence: ${data.battery_charge_confidence || data.battery_runtime_confidence || 'learning'}`;
+            const confidence = data.battery_charge_confidence || data.battery_runtime_confidence || 'learning';
+            const learningConfidence = data.battery_learning_confidence || 'none';
+            batteryStatus.title = `Battery: ${data.battery_percentage}% · ${chargingState} · ${estimateLabel} · Confidence: ${confidence} · Learning: ${learningConfidence}`;
           }
           
           // Calculate segments based on percentage (0-4 segments)

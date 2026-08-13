@@ -1,5 +1,10 @@
 #include <ESPAsyncWebServer.h>
 #include <LittleFS.h>
+#include <WiFi.h>
+#include <Update.h>
+#include <Ticker.h>
+#include <esp_ota_ops.h>
+#include <esp_partition.h>
 #include "WebServer.h"
 #include "Scale.h"
 #include "WiFiManager.h"
@@ -15,6 +20,23 @@ Preferences preferences;
 static int cachedDecimals = -1; // -1 indicates not cached yet
 static unsigned long lastDecimalCacheTime = 0;
 const unsigned long DECIMAL_CACHE_TIMEOUT = 300000; // 5 minutes cache timeout
+
+static Ticker otaRestartTicker;
+static bool otaUploadFailed = false;
+static bool otaUploadFinished = false;
+static bool otaUploadStarted = false;
+static bool otaLastSuccess = false;
+static size_t otaUploadProgress = 0;
+static size_t otaUploadTotal = 0;
+static String otaUploadTarget = "none";
+static String otaLastMessage = "idle";
+static String otaLastFilename;
+
+static String jsonEscape(const String& input);
+
+static void restartAfterOta() {
+    ESP.restart();
+}
 
 static String formatRuntimeEstimate(int minutes) {
     if (minutes < 0) {
@@ -34,6 +56,161 @@ static String formatRuntimeEstimate(int minutes) {
     }
 
     return String(minutes) + "m";
+}
+
+static bool firmwareOtaSupported() {
+    const esp_partition_t* running = esp_ota_get_running_partition();
+    const esp_partition_t* next = esp_ota_get_next_update_partition(nullptr);
+    return running != nullptr && next != nullptr && next != running;
+}
+
+static const esp_partition_t* filesystemPartition() {
+    return esp_partition_find_first(
+        ESP_PARTITION_TYPE_DATA,
+        ESP_PARTITION_SUBTYPE_DATA_SPIFFS,
+        nullptr);
+}
+
+static String otaStatusJson() {
+    const esp_partition_t* running = esp_ota_get_running_partition();
+    const esp_partition_t* next = esp_ota_get_next_update_partition(nullptr);
+    const esp_partition_t* fs = filesystemPartition();
+
+    String json = "{";
+    json += "\"firmwareOtaSupported\":" + String(firmwareOtaSupported() ? "true" : "false") + ",";
+    json += "\"filesystemOtaSupported\":" + String(fs != nullptr ? "true" : "false") + ",";
+    json += "\"runningPartition\":\"" + String(running ? running->label : "unknown") + "\",";
+    json += "\"nextPartition\":\"" + String(next ? next->label : "none") + "\",";
+    json += "\"firmwareSize\":" + String(ESP.getSketchSize()) + ",";
+    json += "\"firmwareFreeSpace\":" + String(ESP.getFreeSketchSpace()) + ",";
+    json += "\"filesystemPartition\":\"" + String(fs ? fs->label : "none") + "\",";
+    json += "\"filesystemSize\":" + String(fs ? fs->size : 0) + ",";
+    json += "\"inProgress\":" + String(otaUploadStarted && !otaUploadFinished ? "true" : "false") + ",";
+    json += "\"target\":\"" + jsonEscape(otaUploadTarget) + "\",";
+    json += "\"filename\":\"" + jsonEscape(otaLastFilename) + "\",";
+    json += "\"progress\":" + String(otaUploadProgress) + ",";
+    json += "\"total\":" + String(otaUploadTotal) + ",";
+    json += "\"lastSuccess\":" + String(otaLastSuccess ? "true" : "false") + ",";
+    json += "\"lastMessage\":\"" + jsonEscape(otaLastMessage) + "\"";
+    json += "}";
+    return json;
+}
+
+static void handleOtaUpload(AsyncWebServerRequest *request,
+                            const String& filename,
+                            size_t index,
+                            uint8_t *data,
+                            size_t len,
+                            bool final,
+                            int command,
+                            const char* targetName) {
+    if (index == 0) {
+        otaUploadStarted = true;
+        otaUploadFinished = false;
+        otaUploadFailed = false;
+        otaLastSuccess = false;
+        otaUploadProgress = 0;
+        otaUploadTotal = request->contentLength();
+        otaUploadTarget = targetName ? targetName : "unknown";
+        otaLastFilename = filename;
+        otaLastMessage = "starting";
+
+        Serial.printf("OTA %s start: %s total=%u\n",
+                      otaUploadTarget.c_str(),
+                      filename.c_str(),
+                      static_cast<unsigned>(otaUploadTotal));
+
+        if (command == U_FLASH && !firmwareOtaSupported()) {
+            otaUploadFailed = true;
+            otaLastMessage = "Firmware OTA requires a dual-OTA partition table. Flash the factory image once over USB first.";
+            Serial.println("OTA firmware blocked: no alternate OTA partition");
+            return;
+        }
+
+        if (command == U_SPIFFS && filesystemPartition() == nullptr) {
+            otaUploadFailed = true;
+            otaLastMessage = "Filesystem OTA partition not found";
+            Serial.println("OTA filesystem blocked: filesystem partition not found");
+            return;
+        }
+
+        const size_t updateSize = otaUploadTotal > 0 ? otaUploadTotal : UPDATE_SIZE_UNKNOWN;
+        if (!Update.begin(updateSize, command)) {
+            otaUploadFailed = true;
+            otaLastMessage = String("Update begin failed: ") + Update.errorString();
+            Update.printError(Serial);
+            return;
+        }
+    }
+
+    if (otaUploadFailed || Update.hasError()) {
+        return;
+    }
+
+    if (len > 0) {
+        const size_t written = Update.write(data, len);
+        otaUploadProgress = index + written;
+        if (written != len) {
+            otaUploadFailed = true;
+            otaLastMessage = String("Update write failed: ") + Update.errorString();
+            Update.printError(Serial);
+            return;
+        }
+    }
+
+    if (final) {
+        otaUploadFinished = true;
+        if (Update.end(true)) {
+            otaUploadProgress = index + len;
+            otaLastSuccess = true;
+            otaLastMessage = String(targetName) + " OTA successful; restarting";
+            Serial.printf("OTA %s success: %u bytes\n",
+                          otaUploadTarget.c_str(),
+                          static_cast<unsigned>(index + len));
+        } else {
+            otaUploadFailed = true;
+            otaLastSuccess = false;
+            otaLastMessage = String("Update end failed: ") + Update.errorString();
+            Update.printError(Serial);
+        }
+    }
+}
+
+static void sendOtaUploadResponse(AsyncWebServerRequest *request) {
+    const bool ok = otaUploadStarted && otaUploadFinished && !otaUploadFailed && !Update.hasError() && otaLastSuccess;
+    if (!ok && !otaUploadFailed && Update.hasError()) {
+        otaLastMessage = String("Update failed: ") + Update.errorString();
+    }
+
+    AsyncWebServerResponse *response = request->beginResponse(
+        ok ? 200 : 500,
+        "application/json",
+        otaStatusJson());
+    response->addHeader("Connection", "close");
+    request->send(response);
+
+    if (ok) {
+        otaRestartTicker.once(1.5f, restartAfterOta);
+    }
+}
+
+static String jsonEscape(const String& input) {
+    String escaped;
+    escaped.reserve(input.length() + 8);
+    for (size_t i = 0; i < input.length(); ++i) {
+        const char c = input[i];
+        if (c == '\\' || c == '"') {
+            escaped += '\\';
+            escaped += c;
+        } else if (c == '\n') {
+            escaped += "\\n";
+        } else if (c == '\r') {
+            escaped += "\\r";
+        } else {
+            escaped += c;
+        }
+    }
+    return escaped;
 }
 
 int getCachedDecimals() {
@@ -246,6 +423,11 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
     json += ",\"battery_charge_confidence\":\"" + battery.getChargeEstimateConfidence() + "\"";
     json += ",\"battery_charge_observation_minutes\":" + String(battery.getChargeObservationMinutes());
     json += ",\"battery_charge_rate_percent_per_hour\":" + String(battery.getChargeRatePercentPerHour(), 3);
+    json += ",\"battery_learned_discharge_rate_percent_per_hour\":" + String(battery.getLearnedDischargeRatePercentPerHour(), 3);
+    json += ",\"battery_learned_charge_rate_percent_per_hour\":" + String(battery.getLearnedChargeRatePercentPerHour(), 3);
+    json += ",\"battery_learned_discharge_observations\":" + String(battery.getLearnedDischargeObservations());
+    json += ",\"battery_learned_charge_observations\":" + String(battery.getLearnedChargeObservations());
+    json += ",\"battery_learning_confidence\":\"" + battery.getBatteryLearningConfidence() + "\"";
     
     // Add signal strength information
     json += ",\"wifi_signal_strength\":" + String(getWiFiSignalStrength());
@@ -383,6 +565,8 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
     json += ",\"runtime_confidence\":\"" + battery.getRuntimeEstimateConfidence() + "\"";
     json += ",\"runtime_observation_minutes\":" + String(battery.getRuntimeObservationMinutes());
     json += ",\"discharge_rate_percent_per_hour\":" + String(battery.getDischargeRatePercentPerHour(), 3);
+    json += ",\"learned_discharge_rate_percent_per_hour\":" + String(battery.getLearnedDischargeRatePercentPerHour(), 3);
+    json += ",\"learned_discharge_observations\":" + String(battery.getLearnedDischargeObservations());
     int minutesTo80 = battery.getEstimatedMinutesTo80();
     int minutesTo100 = battery.getEstimatedMinutesTo100();
     json += ",\"charge_estimate_available\":" + String((minutesTo80 >= 0 || minutesTo100 >= 0) ? "true" : "false");
@@ -395,6 +579,9 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
     json += ",\"charge_confidence\":\"" + battery.getChargeEstimateConfidence() + "\"";
     json += ",\"charge_observation_minutes\":" + String(battery.getChargeObservationMinutes());
     json += ",\"charge_rate_percent_per_hour\":" + String(battery.getChargeRatePercentPerHour(), 3);
+    json += ",\"learned_charge_rate_percent_per_hour\":" + String(battery.getLearnedChargeRatePercentPerHour(), 3);
+    json += ",\"learned_charge_observations\":" + String(battery.getLearnedChargeObservations());
+    json += ",\"battery_learning_confidence\":\"" + battery.getBatteryLearningConfidence() + "\"";
     json += ",\"calibration_offset\":" + String(battery.getCalibrationOffset(), 3);
     json += "}";
     request->send(200, "application/json", json);
@@ -438,6 +625,11 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
     json += ",\"charge_confidence\":\"" + battery.getChargeEstimateConfidence() + "\"";
     json += ",\"charge_observation_minutes\":" + String(battery.getChargeObservationMinutes());
     json += ",\"charge_rate_percent_per_hour\":" + String(battery.getChargeRatePercentPerHour(), 3);
+    json += ",\"learned_discharge_rate_percent_per_hour\":" + String(battery.getLearnedDischargeRatePercentPerHour(), 3);
+    json += ",\"learned_charge_rate_percent_per_hour\":" + String(battery.getLearnedChargeRatePercentPerHour(), 3);
+    json += ",\"learned_discharge_observations\":" + String(battery.getLearnedDischargeObservations());
+    json += ",\"learned_charge_observations\":" + String(battery.getLearnedChargeObservations());
+    json += ",\"battery_learning_confidence\":\"" + battery.getBatteryLearningConfidence() + "\"";
     json += "}";
     request->send(200, "application/json", json);
   });
@@ -632,6 +824,27 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
     json += "}";
     request->send(200, "application/json", json);
   });
+
+  // Web OTA status and upload endpoints
+  server.on("/api/ota/status", HTTP_GET, [](AsyncWebServerRequest *request) {
+    request->send(200, "application/json", otaStatusJson());
+  });
+
+  server.on("/api/ota/firmware", HTTP_POST,
+    [](AsyncWebServerRequest *request) {
+      sendOtaUploadResponse(request);
+    },
+    [](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
+      handleOtaUpload(request, filename, index, data, len, final, U_FLASH, "firmware");
+    });
+
+  server.on("/api/ota/filesystem", HTTP_POST,
+    [](AsyncWebServerRequest *request) {
+      sendOtaUploadResponse(request);
+    },
+    [](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
+      handleOtaUpload(request, filename, index, data, len, final, U_SPIFFS, "filesystem");
+    });
 
   // Signal strength endpoint for WiFi and Bluetooth monitoring
   server.on("/api/signal-strength", HTTP_GET, [&bluetoothScale](AsyncWebServerRequest *request) {
@@ -842,9 +1055,27 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
     json += "\"smbMac\":\"" + String(macStr) + "\",";
     json += "\"relayOn\":" + String(smb.getSmbRelayOn() ? "true" : "false") + ",";
     json += "\"setpoint\":" + String(smb.getSetpoint(), 1) + ",";
+    json += "\"effectiveSetpoint\":" + String(smb.getEffectiveSetpoint(), 2) + ",";
+    json += "\"stopLearningEnabled\":" + String(smb.getStopLearningEnabled() ? "true" : "false") + ",";
+    json += "\"learnedStopOffset\":" + String(smb.getLearnedStopOffset(), 2) + ",";
+    json += "\"stopLearningObservations\":" + String(smb.getStopLearningObservations()) + ",";
+    json += "\"lastStopError\":" + String(smb.getLastStopError(), 2) + ",";
+    json += "\"lastStopFinalWeight\":" + String(smb.getLastStopFinalWeight(), 2) + ",";
+    json += "\"lastStopCutWeight\":" + String(smb.getLastStopCutWeight(), 2) + ",";
+    json += "\"stopLearningAwaitingSettle\":" + String(smb.getStopLearningAwaitingSettle() ? "true" : "false") + ",";
     json += "\"invert\":" + String(smb.isInverted() ? "true" : "false") + ",";
     json += "\"lastWeight\":" + String(smb.getSmbLastWeight(), 1) + ",";
-    json += "\"lastSeenMs\":" + String(smb.getLastSeenMs());
+    json += "\"lastSeenMs\":" + String(smb.getLastSeenMs()) + ",";
+    json += "\"webhookEnabled\":" + String(smb.getWebhookEnabled() ? "true" : "false") + ",";
+    json += "\"webhookProfile\":\"" + jsonEscape(smb.getWebhookProfile()) + "\",";
+    json += "\"webhookOnUrl\":\"" + jsonEscape(smb.getWebhookOnUrl()) + "\",";
+    json += "\"webhookOffUrl\":\"" + jsonEscape(smb.getWebhookOffUrl()) + "\",";
+    json += "\"webhookRelayOn\":" + String(smb.getWebhookRelayOn() ? "true" : "false") + ",";
+    json += "\"webhookTargetCutSent\":" + String(smb.getWebhookTargetCutSent() ? "true" : "false") + ",";
+    json += "\"webhookWiFiReady\":" + String(WiFi.status() == WL_CONNECTED ? "true" : "false") + ",";
+    json += "\"webhookLastHttpCode\":" + String(smb.getWebhookLastHttpCode()) + ",";
+    json += "\"webhookLastAttemptMs\":" + String(smb.getWebhookLastAttemptMs()) + ",";
+    json += "\"webhookLastMessage\":\"" + jsonEscape(smb.getWebhookLastMessage()) + "\"";
     json += "}";
     request->send(200, "application/json", json);
   });
@@ -881,6 +1112,21 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
     }
   });
 
+  server.on("/api/smb/learning", HTTP_POST, [&smb](AsyncWebServerRequest *request) {
+    if (request->hasParam("enabled", true)) {
+      const String value = request->getParam("enabled", true)->value();
+      smb.setStopLearningEnabled(value == "true" || value == "1" || value == "on");
+      request->send(200, "application/json", "{\"status\":\"success\",\"message\":\"Stop target learning updated\"}");
+    } else {
+      request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"Missing 'enabled' parameter\"}");
+    }
+  });
+
+  server.on("/api/smb/learning/reset", HTTP_POST, [&smb](AsyncWebServerRequest *request) {
+    smb.resetStopLearning();
+    request->send(200, "application/json", "{\"status\":\"success\",\"message\":\"Stop target learning reset\"}");
+  });
+
   server.on("/api/smb/relay/on", HTTP_POST, [&smb](AsyncWebServerRequest *request) {
     smb.sendRelayOn();
     request->send(200, "text/plain", "Relay on sent");
@@ -899,6 +1145,57 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
     } else {
       request->send(400, "text/plain", "Missing 'invert' parameter");
     }
+  });
+
+  server.on("/api/smb/webhook", HTTP_POST, [&smb](AsyncWebServerRequest *request) {
+    const bool enabled =
+      request->hasParam("enabled", true) &&
+      (request->getParam("enabled", true)->value() == "true" ||
+       request->getParam("enabled", true)->value() == "1" ||
+       request->getParam("enabled", true)->value() == "on");
+    String profile = request->hasParam("profile", true) ? request->getParam("profile", true)->value() : "custom";
+    String onUrl = request->hasParam("onUrl", true) ? request->getParam("onUrl", true)->value() : "";
+    String offUrl = request->hasParam("offUrl", true) ? request->getParam("offUrl", true)->value() : "";
+
+    profile.trim();
+    onUrl.trim();
+    offUrl.trim();
+
+    if (profile.length() == 0) profile = "custom";
+
+    if (onUrl.length() > 220 || offUrl.length() > 220) {
+      request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"Webhook URLs must be 220 characters or less\"}");
+      return;
+    }
+
+    if ((onUrl.length() > 0 && !onUrl.startsWith("http://")) ||
+        (offUrl.length() > 0 && !offUrl.startsWith("http://"))) {
+      request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"Use local http:// webhook URLs\"}");
+      return;
+    }
+
+    smb.setWebhookConfig(enabled, profile, onUrl, offUrl);
+    request->send(200, "application/json", "{\"status\":\"success\",\"message\":\"Webhook settings saved\"}");
+  });
+
+  server.on("/api/smb/webhook/test/on", HTTP_POST, [&smb](AsyncWebServerRequest *request) {
+    const bool ok = smb.triggerWebhookRelayOn("manual_test");
+    String json = "{";
+    json += "\"status\":\"" + String(ok ? "success" : "error") + "\",";
+    json += "\"httpCode\":" + String(smb.getWebhookLastHttpCode()) + ",";
+    json += "\"message\":\"" + jsonEscape(smb.getWebhookLastMessage()) + "\"";
+    json += "}";
+    request->send(ok ? 200 : 502, "application/json", json);
+  });
+
+  server.on("/api/smb/webhook/test/off", HTTP_POST, [&smb](AsyncWebServerRequest *request) {
+    const bool ok = smb.triggerWebhookRelayOff("manual_test");
+    String json = "{";
+    json += "\"status\":\"" + String(ok ? "success" : "error") + "\",";
+    json += "\"httpCode\":" + String(smb.getWebhookLastHttpCode()) + ",";
+    json += "\"message\":\"" + jsonEscape(smb.getWebhookLastMessage()) + "\"";
+    json += "}";
+    request->send(ok ? 200 : 502, "application/json", json);
   });
 
   server.on("/api/smb/unpair", HTTP_POST, [&smb](AsyncWebServerRequest *request) {

@@ -80,7 +80,9 @@
       <!-- ── Setpoint card ───────────────────────────────────────────────── -->
       <div class="bg-black-select p-6 rounded shadow">
         <h2 class="text-xl font-semibold mb-1">Target Weight</h2>
-        <p class="text-gray-400 text-sm mb-4">StopMyBru will cut the relay when the scale reaches this weight.</p>
+        <p class="text-gray-400 text-sm mb-4">
+          StopMyBru will target this final cup weight. If learning is enabled, the actual cutoff happens slightly early or late based on observed overshoot.
+        </p>
 
         <div class="flex items-center gap-3">
           <input type="number" step="0.1" min="0" max="2000"
@@ -94,6 +96,61 @@
           </button>
         </div>
         <p x-show="setpointMsg" x-text="setpointMsg" class="text-green-400 text-sm mt-2"></p>
+
+        <div class="mt-5 pt-4 border-t border-gray-700">
+          <h3 class="font-semibold mb-2">Learning Offset</h3>
+          <p class="text-gray-400 text-sm mb-3">
+            Learns how much weight arrives after power is cut. Positive offset cuts early; negative offset cuts slightly late.
+          </p>
+
+          <label class="flex items-center gap-3 cursor-pointer mb-3">
+            <input type="checkbox" x-model="stopLearningInput"
+                   class="w-5 h-5 rounded accent-green-500" />
+            <span class="text-sm">Enable target stop learning</span>
+          </label>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm mb-4">
+            <div>
+              <span class="text-gray-400">Effective cutoff</span>
+              <span class="ml-2" x-text="formatGrams(status.effectiveSetpoint)"></span>
+            </div>
+            <div>
+              <span class="text-gray-400">Learned offset</span>
+              <span class="ml-2" x-text="formatSignedGrams(status.learnedStopOffset)"></span>
+            </div>
+            <div>
+              <span class="text-gray-400">Observations</span>
+              <span class="ml-2" x-text="status.stopLearningObservations || 0"></span>
+            </div>
+            <div>
+              <span class="text-gray-400">State</span>
+              <span class="ml-2"
+                    :class="status.stopLearningAwaitingSettle ? 'text-yellow-400' : 'text-gray-300'"
+                    x-text="status.stopLearningAwaitingSettle ? 'Settling…' : 'Ready'"></span>
+            </div>
+            <div>
+              <span class="text-gray-400">Last final</span>
+              <span class="ml-2" x-text="formatGrams(status.lastStopFinalWeight)"></span>
+            </div>
+            <div>
+              <span class="text-gray-400">Last error</span>
+              <span class="ml-2" x-text="formatSignedGrams(status.lastStopError)"></span>
+            </div>
+          </div>
+
+          <div class="flex gap-3 flex-wrap">
+            <button @click="saveLearning()"
+                    class="bg-gray-600 hover:bg-button-green active:bg-green-900 text-white px-4 py-2 rounded">
+              Save Learning
+            </button>
+            <button @click="resetLearning()"
+                    class="bg-red-800 hover:bg-red-700 text-white px-4 py-2 rounded">
+              Reset Offset
+            </button>
+          </div>
+          <p x-show="learningMsg" x-text="learningMsg" class="text-sm mt-2"
+             :class="learningMsgError ? 'text-red-400' : 'text-green-400'"></p>
+        </div>
       </div>
 
       <!-- ── Invert card ─────────────────────────────────────────────────── -->
@@ -119,21 +176,122 @@
       <!-- ── Manual override card ────────────────────────────────────────── -->
       <div class="bg-black-select p-6 rounded shadow">
         <h2 class="text-xl font-semibold mb-1">Manual Override</h2>
-        <p class="text-gray-400 text-sm mb-4">Force the relay on or off regardless of weight. Only works while paired.</p>
+        <p class="text-gray-400 text-sm mb-4">Force the relay on or off regardless of weight. Works with a paired StopMyBru module or an enabled HTTP webhook relay.</p>
 
         <div class="flex gap-3">
           <button @click="relayOn()"
-                  :disabled="!status.paired"
+                  :disabled="!status.paired && !webhookEnabled"
                   class="bg-red-700 hover:bg-red-600 disabled:opacity-40 disabled:cursor-not-allowed text-white px-5 py-2 rounded font-semibold">
             <i class="fa fa-power-off mr-1"></i> Force ON
           </button>
           <button @click="relayOff()"
-                  :disabled="!status.paired"
+                  :disabled="!status.paired && !webhookEnabled"
                   class="bg-gray-600 hover:bg-gray-500 disabled:opacity-40 disabled:cursor-not-allowed text-white px-5 py-2 rounded font-semibold">
             <i class="fa fa-ban mr-1"></i> Force OFF
           </button>
         </div>
         <p x-show="relayMsg" x-text="relayMsg" class="text-green-400 text-sm mt-2"></p>
+      </div>
+
+      <!-- ── HTTP webhook relay card ─────────────────────────────────────── -->
+      <div class="bg-black-select p-6 rounded shadow">
+        <h2 class="text-xl font-semibold mb-1">HTTP Webhook Relay</h2>
+        <p class="text-gray-400 text-sm mb-4">
+          Use a local HTTP relay such as Tasmota or Shelly as a StopMyBru target.
+          The ON webhook fires when the relay/timer arms. The OFF webhook fires on manual stop or when target weight is reached.
+        </p>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4 text-sm">
+          <div>
+            <span class="text-gray-400">WiFi</span>
+            <span class="ml-2"
+                  :class="status.webhookWiFiReady ? 'text-green-400' : 'text-yellow-400'"
+                  x-text="status.webhookWiFiReady ? 'Connected' : 'Not connected'"></span>
+          </div>
+          <div>
+            <span class="text-gray-400">Webhook state</span>
+            <span class="ml-2"
+                  :class="status.webhookRelayOn ? 'text-red-400' : 'text-gray-300'"
+                  x-text="status.webhookRelayOn ? 'Armed / ON' : 'Idle / OFF'"></span>
+          </div>
+        </div>
+
+        <label class="flex items-center gap-3 cursor-pointer mb-4">
+          <input type="checkbox" x-model="webhookEnabled" @change="webhookEditing = true"
+                 class="w-5 h-5 rounded accent-green-500" />
+          <span class="text-sm">Enable HTTP webhook relay</span>
+        </label>
+
+        <div class="bg-black-background p-4 rounded mb-4">
+          <h3 class="font-semibold mb-2">Preset builder</h3>
+          <label class="block text-sm text-gray-400 mb-1">Relay host or IP</label>
+          <input type="text" x-model="webhookHost" placeholder="192.168.1.50 or shellyplus1pm.local"
+                 class="w-full px-3 py-2 mb-3 rounded bg-black-hover text-black border border-gray-600 focus:outline-none focus:border-green-500" />
+          <div class="flex gap-2 flex-wrap">
+            <button @click="applyWebhookPreset('tasmota')"
+                    class="bg-gray-600 hover:bg-button-green active:bg-green-900 text-white px-3 py-2 rounded text-sm">
+              Tasmota
+            </button>
+            <button @click="applyWebhookPreset('shelly-gen1')"
+                    class="bg-gray-600 hover:bg-button-green active:bg-green-900 text-white px-3 py-2 rounded text-sm">
+              Shelly Gen1
+            </button>
+            <button @click="applyWebhookPreset('shelly-plus')"
+                    class="bg-gray-600 hover:bg-button-green active:bg-green-900 text-white px-3 py-2 rounded text-sm">
+              Shelly Plus / Pro
+            </button>
+            <button @click="webhookProfile = 'custom'; webhookEditing = true"
+                    class="bg-gray-700 hover:bg-gray-600 text-white px-3 py-2 rounded text-sm">
+              Custom
+            </button>
+          </div>
+        </div>
+
+        <div class="mb-3">
+          <label class="block text-sm text-gray-400 mb-1">ON webhook URL</label>
+          <input type="url" x-model="webhookOnUrl" @input="webhookEditing = true"
+                 placeholder="http://192.168.1.50/cm?cmnd=Power%20On"
+                 class="w-full px-3 py-2 rounded bg-black-hover text-black border border-gray-600 focus:outline-none focus:border-green-500" />
+        </div>
+
+        <div class="mb-4">
+          <label class="block text-sm text-gray-400 mb-1">OFF webhook URL</label>
+          <input type="url" x-model="webhookOffUrl" @input="webhookEditing = true"
+                 placeholder="http://192.168.1.50/cm?cmnd=Power%20Off"
+                 class="w-full px-3 py-2 rounded bg-black-hover text-black border border-gray-600 focus:outline-none focus:border-green-500" />
+        </div>
+
+        <p class="text-gray-400 text-xs mb-4">
+          Local HTTP only. Examples:
+          Tasmota <code>/cm?cmnd=Power%20Off</code>,
+          Shelly Gen1 <code>/relay/0?turn=off</code>,
+          Shelly Plus <code>/rpc/Switch.Set?id=0&amp;on=false</code>.
+        </p>
+
+        <div class="flex gap-3 flex-wrap">
+          <button @click="saveWebhook()"
+                  class="bg-gray-600 hover:bg-button-green active:bg-green-900 text-white px-4 py-2 rounded">
+            Save Webhook
+          </button>
+          <button @click="testWebhook('on')"
+                  :disabled="!webhookEnabled"
+                  class="bg-red-700 hover:bg-red-600 disabled:opacity-40 disabled:cursor-not-allowed text-white px-4 py-2 rounded">
+            Test ON
+          </button>
+          <button @click="testWebhook('off')"
+                  :disabled="!webhookEnabled"
+                  class="bg-gray-600 hover:bg-gray-500 disabled:opacity-40 disabled:cursor-not-allowed text-white px-4 py-2 rounded">
+            Test OFF
+          </button>
+        </div>
+
+        <p x-show="webhookMsg" x-text="webhookMsg" class="text-sm mt-2"
+           :class="webhookMsgError ? 'text-red-400' : 'text-green-400'"></p>
+        <p x-show="status.webhookLastMessage" class="text-xs text-gray-400 mt-2">
+          Last result:
+          <span x-text="status.webhookLastMessage"></span>
+          <span x-show="status.webhookLastHttpCode">· HTTP <span x-text="status.webhookLastHttpCode"></span></span>
+        </p>
       </div>
 
       <!-- ── Pairing card ────────────────────────────────────────────────── -->
@@ -195,13 +353,42 @@ function smbApp() {
       smbMac: '',
       relayOn: false,
       setpoint: 36.0,
+      effectiveSetpoint: 36.0,
+      stopLearningEnabled: true,
+      learnedStopOffset: 0,
+      stopLearningObservations: 0,
+      lastStopError: 0,
+      lastStopFinalWeight: 0,
+      lastStopCutWeight: 0,
+      stopLearningAwaitingSettle: false,
       invert: false,
       lastWeight: 0,
-      lastSeenMs: 0
+      lastSeenMs: 0,
+      webhookEnabled: false,
+      webhookProfile: 'custom',
+      webhookOnUrl: '',
+      webhookOffUrl: '',
+      webhookRelayOn: false,
+      webhookTargetCutSent: false,
+      webhookWiFiReady: false,
+      webhookLastHttpCode: 0,
+      webhookLastAttemptMs: 0,
+      webhookLastMessage: ''
     },
     setpointInput: 36.0,
+    stopLearningInput: true,
     invertInput: false,
+    webhookEnabled: false,
+    webhookProfile: 'custom',
+    webhookHost: '',
+    webhookOnUrl: '',
+    webhookOffUrl: '',
+    webhookEditing: false,
+    webhookMsg: '',
+    webhookMsgError: false,
     setpointMsg: '',
+    learningMsg: '',
+    learningMsgError: false,
     invertMsg: '',
     relayMsg: '',
     pairingMsg: '',
@@ -222,7 +409,15 @@ function smbApp() {
         const d = await r.json();
         this.status = d;
         this.setpointInput = d.setpoint;
+        this.stopLearningInput = !!d.stopLearningEnabled;
         this.invertInput   = d.invert;
+        if (!this.webhookEditing) {
+          this.webhookEnabled = !!d.webhookEnabled;
+          this.webhookProfile = d.webhookProfile || 'custom';
+          this.webhookOnUrl = d.webhookOnUrl || '';
+          this.webhookOffUrl = d.webhookOffUrl || '';
+          this.webhookHost = this.hostFromWebhookUrl(this.webhookOnUrl || this.webhookOffUrl);
+        }
       } catch (e) { /* WiFi may be down */ }
     },
 
@@ -246,12 +441,42 @@ function smbApp() {
       return Math.floor(sec / 60) + 'm ago';
     },
 
+    formatGrams(value) {
+      const n = Number(value);
+      if (!Number.isFinite(n)) return '—';
+      return `${n.toFixed(2)} g`;
+    },
+
+    formatSignedGrams(value) {
+      const n = Number(value);
+      if (!Number.isFinite(n)) return '—';
+      return `${n >= 0 ? '+' : ''}${n.toFixed(2)} g`;
+    },
+
     async saveSetpoint() {
       const fd = new FormData();
       fd.append('value', this.setpointInput);
       const r = await fetch('/api/smb/setpoint', { method: 'POST', body: fd });
       this.setpointMsg = r.ok ? 'Saved!' : 'Error saving setpoint';
       setTimeout(() => this.setpointMsg = '', 2500);
+    },
+
+    async saveLearning() {
+      const fd = new FormData();
+      fd.append('enabled', this.stopLearningInput ? 'true' : 'false');
+      const r = await fetch('/api/smb/learning', { method: 'POST', body: fd });
+      this.learningMsg = r.ok ? 'Learning setting saved' : 'Error saving learning setting';
+      this.learningMsgError = !r.ok;
+      await this.fetchStatus();
+      setTimeout(() => this.learningMsg = '', 2500);
+    },
+
+    async resetLearning() {
+      const r = await fetch('/api/smb/learning/reset', { method: 'POST' });
+      this.learningMsg = r.ok ? 'Learning offset reset' : 'Error resetting learning offset';
+      this.learningMsgError = !r.ok;
+      await this.fetchStatus();
+      setTimeout(() => this.learningMsg = '', 2500);
     },
 
     async saveInvert() {
@@ -272,6 +497,88 @@ function smbApp() {
       const r = await fetch('/api/smb/relay/off', { method: 'POST' });
       this.relayMsg = r.ok ? 'Relay OFF command sent' : 'Failed';
       setTimeout(() => this.relayMsg = '', 2500);
+    },
+
+    hostFromWebhookUrl(url) {
+      try {
+        if (!url) return '';
+        const parsed = new URL(url);
+        return parsed.host || '';
+      } catch (e) {
+        return '';
+      }
+    },
+
+    normalizedWebhookHost() {
+      let host = (this.webhookHost || '').trim();
+      if (host.startsWith('http://')) host = host.slice(7);
+      if (host.startsWith('https://')) host = host.slice(8);
+      while (host.endsWith('/')) host = host.slice(0, -1);
+      return host;
+    },
+
+    applyWebhookPreset(profile) {
+      const host = this.normalizedWebhookHost();
+      if (!host) {
+        this.webhookMsg = 'Enter a relay host or IP first.';
+        this.webhookMsgError = true;
+        return;
+      }
+
+      this.webhookProfile = profile;
+      this.webhookEnabled = true;
+      this.webhookEditing = true;
+
+      if (profile === 'tasmota') {
+        this.webhookOnUrl = `http://${host}/cm?cmnd=Power%20On`;
+        this.webhookOffUrl = `http://${host}/cm?cmnd=Power%20Off`;
+      } else if (profile === 'shelly-gen1') {
+        this.webhookOnUrl = `http://${host}/relay/0?turn=on`;
+        this.webhookOffUrl = `http://${host}/relay/0?turn=off`;
+      } else if (profile === 'shelly-plus') {
+        this.webhookOnUrl = `http://${host}/rpc/Switch.Set?id=0&on=true`;
+        this.webhookOffUrl = `http://${host}/rpc/Switch.Set?id=0&on=false`;
+      }
+
+      this.webhookMsg = 'Preset applied. Save to enable it.';
+      this.webhookMsgError = false;
+    },
+
+    async saveWebhook() {
+      const fd = new FormData();
+      fd.append('enabled', this.webhookEnabled ? 'true' : 'false');
+      fd.append('profile', this.webhookProfile || 'custom');
+      fd.append('onUrl', this.webhookOnUrl || '');
+      fd.append('offUrl', this.webhookOffUrl || '');
+
+      const r = await fetch('/api/smb/webhook', { method: 'POST', body: fd });
+      let message = r.ok ? 'Webhook settings saved' : 'Error saving webhook settings';
+      try {
+        const json = await r.json();
+        if (json.message) message = json.message;
+      } catch (e) { /* plain fallback */ }
+
+      this.webhookMsg = message;
+      this.webhookMsgError = !r.ok;
+      if (r.ok) {
+        this.webhookEditing = false;
+        await this.fetchStatus();
+      }
+      setTimeout(() => this.webhookMsg = '', 3000);
+    },
+
+    async testWebhook(action) {
+      const r = await fetch(`/api/smb/webhook/test/${action}`, { method: 'POST' });
+      let message = r.ok ? `Webhook ${action.toUpperCase()} OK` : `Webhook ${action.toUpperCase()} failed`;
+      try {
+        const json = await r.json();
+        if (json.message) message = json.message;
+      } catch (e) { /* plain fallback */ }
+
+      this.webhookMsg = message;
+      this.webhookMsgError = !r.ok;
+      await this.fetchStatus();
+      setTimeout(() => this.webhookMsg = '', 4000);
     },
 
     async startPairing() {

@@ -22,7 +22,7 @@ for /f "tokens=*" %%i in ('git rev-parse --short HEAD 2^>nul') do set "COMMIT_HA
 if "%COMMIT_HASH%"=="" set "COMMIT_HASH=unknown"
 
 rem Get build date and time
-for /f "tokens=*" %%i in ('powershell -command "Get-Date -Format 'MMM dd yyyy'"') do set "BUILD_DATE=%%i"
+for /f "tokens=*" %%i in ('powershell -command "Get-Date -Format 'yyyy-MM-dd'"') do set "BUILD_DATE=%%i"
 for /f "tokens=*" %%i in ('powershell -command "Get-Date -Format 'HH:mm:ss'"') do set "BUILD_TIME=%%i"
 
 :parse_args
@@ -177,36 +177,44 @@ if not exist "%OUTPUT_DIR%" mkdir "%OUTPUT_DIR%"
 rem Copy binaries for Supermini
 echo [STEP] Copying binaries for supermini...
 if exist ".pio\build\esp32s3-supermini\firmware.bin" (
-    copy ".pio\build\esp32s3-supermini\firmware.bin" "%OUTPUT_DIR%\weighmybru-supermini-v%VERSION%.bin" >nul
+    copy ".pio\build\esp32s3-supermini\firmware.bin" "%OUTPUT_DIR%\wmb-plus-%VERSION%-supermini-app.bin" >nul
     echo [SUCCESS] Copied firmware binary
 )
 if exist ".pio\build\esp32s3-supermini\littlefs.bin" (
-    copy ".pio\build\esp32s3-supermini\littlefs.bin" "%OUTPUT_DIR%\weighmybru-supermini-v%VERSION%-littlefs.bin" >nul
+    copy ".pio\build\esp32s3-supermini\littlefs.bin" "%OUTPUT_DIR%\wmb-plus-%VERSION%-supermini-littlefs.bin" >nul
     echo [SUCCESS] Copied filesystem binary
 )
 if exist ".pio\build\esp32s3-supermini\bootloader.bin" (
-    copy ".pio\build\esp32s3-supermini\bootloader.bin" "%OUTPUT_DIR%\weighmybru-supermini-v%VERSION%-bootloader.bin" >nul
+    copy ".pio\build\esp32s3-supermini\bootloader.bin" "%OUTPUT_DIR%\wmb-plus-%VERSION%-supermini-bootloader.bin" >nul
 )
 if exist ".pio\build\esp32s3-supermini\partitions.bin" (
-    copy ".pio\build\esp32s3-supermini\partitions.bin" "%OUTPUT_DIR%\weighmybru-supermini-v%VERSION%-partitions.bin" >nul
+    copy ".pio\build\esp32s3-supermini\partitions.bin" "%OUTPUT_DIR%\wmb-plus-%VERSION%-supermini-partitions.bin" >nul
 )
+if exist ".pio\build\esp32s3-supermini\littlefs.bin" (
+    python "%USERPROFILE%\.platformio\packages\tool-esptoolpy\esptool.py" --chip esp32s3 merge_bin -o "%OUTPUT_DIR%\wmb-plus-%VERSION%-supermini-factory-full.bin" 0x0 ".pio\build\esp32s3-supermini\bootloader.bin" 0x8000 ".pio\build\esp32s3-supermini\partitions.bin" 0x10000 ".pio\build\esp32s3-supermini\firmware.bin" 0x310000 ".pio\build\esp32s3-supermini\littlefs.bin"
+)
+python "%USERPROFILE%\.platformio\packages\tool-esptoolpy\esptool.py" --chip esp32s3 merge_bin -o "%OUTPUT_DIR%\wmb-plus-%VERSION%-supermini-factory-minimal.bin" 0x0 ".pio\build\esp32s3-supermini\bootloader.bin" 0x8000 ".pio\build\esp32s3-supermini\partitions.bin" 0x10000 ".pio\build\esp32s3-supermini\firmware.bin"
 
 rem Copy binaries for XIAO
 echo [STEP] Copying binaries for xiao...
 if exist ".pio\build\esp32s3-xiao\firmware.bin" (
-    copy ".pio\build\esp32s3-xiao\firmware.bin" "%OUTPUT_DIR%\weighmybru-xiao-v%VERSION%.bin" >nul
+    copy ".pio\build\esp32s3-xiao\firmware.bin" "%OUTPUT_DIR%\wmb-plus-%VERSION%-xiao-app.bin" >nul
     echo [SUCCESS] Copied firmware binary
 )
 if exist ".pio\build\esp32s3-xiao\littlefs.bin" (
-    copy ".pio\build\esp32s3-xiao\littlefs.bin" "%OUTPUT_DIR%\weighmybru-xiao-v%VERSION%-littlefs.bin" >nul
+    copy ".pio\build\esp32s3-xiao\littlefs.bin" "%OUTPUT_DIR%\wmb-plus-%VERSION%-xiao-littlefs.bin" >nul
     echo [SUCCESS] Copied filesystem binary
 )
 if exist ".pio\build\esp32s3-xiao\bootloader.bin" (
-    copy ".pio\build\esp32s3-xiao\bootloader.bin" "%OUTPUT_DIR%\weighmybru-xiao-v%VERSION%-bootloader.bin" >nul
+    copy ".pio\build\esp32s3-xiao\bootloader.bin" "%OUTPUT_DIR%\wmb-plus-%VERSION%-xiao-bootloader.bin" >nul
 )
 if exist ".pio\build\esp32s3-xiao\partitions.bin" (
-    copy ".pio\build\esp32s3-xiao\partitions.bin" "%OUTPUT_DIR%\weighmybru-xiao-v%VERSION%-partitions.bin" >nul
+    copy ".pio\build\esp32s3-xiao\partitions.bin" "%OUTPUT_DIR%\wmb-plus-%VERSION%-xiao-partitions.bin" >nul
 )
+if exist ".pio\build\esp32s3-xiao\littlefs.bin" (
+    python "%USERPROFILE%\.platformio\packages\tool-esptoolpy\esptool.py" --chip esp32s3 merge_bin -o "%OUTPUT_DIR%\wmb-plus-%VERSION%-xiao-factory-full.bin" 0x0 ".pio\build\esp32s3-xiao\bootloader.bin" 0x8000 ".pio\build\esp32s3-xiao\partitions.bin" 0x10000 ".pio\build\esp32s3-xiao\firmware.bin" 0x610000 ".pio\build\esp32s3-xiao\littlefs.bin"
+)
+python "%USERPROFILE%\.platformio\packages\tool-esptoolpy\esptool.py" --chip esp32s3 merge_bin -o "%OUTPUT_DIR%\wmb-plus-%VERSION%-xiao-factory-minimal.bin" 0x0 ".pio\build\esp32s3-xiao\bootloader.bin" 0x8000 ".pio\build\esp32s3-xiao\partitions.bin" 0x10000 ".pio\build\esp32s3-xiao\firmware.bin"
 
 rem Generate ESP32 Web Tools manifests
 echo [STEP] Generating ESP32 Web Tools manifest for supermini...
@@ -220,10 +228,10 @@ echo   "builds": [>> "%OUTPUT_DIR%\manifest-supermini.json"
 echo     {>> "%OUTPUT_DIR%\manifest-supermini.json"
 echo       "chipFamily": "ESP32-S3",>> "%OUTPUT_DIR%\manifest-supermini.json"
 echo       "parts": [>> "%OUTPUT_DIR%\manifest-supermini.json"
-echo         {"path": "weighmybru-supermini-v%VERSION%-bootloader.bin", "offset": 0},>> "%OUTPUT_DIR%\manifest-supermini.json"
-echo         {"path": "weighmybru-supermini-v%VERSION%-partitions.bin", "offset": 32768},>> "%OUTPUT_DIR%\manifest-supermini.json"
-echo         {"path": "weighmybru-supermini-v%VERSION%.bin", "offset": 65536},>> "%OUTPUT_DIR%\manifest-supermini.json"
-echo         {"path": "weighmybru-supermini-v%VERSION%-littlefs.bin", "offset": 2686976}>> "%OUTPUT_DIR%\manifest-supermini.json"
+echo         {"path": "wmb-plus-%VERSION%-supermini-bootloader.bin", "offset": 0},>> "%OUTPUT_DIR%\manifest-supermini.json"
+echo         {"path": "wmb-plus-%VERSION%-supermini-partitions.bin", "offset": 32768},>> "%OUTPUT_DIR%\manifest-supermini.json"
+echo         {"path": "wmb-plus-%VERSION%-supermini-app.bin", "offset": 65536},>> "%OUTPUT_DIR%\manifest-supermini.json"
+echo         {"path": "wmb-plus-%VERSION%-supermini-littlefs.bin", "offset": 3211264}>> "%OUTPUT_DIR%\manifest-supermini.json"
 echo       ]>> "%OUTPUT_DIR%\manifest-supermini.json"
 echo     }>> "%OUTPUT_DIR%\manifest-supermini.json"
 echo   ]>> "%OUTPUT_DIR%\manifest-supermini.json"
@@ -240,10 +248,10 @@ echo   "builds": [>> "%OUTPUT_DIR%\manifest-xiao.json"
 echo     {>> "%OUTPUT_DIR%\manifest-xiao.json"
 echo       "chipFamily": "ESP32-S3",>> "%OUTPUT_DIR%\manifest-xiao.json"
 echo       "parts": [>> "%OUTPUT_DIR%\manifest-xiao.json"
-echo         {"path": "weighmybru-xiao-v%VERSION%-bootloader.bin", "offset": 0},>> "%OUTPUT_DIR%\manifest-xiao.json"
-echo         {"path": "weighmybru-xiao-v%VERSION%-partitions.bin", "offset": 32768},>> "%OUTPUT_DIR%\manifest-xiao.json"
-echo         {"path": "weighmybru-xiao-v%VERSION%.bin", "offset": 65536},>> "%OUTPUT_DIR%\manifest-xiao.json"
-echo         {"path": "weighmybru-xiao-v%VERSION%-littlefs.bin", "offset": 2686976}>> "%OUTPUT_DIR%\manifest-xiao.json"
+echo         {"path": "wmb-plus-%VERSION%-xiao-bootloader.bin", "offset": 0},>> "%OUTPUT_DIR%\manifest-xiao.json"
+echo         {"path": "wmb-plus-%VERSION%-xiao-partitions.bin", "offset": 32768},>> "%OUTPUT_DIR%\manifest-xiao.json"
+echo         {"path": "wmb-plus-%VERSION%-xiao-app.bin", "offset": 65536},>> "%OUTPUT_DIR%\manifest-xiao.json"
+echo         {"path": "wmb-plus-%VERSION%-xiao-littlefs.bin", "offset": 6356992}>> "%OUTPUT_DIR%\manifest-xiao.json"
 echo       ]>> "%OUTPUT_DIR%\manifest-xiao.json"
 echo     }>> "%OUTPUT_DIR%\manifest-xiao.json"
 echo   ]>> "%OUTPUT_DIR%\manifest-xiao.json"
@@ -261,6 +269,10 @@ echo   "build_time": "%BUILD_TIME%",>> "%OUTPUT_DIR%\build-info.json"
 echo   "is_release": %IS_RELEASE%,>> "%OUTPUT_DIR%\build-info.json"
 echo   "environments": ["esp32s3-supermini", "esp32s3-xiao"]>> "%OUTPUT_DIR%\build-info.json"
 echo }>> "%OUTPUT_DIR%\build-info.json"
+
+rem Generate SHA-256 checksums
+echo [STEP] Generating SHA-256 checksums...
+powershell -NoProfile -Command "$checksum = 'wmb-plus-%VERSION%-sha256.txt'; $out = Resolve-Path '%OUTPUT_DIR%'; Get-ChildItem -File $out | Where-Object { $_.Name -ne $checksum } | Sort-Object Name | ForEach-Object { '{0}  {1}' -f (Get-FileHash -Algorithm SHA256 $_.FullName).Hash.ToLower(), $_.Name } | Set-Content -Encoding ASCII (Join-Path $out $checksum)"
 
 echo.
 echo ========================================

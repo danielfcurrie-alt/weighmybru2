@@ -46,6 +46,13 @@ public:
     void sendRelayOn();
     void sendRelayOff();
 
+    // ---- Local HTTP webhook relay target ----
+    void setWebhookConfig(bool enabled, const String& profile, const String& onUrl, const String& offUrl);
+    bool triggerWebhookRelayOn(const char* reason = "manual");
+    bool triggerWebhookRelayOff(const char* reason = "manual");
+    void setStopLearningEnabled(bool enabled);
+    void resetStopLearning();
+
     // ---- Data commands ----
     // Should be called every 50ms while paired (piggyback on weight loop)
     void sendWeightUpdate(float weight);
@@ -62,12 +69,30 @@ public:
     SmbPairingState  getPairingState()  const { return _state; }
     const uint8_t*   getSmbMac()        const { return _smbMac; }
     float            getSetpoint()      const { return _setpoint; }
+    float            getEffectiveSetpoint() const;
     bool             isInverted()       const { return _invert; }
 
     // SMB-reported state (from last STATUS_ACK)
     bool   getSmbRelayOn()     const { return _smbRelayOn; }
     float  getSmbLastWeight()  const { return _smbLastWeight; }
     unsigned long getLastSeenMs() const { return _lastStatusAckTime; }
+
+    bool getWebhookEnabled() const { return _webhookEnabled; }
+    String getWebhookProfile() const { return _webhookProfile; }
+    String getWebhookOnUrl() const { return _webhookOnUrl; }
+    String getWebhookOffUrl() const { return _webhookOffUrl; }
+    bool getWebhookRelayOn() const { return _webhookRelayOn; }
+    bool getWebhookTargetCutSent() const { return _webhookTargetCutSent; }
+    int getWebhookLastHttpCode() const { return _webhookLastHttpCode; }
+    String getWebhookLastMessage() const { return _webhookLastMessage; }
+    unsigned long getWebhookLastAttemptMs() const { return _webhookLastAttemptMs; }
+    bool getStopLearningEnabled() const { return _stopLearningEnabled; }
+    float getLearnedStopOffset() const { return _learnedStopOffset; }
+    uint16_t getStopLearningObservations() const { return _stopLearningObservations; }
+    float getLastStopError() const { return _lastStopError; }
+    float getLastStopFinalWeight() const { return _lastStopFinalWeight; }
+    float getLastStopCutWeight() const { return _lastStopCutWeight; }
+    bool getStopLearningAwaitingSettle() const { return _stopLearningAwaitingSettle; }
 
     // ---- NVS ----
     void loadFromNVS();
@@ -89,6 +114,34 @@ private:
     float   _setpoint  = 36.0f;
     bool    _invert    = false;
 
+    // Stop target learning. Positive offset cuts early; negative offset cuts late.
+    bool    _stopLearningEnabled = true;
+    float   _learnedStopOffset = 0.0f;
+    uint16_t _stopLearningObservations = 0;
+    float   _lastStopError = 0.0f;
+    float   _lastStopFinalWeight = 0.0f;
+    float   _lastStopCutWeight = 0.0f;
+    float   _lastStopEffectiveSetpoint = 36.0f;
+    bool    _stopLearningAwaitingSettle = false;
+    bool    _suppressNextRelayOffLearning = false;
+    unsigned long _stopLearningStopMillis = 0;
+    static constexpr float MAX_EARLY_STOP_OFFSET_G = 8.0f;
+    static constexpr float MAX_LATE_STOP_OFFSET_G = 3.0f;
+    static constexpr float MAX_LEARNABLE_STOP_ERROR_G = 8.0f;
+    static constexpr float STOP_LEARNING_ALPHA = 0.35f;
+    static constexpr unsigned long STOP_LEARNING_SETTLE_MS = 3000;
+
+    // Optional local HTTP webhook relay target, e.g. Tasmota or Shelly.
+    bool    _webhookEnabled = false;
+    String  _webhookProfile = "custom";
+    String  _webhookOnUrl;
+    String  _webhookOffUrl;
+    bool    _webhookRelayOn = false;
+    bool    _webhookTargetCutSent = false;
+    int     _webhookLastHttpCode = 0;
+    String  _webhookLastMessage;
+    unsigned long _webhookLastAttemptMs = 0;
+
     // Cached SMB-reported state (populated by STATUS_ACK)
     bool          _smbRelayOn        = false;
     float         _smbLastWeight     = 0.0f;
@@ -102,6 +155,11 @@ private:
 
     bool registerPeer(const uint8_t* mac);
     void removePeer(const uint8_t* mac);
+    bool triggerWebhook(const String& url, const char* action, const char* reason);
+    void maybeTriggerWebhookTarget(float weight);
+    void beginStopLearningObservation(float cutWeight, float effectiveSetpoint, const char* source);
+    void maybeCompleteStopLearningObservation(float weight);
+    void cancelStopLearningObservation(const char* reason);
 
     uint8_t getCurrentChannel() const;
 };

@@ -9,7 +9,7 @@ set -e
 VERSION=""
 BUILD_NUMBER=$(date +%s)
 COMMIT_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-BUILD_DATE=$(date -u +"%b %d %Y")
+BUILD_DATE=$(date -u +"%Y-%m-%d")
 BUILD_TIME=$(date -u +"%H:%M:%S")
 OUTPUT_DIR="./build-output"
 
@@ -38,6 +38,30 @@ print_success() {
 
 print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
+}
+
+run_esptool() {
+    if python3 -c "import esptool" >/dev/null 2>&1; then
+        python3 -m esptool "$@"
+        return
+    fi
+
+    local platformio_core_dir="${PLATFORMIO_CORE_DIR:-${HOME}/.platformio}"
+    local platformio_esptool_script="${platformio_core_dir}/packages/tool-esptoolpy/esptool.py"
+    local platformio_esptool_bin="${platformio_core_dir}/packages/tool-esptoolpy/esptool"
+
+    if [[ -f "$platformio_esptool_script" ]]; then
+        python3 "$platformio_esptool_script" "$@"
+        return
+    fi
+
+    if [[ -x "$platformio_esptool_bin" ]]; then
+        "$platformio_esptool_bin" "$@"
+        return
+    fi
+
+    print_error "esptool is unavailable. Run a PlatformIO build first or install esptool with: python3 -m pip install esptool"
+    return 1
 }
 
 show_help() {
@@ -155,40 +179,62 @@ build_environment() {
 copy_binaries() {
     local env=$1
     local board_suffix=$2
+    local littlefs_offset=$3
+    local build_dir=".pio/build/$env"
+    local base_name="wmb-plus-${VERSION}-${board_suffix}"
     
     print_step "Copying binaries for $board_suffix..."
     
     mkdir -p "$OUTPUT_DIR"
     
     # Copy main firmware
-    if [[ -f ".pio/build/$env/firmware.bin" ]]; then
-        cp ".pio/build/$env/firmware.bin" \
-           "$OUTPUT_DIR/weighmybru-${board_suffix}-v${VERSION}.bin"
+    if [[ -f "$build_dir/firmware.bin" ]]; then
+        cp "$build_dir/firmware.bin" \
+           "$OUTPUT_DIR/${base_name}-app.bin"
         print_success "Copied firmware binary"
     fi
     
     # Copy filesystem
-    if [[ -f ".pio/build/$env/littlefs.bin" ]]; then
-        cp ".pio/build/$env/littlefs.bin" \
-           "$OUTPUT_DIR/weighmybru-${board_suffix}-v${VERSION}-littlefs.bin"
+    if [[ -f "$build_dir/littlefs.bin" ]]; then
+        cp "$build_dir/littlefs.bin" \
+           "$OUTPUT_DIR/${base_name}-littlefs.bin"
         print_success "Copied filesystem binary"
     fi
     
     # Copy bootloader and partitions for complete flashing
-    if [[ -f ".pio/build/$env/bootloader.bin" ]]; then
-        cp ".pio/build/$env/bootloader.bin" \
-           "$OUTPUT_DIR/weighmybru-${board_suffix}-v${VERSION}-bootloader.bin"
+    if [[ -f "$build_dir/bootloader.bin" ]]; then
+        cp "$build_dir/bootloader.bin" \
+           "$OUTPUT_DIR/${base_name}-bootloader.bin"
     fi
     
-    if [[ -f ".pio/build/$env/partitions.bin" ]]; then
-        cp ".pio/build/$env/partitions.bin" \
-           "$OUTPUT_DIR/weighmybru-${board_suffix}-v${VERSION}-partitions.bin"
+    if [[ -f "$build_dir/partitions.bin" ]]; then
+        cp "$build_dir/partitions.bin" \
+           "$OUTPUT_DIR/${base_name}-partitions.bin"
+    fi
+
+    if [[ -f "$build_dir/bootloader.bin" && -f "$build_dir/partitions.bin" && -f "$build_dir/firmware.bin" ]]; then
+        run_esptool --chip esp32s3 merge_bin \
+          -o "$OUTPUT_DIR/${base_name}-factory-minimal.bin" \
+          0x0 "$build_dir/bootloader.bin" \
+          0x8000 "$build_dir/partitions.bin" \
+          0x10000 "$build_dir/firmware.bin"
+
+        if [[ -f "$build_dir/littlefs.bin" ]]; then
+            run_esptool --chip esp32s3 merge_bin \
+              -o "$OUTPUT_DIR/${base_name}-factory-full.bin" \
+              0x0 "$build_dir/bootloader.bin" \
+              0x8000 "$build_dir/partitions.bin" \
+              0x10000 "$build_dir/firmware.bin" \
+              "$littlefs_offset" "$build_dir/littlefs.bin"
+        fi
     fi
 }
 
 generate_manifest() {
     local board_suffix=$1
     local board_name=$2
+    local littlefs_offset=$3
+    local base_name="wmb-plus-${VERSION}-${board_suffix}"
     
     print_step "Generating ESP32 Web Tools manifest for $board_suffix..."
     
@@ -204,20 +250,20 @@ generate_manifest() {
       "chipFamily": "ESP32-S3",
       "parts": [
         {
-          "path": "weighmybru-${board_suffix}-v${VERSION}-bootloader.bin",
+          "path": "${base_name}-bootloader.bin",
           "offset": 0
         },
         {
-          "path": "weighmybru-${board_suffix}-v${VERSION}-partitions.bin", 
+          "path": "${base_name}-partitions.bin",
           "offset": 32768
         },
         {
-          "path": "weighmybru-${board_suffix}-v${VERSION}.bin",
+          "path": "${base_name}-app.bin",
           "offset": 65536
         },
         {
-          "path": "weighmybru-${board_suffix}-v${VERSION}-littlefs.bin",
-          "offset": 2686976
+          "path": "${base_name}-littlefs.bin",
+          "offset": $((littlefs_offset))
         }
       ]
     }
@@ -240,12 +286,31 @@ generate_build_info() {
   "build_date": "$BUILD_DATE",
   "build_time": "$BUILD_TIME",
   "is_release": ${IS_RELEASE:-false},
-  "built_at": "$(date -u --iso-8601=seconds)",
+  "built_at": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
   "environments": ["esp32s3-supermini", "esp32s3-xiao"]
 }
 EOF
 
     print_success "Generated build information"
+}
+
+generate_checksums() {
+    local checksum_file="wmb-plus-${VERSION}-sha256.txt"
+
+    print_step "Generating SHA-256 checksums..."
+
+    rm -f "$OUTPUT_DIR/$checksum_file"
+    (
+        cd "$OUTPUT_DIR"
+        find . -maxdepth 1 -type f ! -name "$checksum_file" -print \
+            | sed 's#^\./##' \
+            | sort \
+            | while IFS= read -r file; do
+                shasum -a 256 "$file"
+            done > "$checksum_file"
+    )
+
+    print_success "Generated $checksum_file"
 }
 
 show_summary() {
@@ -282,14 +347,15 @@ main() {
     
     # Build both environments
     build_environment "esp32s3-supermini" "supermini"
-    copy_binaries "esp32s3-supermini" "supermini"
-    generate_manifest "supermini" "WeighMyBru² - ESP32-S3 Supermini"
+        copy_binaries "esp32s3-supermini" "supermini" "0x310000"
+        generate_manifest "supermini" "WeighMyBru² - ESP32-S3 Supermini" "0x310000"
     
     build_environment "esp32s3-xiao" "xiao"
-    copy_binaries "esp32s3-xiao" "xiao"
-    generate_manifest "xiao" "WeighMyBru² - XIAO ESP32S3"
+        copy_binaries "esp32s3-xiao" "xiao" "0x610000"
+        generate_manifest "xiao" "WeighMyBru² - XIAO ESP32S3" "0x610000"
     
     generate_build_info
+    generate_checksums
     show_summary
 }
 

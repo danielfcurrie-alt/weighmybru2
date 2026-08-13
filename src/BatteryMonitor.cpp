@@ -17,6 +17,11 @@ BatteryMonitor::BatteryMonitor(uint8_t batteryPin) : batteryPin(batteryPin) {
     chargeRatePercentPerHour = 0.0f;
     chargeEstimateConfidence = "learning";
     chargingState = "unknown";
+    learnedDischargeRatePercentPerHour = 0.0f;
+    learnedChargeRatePercentPerHour = 0.0f;
+    learnedDischargeObservations = 0;
+    learnedChargeObservations = 0;
+    lastLearningSaveMillis = 0;
     lastUpdate = 0;
 }
 
@@ -31,6 +36,7 @@ void BatteryMonitor::begin() {
     // Load calibration from preferences
     preferences.begin("battery", false);
     loadCalibration();
+    loadLearningProfile();
     preferences.end();
     
     // Take initial reading
@@ -127,6 +133,17 @@ int BatteryMonitor::getEstimatedRuntimeMinutesRemaining() {
         update();
     }
 
+    if (estimatedRuntimeMinutes < 0.0f &&
+        learnedDischargeRatePercentPerHour > 0.0f &&
+        chargingState != "charging_likely" &&
+        chargingState != "full") {
+        const float currentPercentage = constrain(smoothedPercentage, 0.0f, 100.0f);
+        const float learnedPercentPerMinute = learnedDischargeRatePercentPerHour / 60.0f;
+        if (learnedPercentPerMinute > 0.0f) {
+            return (int)roundf(currentPercentage / learnedPercentPerMinute);
+        }
+    }
+
     if (estimatedRuntimeMinutes < 0.0f) {
         return -1;
     }
@@ -135,6 +152,13 @@ int BatteryMonitor::getEstimatedRuntimeMinutesRemaining() {
 }
 
 String BatteryMonitor::getRuntimeEstimateConfidence() const {
+    if (estimatedRuntimeMinutes < 0.0f &&
+        learnedDischargeRatePercentPerHour > 0.0f &&
+        chargingState != "charging_likely" &&
+        chargingState != "full") {
+        return "learned-" + getBatteryLearningConfidence();
+    }
+
     return runtimeEstimateConfidence;
 }
 
@@ -163,6 +187,20 @@ int BatteryMonitor::getEstimatedMinutesTo80() {
         update();
     }
 
+    if (estimatedMinutesTo80 < 0.0f &&
+        learnedChargeRatePercentPerHour > 0.0f &&
+        chargingState == "charging_likely") {
+        const float currentPercentage = constrain(smoothedPercentage, 0.0f, 100.0f);
+        if (currentPercentage >= 80.0f) {
+            return 0;
+        }
+
+        const float learnedPercentPerMinute = learnedChargeRatePercentPerHour / 60.0f;
+        if (learnedPercentPerMinute > 0.0f) {
+            return (int)roundf((80.0f - currentPercentage) / learnedPercentPerMinute);
+        }
+    }
+
     if (estimatedMinutesTo80 < 0.0f) {
         return -1;
     }
@@ -175,6 +213,20 @@ int BatteryMonitor::getEstimatedMinutesTo100() {
         update();
     }
 
+    if (estimatedMinutesTo100 < 0.0f &&
+        learnedChargeRatePercentPerHour > 0.0f &&
+        chargingState == "charging_likely") {
+        const float currentPercentage = constrain(smoothedPercentage, 0.0f, 100.0f);
+        if (currentPercentage >= 100.0f) {
+            return 0;
+        }
+
+        const float learnedPercentPerMinute = learnedChargeRatePercentPerHour / 60.0f;
+        if (learnedPercentPerMinute > 0.0f) {
+            return (int)roundf((100.0f - currentPercentage) / learnedPercentPerMinute);
+        }
+    }
+
     if (estimatedMinutesTo100 < 0.0f) {
         return -1;
     }
@@ -183,6 +235,13 @@ int BatteryMonitor::getEstimatedMinutesTo100() {
 }
 
 String BatteryMonitor::getChargeEstimateConfidence() const {
+    if (estimatedMinutesTo80 < 0.0f &&
+        estimatedMinutesTo100 < 0.0f &&
+        learnedChargeRatePercentPerHour > 0.0f &&
+        chargingState == "charging_likely") {
+        return "learned-" + getBatteryLearningConfidence();
+    }
+
     return chargeEstimateConfidence;
 }
 
@@ -196,6 +255,37 @@ int BatteryMonitor::getChargeObservationMinutes() const {
 
 float BatteryMonitor::getChargeRatePercentPerHour() const {
     return chargeRatePercentPerHour;
+}
+
+float BatteryMonitor::getLearnedDischargeRatePercentPerHour() const {
+    return learnedDischargeRatePercentPerHour;
+}
+
+float BatteryMonitor::getLearnedChargeRatePercentPerHour() const {
+    return learnedChargeRatePercentPerHour;
+}
+
+uint16_t BatteryMonitor::getLearnedDischargeObservations() const {
+    return learnedDischargeObservations;
+}
+
+uint16_t BatteryMonitor::getLearnedChargeObservations() const {
+    return learnedChargeObservations;
+}
+
+String BatteryMonitor::getBatteryLearningConfidence() const {
+    const uint16_t observations = learnedDischargeObservations + learnedChargeObservations;
+    if (observations >= 8) {
+        return "high";
+    }
+    if (observations >= 3) {
+        return "medium";
+    }
+    if (observations > 0) {
+        return "low";
+    }
+
+    return "none";
 }
 
 int BatteryMonitor::voltageToPercentage(float voltage) const {
@@ -284,6 +374,8 @@ void BatteryMonitor::updateRuntimeEstimate() {
     } else {
         runtimeEstimateConfidence = "low";
     }
+
+    maybeLearnDischargeRate(dischargeRatePercentPerHour, elapsedMinutes);
 }
 
 void BatteryMonitor::updateChargeEstimate() {
@@ -371,6 +463,54 @@ void BatteryMonitor::updateChargeEstimate() {
     } else {
         chargeEstimateConfidence = "low";
     }
+
+    maybeLearnChargeRate(chargeRatePercentPerHour, elapsedMinutes);
+}
+
+void BatteryMonitor::maybeLearnDischargeRate(float ratePercentPerHour, float elapsedMinutes) {
+    const unsigned long now = millis();
+    if (elapsedMinutes < LEARNING_MIN_DISCHARGE_OBSERVATION_MINUTES ||
+        ratePercentPerHour < LEARNING_MIN_DISCHARGE_RATE_PERCENT_PER_HOUR ||
+        ratePercentPerHour > LEARNING_MAX_DISCHARGE_RATE_PERCENT_PER_HOUR ||
+        (lastLearningSaveMillis != 0 && now - lastLearningSaveMillis < LEARNING_SAVE_INTERVAL_MS)) {
+        return;
+    }
+
+    const float alpha = learnedDischargeObservations == 0 ? 1.0f : (elapsedMinutes >= 60.0f ? 0.20f : 0.12f);
+    learnedDischargeRatePercentPerHour =
+        learnedDischargeObservations == 0
+            ? ratePercentPerHour
+            : (learnedDischargeRatePercentPerHour * (1.0f - alpha)) + (ratePercentPerHour * alpha);
+
+    if (learnedDischargeObservations < UINT16_MAX) {
+        learnedDischargeObservations++;
+    }
+
+    saveLearningProfile();
+    lastLearningSaveMillis = now;
+}
+
+void BatteryMonitor::maybeLearnChargeRate(float ratePercentPerHour, float elapsedMinutes) {
+    const unsigned long now = millis();
+    if (elapsedMinutes < LEARNING_MIN_CHARGE_OBSERVATION_MINUTES ||
+        ratePercentPerHour < LEARNING_MIN_CHARGE_RATE_PERCENT_PER_HOUR ||
+        ratePercentPerHour > LEARNING_MAX_CHARGE_RATE_PERCENT_PER_HOUR ||
+        (lastLearningSaveMillis != 0 && now - lastLearningSaveMillis < LEARNING_SAVE_INTERVAL_MS)) {
+        return;
+    }
+
+    const float alpha = learnedChargeObservations == 0 ? 1.0f : (elapsedMinutes >= 45.0f ? 0.20f : 0.12f);
+    learnedChargeRatePercentPerHour =
+        learnedChargeObservations == 0
+            ? ratePercentPerHour
+            : (learnedChargeRatePercentPerHour * (1.0f - alpha)) + (ratePercentPerHour * alpha);
+
+    if (learnedChargeObservations < UINT16_MAX) {
+        learnedChargeObservations++;
+    }
+
+    saveLearningProfile();
+    lastLearningSaveMillis = now;
 }
 
 String BatteryMonitor::getBatteryStatus() {
@@ -442,4 +582,45 @@ void BatteryMonitor::loadCalibration() {
 void BatteryMonitor::saveCalibration() {
     preferences.putFloat("cal_offset", calibrationOffset);
     Serial.println("Battery calibration saved");
+}
+
+void BatteryMonitor::loadLearningProfile() {
+    learnedDischargeRatePercentPerHour = preferences.getFloat("ld_rate", 0.0f);
+    learnedChargeRatePercentPerHour = preferences.getFloat("lc_rate", 0.0f);
+    learnedDischargeObservations = preferences.getUShort("ld_obs", 0);
+    learnedChargeObservations = preferences.getUShort("lc_obs", 0);
+
+    if (learnedDischargeRatePercentPerHour < LEARNING_MIN_DISCHARGE_RATE_PERCENT_PER_HOUR ||
+        learnedDischargeRatePercentPerHour > LEARNING_MAX_DISCHARGE_RATE_PERCENT_PER_HOUR) {
+        learnedDischargeRatePercentPerHour = 0.0f;
+        learnedDischargeObservations = 0;
+    }
+    if (learnedChargeRatePercentPerHour < LEARNING_MIN_CHARGE_RATE_PERCENT_PER_HOUR ||
+        learnedChargeRatePercentPerHour > LEARNING_MAX_CHARGE_RATE_PERCENT_PER_HOUR) {
+        learnedChargeRatePercentPerHour = 0.0f;
+        learnedChargeObservations = 0;
+    }
+
+    Serial.printf("Battery learning loaded: discharge=%.3f%%/h (%u obs) charge=%.3f%%/h (%u obs) confidence=%s\n",
+                  learnedDischargeRatePercentPerHour,
+                  learnedDischargeObservations,
+                  learnedChargeRatePercentPerHour,
+                  learnedChargeObservations,
+                  getBatteryLearningConfidence().c_str());
+}
+
+void BatteryMonitor::saveLearningProfile() {
+    preferences.begin("battery", false);
+    preferences.putFloat("ld_rate", learnedDischargeRatePercentPerHour);
+    preferences.putFloat("lc_rate", learnedChargeRatePercentPerHour);
+    preferences.putUShort("ld_obs", learnedDischargeObservations);
+    preferences.putUShort("lc_obs", learnedChargeObservations);
+    preferences.end();
+
+    Serial.printf("Battery learning saved: discharge=%.3f%%/h (%u obs) charge=%.3f%%/h (%u obs) confidence=%s\n",
+                  learnedDischargeRatePercentPerHour,
+                  learnedDischargeObservations,
+                  learnedChargeRatePercentPerHour,
+                  learnedChargeObservations,
+                  getBatteryLearningConfidence().c_str());
 }

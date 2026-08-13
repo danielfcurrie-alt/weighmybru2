@@ -46,6 +46,14 @@ byte 14  reserved
 byte 15  checksum
 ```
 
+Current beta example payload:
+
+```text
+03 0C 01 10 01 00 FF FF 07 00 07 00 01 14 00 0A
+```
+
+This advertises feature bits `0...18`, preferred atomic command `0x07`, extension packet version `1`, and extension packet length `20`.
+
 ## Feature mask
 
 ```text
@@ -66,9 +74,125 @@ bit 13  scale quality diagnostics
 bit 14  lifetime quality diagnostics
 bit 15  zero stability control
 bit 16  glitch rejection
-bit 17  battery charge estimate
+bit 17  battery charge/runtime estimate, including learned voltage-based rate profile when available
 bit 18  legacy Float32 20 Hz pacing
 ```
+
+## 20-byte WMB+ extension packet v1
+
+WMB+ uses the existing 20-byte WeighMyBru/GaggiMate weight characteristic:
+
+```text
+6E400002-B5A3-F393-E0A9-E50E24DCCA9E
+```
+
+The legacy weight contract is preserved:
+
+- byte `0` remains product number
+- byte `1` remains message type
+- byte `6` remains weight sign
+- bytes `7...9` remain absolute weight in centigrams
+- byte `19` remains checksum
+
+Apps should only parse the extended fields after confirming the capabilities characteristic advertises:
+
+- feature bit `8` / `extended WMB packet`
+- extension packet version `1`
+- extension packet length `20`
+
+Packet byte layout:
+
+| Byte(s) | Name | Type / encoding | Meaning |
+| --- | --- | --- | --- |
+| `0` | product | UInt8 | `0x03` for WeighMyBru |
+| `1` | message type | UInt8 | `0x0B` weight message |
+| `2...4` | device timestamp | UInt24 big-endian | firmware sample timestamp in milliseconds, low 24 bits |
+| `5` | extension version | UInt8 | `0x01` for this packet layout |
+| `6` | weight sign | UInt8 | ASCII `+` (`0x2B`) or `-` (`0x2D`) |
+| `7...9` | weight magnitude | UInt24 big-endian | absolute weight in centigrams (`g * 100`) |
+| `10` | flow sign | UInt8 | ASCII `+` (`0x2B`) or `-` (`0x2D`) |
+| `11...12` | flow magnitude | UInt16 big-endian | absolute flow in centigrams/sec (`g/s * 100`) |
+| `13` | battery percent | UInt8 | `0...100`, or `0xFF` when unavailable |
+| `14` | sequence | UInt8 | increments once per extended packet; wraps at `255 -> 0` |
+| `15` | status flags | UInt8 bitmask | timer, HX711, tare, battery, display state |
+| `16` | scale quality | UInt8 | firmware scale-quality score `0...100`, or `0xFF` when unavailable |
+| `17` | detected sample rate | UInt8 | rounded detected HX711 sample rate in Hz, `0` when unknown |
+| `18` | diagnostic flags | UInt8 bitmask | bump, gap, cadence, rate mode, quality, flow, extension state |
+| `19` | checksum | UInt8 | XOR of bytes `0...18` |
+
+Timestamp behavior:
+
+- The timestamp is the firmware-side sample time, not the phone/app receive time.
+- It is truncated to 24 bits and rolls over every `16,777,216 ms` / about `4.66 hours`.
+- Apps should preserve both device timestamp and host arrival time if they care about BLE transport jitter.
+
+Weight and flow units:
+
+- Weight is signed centigrams, reconstructed from bytes `6...9`.
+- Flow is signed centigrams/sec, reconstructed from bytes `10...12`.
+- The firmware clamps flow magnitude to UInt16 range.
+
+Checksum:
+
+```text
+checksum = byte0 XOR byte1 XOR ... XOR byte18
+```
+
+Reject the packet if byte `19` does not match the calculated XOR.
+
+### Status flags, byte 15
+
+```text
+bit 0  timer running
+bit 1  HX711 connected
+bit 2  tare pending
+bit 3  atomic tare/start pending
+bit 4  battery low
+bit 5  battery critical
+bit 6  battery present / valid
+bit 7  display present
+```
+
+Tare-pending and atomic-tare/start-pending bits are intentionally visible so an app can avoid treating transitional samples as shot data.
+
+### Diagnostic flags, byte 18
+
+```text
+bit 0  recent bump
+bit 1  long gap seen
+bit 2  cadence valid
+bit 3  80 SPS detected
+bit 4  10 SPS detected
+bit 5  quality valid
+bit 6  flow present
+bit 7  extension present
+```
+
+Diagnostic bits are sample annotations. They should not automatically cause an app to reject the weight unless the app's own scoring/control policy says so.
+
+## Commands
+
+Commands are written to:
+
+```text
+6E400003-B5A3-F393-E0A9-E50E24DCCA9E
+```
+
+Current command payloads:
+
+| Command | Bytes | Meaning |
+| --- | --- | --- |
+| Tare | `03 0A 01 01 00 09` | route app tare through the physical-parity tare path |
+| Timer start | `03 0A 02 01 00 0A` | start timer |
+| Timer stop | `03 0A 03 01 00 0B` | stop timer |
+| Timer reset | `03 0A 04 01 00 0C` | reset timer |
+| Atomic tare/start | `03 0A 07 00 00 0E` | tare and start timer as one operation |
+
+The last byte is the XOR checksum of the preceding bytes.
+
+Apps should discover atomic tare/start support through the capabilities characteristic rather than assuming command `0x07` is present.
+
+Command notifications, when subscribed, are acknowledgements/diagnostics only. Apps should not require an acknowledgement for basic compatibility unless they have explicitly discovered and chosen to depend on the WMB+ command notify/ack feature bit.
 
 ## Compatibility rule
 
