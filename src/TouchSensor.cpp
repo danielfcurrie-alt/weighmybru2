@@ -7,7 +7,7 @@
 TouchSensor::TouchSensor(uint8_t touchPin, Scale* scale) 
     : touchPin(touchPin), scalePtr(scale), displayPtr(nullptr), flowRatePtr(nullptr), touchThreshold(30000), 
       lastTouchState(false), lastTouchTime(0), touchStartTime(0), debounceDelay(200),
-      longPressDetected(false), delayedTarePending(false), delayedTareTime(0) {
+      longPressDetected(false), delayedTarePending(false), delayedStartTimerAfterTare(false), delayedTareTime(0) {
 }
 
 void TouchSensor::begin() {
@@ -102,6 +102,39 @@ void TouchSensor::setFlowRate(FlowRate* flowRate) {
     flowRatePtr = flowRate;
 }
 
+void TouchSensor::requestTare(const char* source) {
+    requestDelayedTare(source, false);
+}
+
+void TouchSensor::requestTareAndStartTimer(const char* source) {
+    requestDelayedTare(source, true);
+}
+
+void TouchSensor::requestDelayedTare(const char* source, bool startTimerAfterTare) {
+    const char* requestSource = source != nullptr ? source : "external";
+    Serial.printf(
+        "Tare requested from %s%s - showing taring message immediately\n",
+        requestSource,
+        startTimerAfterTare ? " with timer start" : ""
+    );
+
+    // Show taring message immediately for better user feedback
+    if (displayPtr != nullptr) {
+        displayPtr->showTaringMessage();
+        Serial.println("Taring message displayed");
+    }
+
+    Serial.printf(
+        "Scheduling delayed tare in %.1f seconds from %s%s\n",
+        TARE_DELAY / 1000.0f,
+        requestSource,
+        startTimerAfterTare ? " then timer start" : ""
+    );
+    delayedTarePending = true;
+    delayedStartTimerAfterTare = startTimerAfterTare;
+    delayedTareTime = millis() + TARE_DELAY;
+}
+
 void TouchSensor::handleTouch() {
     if (scalePtr != nullptr) {
         Serial.println("Touch detected! Taring scale...");
@@ -136,37 +169,39 @@ void TouchSensor::handleTouch() {
 }
 
 void TouchSensor::scheduleDelayedTare() {
-    Serial.println("Touch detected - showing taring message immediately");
-    
-    // Show taring message immediately for better user feedback
-    if (displayPtr != nullptr) {
-        displayPtr->showTaringMessage();
-        Serial.println("Taring message displayed");
-    }
-    
-    Serial.println("Scheduling delayed tare in 1.5 seconds...");
-    delayedTarePending = true;
-    delayedTareTime = millis() + TARE_DELAY;
+    requestTare("touch");
 }
 
 void TouchSensor::checkDelayedTare() {
     if (delayedTarePending && millis() >= delayedTareTime) {
         Serial.println("Executing delayed tare operation");
         delayedTarePending = false;
+        const bool startTimerAfterTare = delayedStartTimerAfterTare;
+        delayedStartTimerAfterTare = false;
         
         // Perform the actual tare operation without showing message again
         if (scalePtr != nullptr) {
             scalePtr->tare();
             Serial.println("Scale tared successfully");
             
-            // Reset timer when manual tare is pressed
+            // Reset timer at the same boundary as the tare. Atomic tare+start
+            // then starts from this post-tare boundary instead of requiring the
+            // app to send a second BLE command later.
             if (displayPtr != nullptr) {
                 displayPtr->resetTimer();
-                Serial.println("Timer reset with manual tare");
+                Serial.println("Timer reset with tare");
+                if (startTimerAfterTare) {
+                    displayPtr->startTimer();
+                    Serial.println("Timer started after atomic tare");
+                }
+            } else if (startTimerAfterTare) {
+                Serial.println("Timer start requested after tare, but display/timer is unavailable");
             }
             
-            // Reset flow rate averaging for fresh brew
-            if (flowRatePtr != nullptr) {
+            // Reset flow rate averaging for fresh brew when display/timer did
+            // not already do it. Display::resetTimer()/startTimer() owns flow
+            // averaging when a display timer is present.
+            if (flowRatePtr != nullptr && displayPtr == nullptr) {
                 flowRatePtr->resetTimerAveraging();
                 Serial.println("Flow rate averaging reset for fresh brew");
             }

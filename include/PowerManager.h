@@ -27,6 +27,7 @@ public:
     // Used by main.cpp to forward events to SmbComms without a hard dependency
     void setRelayOnCallback(std::function<void()> cb)  { _relayOnCb  = cb; }
     void setRelayOffCallback(std::function<void()> cb) { _relayOffCb = cb; }
+    void setBeforeSleepCallback(std::function<void()> cb) { _beforeSleepCb = cb; }
 
     // Auto-sleep feature
     void notifyWeight(float weight);
@@ -67,6 +68,7 @@ private:
 
     std::function<void()> _relayOnCb;
     std::function<void()> _relayOffCb;
+    std::function<void()> _beforeSleepCb;
 
     // Auto-sleep state
     bool          _autoSleepEnabled;

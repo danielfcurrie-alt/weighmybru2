@@ -32,6 +32,7 @@ public:
     void showStatusPage(); // Show status page with battery, BLE, WiFi, and scale status
     void toggleStatusPage(); // Toggle between main display and status page
     void clear();
+    void powerOff();
     void setBrightness(uint8_t brightness);
     
     // Bluetooth connection status

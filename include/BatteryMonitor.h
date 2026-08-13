@@ -12,12 +12,24 @@ public:
     // Battery readings
     float getBatteryVoltage();
     int getBatteryPercentage();
+    int getRawBatteryPercentage();
     String getBatteryStatus();  // "Full", "Good", "Low", "Critical"
+    int getEstimatedRuntimeMinutesRemaining();
+    String getRuntimeEstimateConfidence() const;
+    int getRuntimeObservationMinutes() const;
+    float getDischargeRatePercentPerHour() const;
+    String getChargingState();
+    int getEstimatedMinutesTo80();
+    int getEstimatedMinutesTo100();
+    String getChargeEstimateConfidence() const;
+    int getChargeObservationMinutes() const;
+    float getChargeRatePercentPerHour() const;
     
     // Battery state indicators
-    bool isCharging();  // Future expansion for charge detection
+    bool isCharging();
     bool isLowBattery();
     bool isCriticalBattery();
+    bool hasValidReading() const { return hasReading; }
     
     // Configuration and calibration
     void calibrateVoltage(float actualVoltage);  // For fine-tuning readings
@@ -49,11 +61,39 @@ private:
     // Calibration and smoothing
     float calibrationOffset = 0.0f;  // Voltage adjustment for accuracy
     float lastVoltage = 0.0f;        // For smoothing readings
+    float smoothedPercentage = -1.0f;
+    int rawPercentage = 0;
+    bool hasReading = false;
+    float dischargeStartPercentage = -1.0f;
+    unsigned long dischargeStartMillis = 0;
+    float estimatedRuntimeMinutes = -1.0f;
+    float dischargeRatePercentPerHour = 0.0f;
+    String runtimeEstimateConfidence = "learning";
+    float chargeStartPercentage = -1.0f;
+    unsigned long chargeStartMillis = 0;
+    float estimatedMinutesTo80 = -1.0f;
+    float estimatedMinutesTo100 = -1.0f;
+    float chargeRatePercentPerHour = 0.0f;
+    String chargeEstimateConfidence = "learning";
+    String chargingState = "unknown";
     unsigned long lastUpdate = 0;
     static constexpr unsigned long UPDATE_INTERVAL = 1000; // Update every 1 second
+    static constexpr float VOLTAGE_EMA_ALPHA = 0.2f;
+    static constexpr float PERCENT_EMA_ALPHA = 0.18f;
+    static constexpr float PERCENT_MAX_STEP = 2.0f;
+    static constexpr int PERCENT_VISIBLE_STEP = 5;
+    static constexpr float CHARGE_DETECTION_DELTA_PERCENT = 1.0f;
+    static constexpr float CHARGE_ESTIMATE_MIN_DELTA_PERCENT = 1.5f;
+    static constexpr float CHARGE_ESTIMATE_MIN_MINUTES = 3.0f;
+    static constexpr float CHARGE_FULL_PERCENT = 98.5f;
+    static constexpr float CHARGE_FULL_VOLTAGE = 4.15f;
     
     // Internal methods
     float readRawVoltage();
+    int voltageToPercentage(float voltage) const;
+    int quantizePercentage(int percentage) const;
+    void updateRuntimeEstimate();
+    void updateChargeEstimate();
     void loadCalibration();
     void saveCalibration();
 };

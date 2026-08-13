@@ -1,3 +1,20 @@
+> [!IMPORTANT]
+> This branch/repository contains **WMB+ beta firmware**, an alternate tester firmware for WeighMyBru-compatible ESP32-S3 scale builds.
+>
+> WMB+ preserves the stock-compatible WeighMyBru BLE paths while adding optional extended telemetry, standard BLE battery, 80 SPS support, USB serial capture, app/physical tare parity, and firmware-side diagnostics.
+>
+> Primary tested board for the first public beta: **Seeed Studio XIAO ESP32S3**.
+>
+> Start here:
+>
+> - [WMB+ beta overview](docs/WMB_PLUS_BETA.md)
+> - [Flashing instructions](docs/FLASHING.md)
+> - [Rollback instructions](docs/ROLLBACK.md)
+> - [Compatibility checklist](docs/COMPATIBILITY.md)
+> - [Tester checklist](docs/TESTING.md)
+> - [USB serial protocol](docs/USB_SERIAL.md)
+> - [WMB+ BLE protocol](docs/WMB_PLUS_PROTOCOL.md)
+
 <p align="center">
 <img src="docs/assets/Weighmybru-logo.png" alt="WeighMyBru Dashboard" width="500" height="745"/>
 </p>

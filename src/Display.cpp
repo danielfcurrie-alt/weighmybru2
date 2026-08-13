@@ -17,7 +17,7 @@ Display::Display(uint8_t sdaPin, uint8_t sclPin, Scale* scale, FlowRate* flowRat
 
 bool Display::begin() {
     Serial.println("Initializing display...");
-    
+
     // Initialize I2C with custom pins
     Wire.begin(sdaPin, sclPin);
     
@@ -624,6 +624,18 @@ void Display::clear() {
     display->display();
 }
 
+void Display::powerOff() {
+    // Return early if display is not connected
+    if (!displayConnected) {
+        return;
+    }
+
+    display->clearDisplay();
+    display->display();
+    display->ssd1306_command(SSD1306_DISPLAYOFF);
+    Serial.println("Display powered off for deep sleep");
+}
+
 void Display::setBrightness(uint8_t brightness) {
     // Return early if display is not connected
     if (!displayConnected) {
@@ -676,33 +688,41 @@ void Display::drawBatteryStatus() {
         return;
     }
     
-    // Get battery percentage and critical status
+    // Get battery percentage and low/critical status
     int batteryPercentage = batteryPtr->getBatteryPercentage();
+    bool isLow = batteryPtr->isLowBattery();
     bool isCritical = batteryPtr->isCriticalBattery();
-    
-    // Format percentage string
-    String percentStr = String(batteryPercentage) + "%";
+    bool isCharging = batteryPtr->isCharging();
+
+    // Default user-facing display remains percentage. In low states, keep the
+    // footprint small so it does not collide with the centered weight/timer UI.
+    String batteryStr = String(batteryPercentage) + "%";
+    if (isCritical && (millis() % 2000 < 1000)) {
+        batteryStr = "CHG";
+    } else if (isCharging && (millis() % 4000 < 1000)) {
+        batteryStr = "CHG";
+    }
     
     // Set small text size for percentage display
     display->setTextSize(1);
     
-    // For critical battery, make it flash (every 500ms)
-    if (isCritical && (millis() % 1000 < 500)) {
-        // Flash state - draw text with inverted colors (black text on white background)
+    // For low/critical battery, flash inverted text. Critical alternates between
+    // the percentage and "CHG"; low flashes the percentage only.
+    if ((isCritical || isLow) && (millis() % 1000 < 500)) {
         int16_t x1, y1;
         uint16_t textWidth, textHeight;
-        display->getTextBounds(percentStr, 0, 0, &x1, &y1, &textWidth, &textHeight);
+        display->getTextBounds(batteryStr, 0, 0, &x1, &y1, &textWidth, &textHeight);
         
         // Fill background white and draw black text
         display->fillRect(0, 0, textWidth + 2, textHeight + 2, SSD1306_WHITE);
         display->setTextColor(SSD1306_BLACK);
         display->setCursor(1, 1);
-        display->print(percentStr);
+        display->print(batteryStr);
         display->setTextColor(SSD1306_WHITE); // Reset text color
     } else {
         // Normal percentage display in top-left corner
         display->setCursor(0, 0);
-        display->print(percentStr);
+        display->print(batteryStr);
     }
 }
 
@@ -1045,12 +1065,26 @@ void Display::showStatusPage() {
     // Top line: Battery %, Scale icon, BLE icon
     display->setTextSize(1);
     
-    // Battery percentage (left) - without "BAT:" prefix
+    // Battery percentage (left) - default to %, with compact warning labels
     if (batteryPtr != nullptr) {
         int batteryPercent = batteryPtr->getBatteryPercentage();
         display->setCursor(0, 0);
-        display->print(batteryPercent);
-        display->print("%");
+        if (batteryPtr->isCharging()) {
+            display->print("CHG ");
+            display->print(batteryPercent);
+            display->print("%");
+        } else if (batteryPtr->isCriticalBattery()) {
+            display->print("CHG ");
+            display->print(batteryPercent);
+            display->print("%");
+        } else if (batteryPtr->isLowBattery()) {
+            display->print("LOW ");
+            display->print(batteryPercent);
+            display->print("%");
+        } else {
+            display->print(batteryPercent);
+            display->print("%");
+        }
     } else {
         display->setCursor(0, 0);
         display->print("N/A");

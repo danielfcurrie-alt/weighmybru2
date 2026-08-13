@@ -17,7 +17,11 @@ public:
     bool isTouched();
     void setDisplay(Display* display); // Set display reference
     void setFlowRate(FlowRate* flowRate); // Set flow rate reference
-    
+    void requestTare(const char* source = "external"); // Route external/app tare through physical-tare behavior
+    void requestTareAndStartTimer(const char* source = "external"); // Atomic tare, then start timer when tare completes
+    bool isTarePending() const { return delayedTarePending; }
+    bool isTareAndStartPending() const { return delayedTarePending && delayedStartTimerAfterTare; }
+
 private:
     uint8_t touchPin;
     Scale* scalePtr;
@@ -32,11 +36,13 @@ private:
     
     // Delayed tare functionality for mounted touch sensors
     bool delayedTarePending;
+    bool delayedStartTimerAfterTare;
     unsigned long delayedTareTime;
     static const unsigned long TARE_DELAY = 1500; // 1.5 seconds delay after touch release
     static const unsigned long WIFI_TOGGLE_DURATION = 5000; // 5 seconds for WiFi toggle (longer than status page)
     
     void handleTouch();
+    void requestDelayedTare(const char* source, bool startTimerAfterTare);
     void scheduleDelayedTare();
     void checkDelayedTare();
     void handleLongPress();

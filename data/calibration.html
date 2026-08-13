@@ -64,6 +64,12 @@
           <div><strong>Current Percentage:</strong> <span id="currentPercentage">Loading...</span></div>
           <div><strong>Battery Status:</strong> <span id="batteryState">Loading...</span></div>
           <div><strong>Calibration Offset:</strong> <span id="calibrationOffset">Loading...</span></div>
+          <div><strong>Estimated Runtime:</strong> <span id="runtimeEstimate">Loading...</span></div>
+          <div><strong>Estimate Confidence:</strong> <span id="runtimeConfidence">Loading...</span></div>
+          <div><strong>Charging State:</strong> <span id="chargingState">Loading...</span></div>
+          <div><strong>Time to 80%:</strong> <span id="timeTo80">Loading...</span></div>
+          <div><strong>Time to 100%:</strong> <span id="timeTo100">Loading...</span></div>
+          <div><strong>Charge Confidence:</strong> <span id="chargeConfidence">Loading...</span></div>
         </div>
       </div>
       
@@ -174,24 +180,64 @@
         document.getElementById('currentPercentage').textContent = `${data.percentage}%`;
         document.getElementById('batteryState').textContent = data.status;
         document.getElementById('calibrationOffset').textContent = `${data.calibration_offset}V`;
+        document.getElementById('runtimeEstimate').textContent = data.runtime_display || 'Estimating';
+        document.getElementById('runtimeConfidence').textContent = data.runtime_confidence || 'learning';
+        document.getElementById('chargingState').textContent = data.charging_state || 'unknown';
+        document.getElementById('timeTo80').textContent = data.minutes_to_80_display || 'Estimating';
+        document.getElementById('timeTo100').textContent = data.minutes_to_100_display || 'Estimating';
+        document.getElementById('chargeConfidence').textContent = data.charge_confidence || 'learning';
         
         // Color code the battery status
         const voltageElement = document.getElementById('currentVoltage');
         const percentageElement = document.getElementById('currentPercentage');
         const statusElement = document.getElementById('batteryState');
+        const runtimeElement = document.getElementById('runtimeEstimate');
+        const confidenceElement = document.getElementById('runtimeConfidence');
+        const chargingStateElement = document.getElementById('chargingState');
+        const timeTo80Element = document.getElementById('timeTo80');
+        const timeTo100Element = document.getElementById('timeTo100');
+        const chargeConfidenceElement = document.getElementById('chargeConfidence');
         
-        if (data.critical_battery) {
+        if (data.charging) {
+          voltageElement.className = "text-green-400";
+          percentageElement.className = "text-green-400";
+          statusElement.className = "text-green-400";
+          runtimeElement.className = "text-green-400";
+          confidenceElement.className = "text-green-400";
+          chargingStateElement.className = "text-green-400";
+          timeTo80Element.className = "text-green-400";
+          timeTo100Element.className = "text-green-400";
+          chargeConfidenceElement.className = "text-green-400";
+        } else if (data.critical_battery) {
           voltageElement.className = "text-red-400";
           percentageElement.className = "text-red-400";
           statusElement.className = "text-red-400";
+          runtimeElement.className = "text-red-400";
+          confidenceElement.className = "text-red-400";
+          chargingStateElement.className = "text-red-400";
+          timeTo80Element.className = "text-red-400";
+          timeTo100Element.className = "text-red-400";
+          chargeConfidenceElement.className = "text-red-400";
         } else if (data.low_battery) {
           voltageElement.className = "text-yellow-400";
           percentageElement.className = "text-yellow-400";
           statusElement.className = "text-yellow-400";
+          runtimeElement.className = "text-yellow-400";
+          confidenceElement.className = "text-yellow-400";
+          chargingStateElement.className = "text-yellow-400";
+          timeTo80Element.className = "text-yellow-400";
+          timeTo100Element.className = "text-yellow-400";
+          chargeConfidenceElement.className = "text-yellow-400";
         } else {
           voltageElement.className = "text-green-400";
           percentageElement.className = "text-green-400";
           statusElement.className = "text-green-400";
+          runtimeElement.className = "text-green-400";
+          confidenceElement.className = "text-green-400";
+          chargingStateElement.className = "text-green-400";
+          timeTo80Element.className = "text-green-400";
+          timeTo100Element.className = "text-green-400";
+          chargeConfidenceElement.className = "text-green-400";
         }
       } catch (error) {
         console.error('Error updating battery display:', error);

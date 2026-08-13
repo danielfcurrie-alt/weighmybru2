@@ -2,6 +2,41 @@
 #include "WebServer.h"
 #include "Calibration.h"
 #include "FlowRate.h"
+#include <math.h>
+
+namespace {
+constexpr float ZERO_CLAMP_ENTER_GRAMS = 0.08f;
+constexpr float ZERO_CLAMP_EXIT_GRAMS = 0.18f;
+constexpr unsigned long ZERO_CLAMP_ENTER_MS = 300;
+
+constexpr float AUTO_ZERO_RANGE_GRAMS = 0.45f;
+constexpr float AUTO_ZERO_MAX_CORRECTION_GRAMS = 1.0f;
+constexpr float AUTO_ZERO_MAX_STEP_GRAMS = 0.02f;
+constexpr float AUTO_ZERO_STEP_FRACTION = 0.05f;
+constexpr float AUTO_ZERO_RAW_STEP_GRAMS = 0.25f;
+constexpr float AUTO_ZERO_WINDOW_P2P_GRAMS = 0.18f;
+constexpr unsigned long AUTO_ZERO_STABLE_MS = 7000;
+constexpr unsigned long AUTO_ZERO_ADJUST_INTERVAL_MS = 1000;
+constexpr unsigned long AUTO_ZERO_ACTIVE_WINDOW_MS = 2000;
+constexpr unsigned long ZERO_SUPPRESS_AFTER_TARE_MS = 2000;
+
+constexpr float PLAUSIBILITY_JUMP_GRAMS = 5.0f;
+constexpr float PLAUSIBILITY_CONFIRM_TOLERANCE_GRAMS = 2.0f;
+constexpr float PLAUSIBILITY_CONFIRM_TOLERANCE_FRACTION = 0.25f;
+constexpr uint8_t PLAUSIBILITY_CONFIRM_SAMPLE_COUNT = 2;
+constexpr unsigned long PLAUSIBILITY_CANDIDATE_TIMEOUT_MS = 250;
+constexpr unsigned long PLAUSIBILITY_SUPPRESS_AFTER_TARE_MS = 500;
+
+float clampFloat(float value, float minValue, float maxValue) {
+    if (value < minValue) {
+        return minValue;
+    }
+    if (value > maxValue) {
+        return maxValue;
+    }
+    return value;
+}
+}
 
 Scale::Scale(uint8_t dataPin, uint8_t clockPin, float calibrationFactor)
     : dataPin(dataPin), clockPin(clockPin), calibrationFactor(calibrationFactor), currentWeight(0.0f),
@@ -21,6 +56,7 @@ bool Scale::begin() {
     
     // Load filtering parameters with load cell-specific defaults
     loadFilterSettings();
+    loadQualityStats();
     
     // Auto-adjust brewing threshold based on calibration factor and load cell characteristics
     // Only if not previously saved by user (check if key exists)
@@ -72,6 +108,9 @@ bool Scale::begin() {
         // Only tare if connection is confirmed
         Serial.println("Performing initial tare...");
         hx711.tare();
+        lastTareMillis = millis();
+        resetPlausibilityGate();
+        resetZeroQualification();
         
         Serial.println("Smart Scale filtering configured:");
         Serial.println("Brewing threshold: " + String(brewingThreshold) + "g");
@@ -115,6 +154,14 @@ void Scale::tare(uint8_t times) {
     lastBrewingActivity = 0;
     currentWeight = 0.0f;
     lastStableWeight = 0.0f;
+    sampleSequence++;
+    lastSampleMillis = millis();
+    lastSampleMicros = 0;
+    hasLastRawSampleWeight = false;
+    lastTareMillis = lastSampleMillis;
+    resetPlausibilityGate();
+    resetZeroQualification();
+    persistQualityStatsIfNeeded(true);
     
     // Reinitialize sample buffer
     samplesInitialized = false;
@@ -154,14 +201,7 @@ float Scale::getWeight() {
         return 0.0f;
     }
     
-    static unsigned long lastReadTime = 0;
     unsigned long currentTime = millis();
-    
-    // Read at 50Hz (every 20ms) for good responsiveness
-    if (currentTime - lastReadTime < 20) {
-        return currentWeight;
-    }
-    lastReadTime = currentTime;
 
     // Check if HX711 is ready before attempting to read
     if (!hx711.is_ready()) {
@@ -174,13 +214,20 @@ float Scale::getWeight() {
     if (isnan(rawReading)) {
         return currentWeight;
     }
+
+    float qualifiedRawReading = rawReading;
+    if (!qualifyRawReading(currentTime, rawReading, qualifiedRawReading)) {
+        return currentWeight;
+    }
+    rawReading = qualifiedRawReading;
     
     // Initialize sample buffer on first valid reading
     if (!samplesInitialized) {
         initializeSamples(rawReading);
-        currentWeight = rawReading;
-        lastStableWeight = rawReading;
+        currentWeight = applyZeroQualification(currentTime, rawReading, rawReading);
+        lastStableWeight = currentWeight;
         currentFilterState = STABLE;
+        recordAcceptedSample(currentTime, rawReading, currentWeight);
         return currentWeight;
     }
     
@@ -251,7 +298,8 @@ float Scale::getWeight() {
         }
     }
     
-    currentWeight = filteredWeight;
+    currentWeight = applyZeroQualification(currentTime, rawReading, filteredWeight);
+    recordAcceptedSample(currentTime, rawReading, currentWeight);
     return currentWeight;
 }
 
@@ -259,11 +307,402 @@ float Scale::getCurrentWeight() {
     return currentWeight;
 }
 
+void Scale::recordSampleCadence(unsigned long sampleMillis) {
+    const uint32_t nowMicros = micros();
+    if (lastSampleMicros == 0) {
+        lastSampleMicros = nowMicros;
+        lastSampleIntervalMicros = 0;
+        return;
+    }
+
+    const uint32_t intervalMicros = nowMicros - lastSampleMicros;
+    lastSampleMicros = nowMicros;
+    lastSampleIntervalMicros = intervalMicros;
+
+    // Ignore clearly bogus intervals from boot/tare discontinuities, but keep
+    // real slow-path gaps. HX711 10 SPS is ~100 ms; 80 SPS is ~12.5 ms.
+    if (intervalMicros == 0 || intervalMicros > 2000000UL) {
+        return;
+    }
+
+    sampleIntervalTotalMicros += intervalMicros;
+    sampleIntervalStatsCount++;
+    if (sampleIntervalMinMicros == 0 || intervalMicros < sampleIntervalMinMicros) {
+        sampleIntervalMinMicros = intervalMicros;
+    }
+    if (intervalMicros > sampleIntervalMaxMicros) {
+        sampleIntervalMaxMicros = intervalMicros;
+    }
+
+    const uint32_t averageMicros = getSampleIntervalAverageMicros();
+    if (averageMicros > 0 && intervalMicros > averageMicros * 3UL && intervalMicros > 250000UL) {
+        sampleIntervalLongGapCount++;
+        lifetimeLongGapCount++;
+    }
+}
+
+void Scale::recordAcceptedSample(unsigned long sampleMillis, float rawReading, float publicWeight) {
+    sampleSequence++;
+    lastSampleMillis = sampleMillis;
+    lifetimeSampleCount++;
+    samplesSinceQualityPersist++;
+    recordSampleCadence(sampleMillis);
+    recordMeasurementQuality(sampleMillis, rawReading, publicWeight);
+    lastAcceptedRawReading = rawReading;
+    hasLastAcceptedRawReading = true;
+    persistQualityStatsIfNeeded(false);
+}
+
+void Scale::recordMeasurementQuality(unsigned long sampleMillis, float rawReading, float publicWeight) {
+    static constexpr float BUMP_THRESHOLD_GRAMS = 5.0f;
+
+    if (hasLastRawSampleWeight && sampleMillis - lastTareMillis > ZERO_SUPPRESS_AFTER_TARE_MS) {
+        const float rawDelta = fabsf(rawReading - lastRawSampleWeight);
+        (void)publicWeight;
+
+        // This is intentionally a coarse no-accelerometer disturbance detector:
+        // a multi-gram instantaneous raw/load change is extremely unlikely during
+        // espresso flow but common with cup knocks, scale bumps, or load shifts.
+        if (rawDelta >= BUMP_THRESHOLD_GRAMS) {
+            bumpCount++;
+            lifetimeBumpCount++;
+            lastBumpMillis = sampleMillis;
+            lastBumpMagnitudeGrams = rawDelta;
+        }
+    }
+
+    lastRawSampleWeight = rawReading;
+    hasLastRawSampleWeight = true;
+}
+
+bool Scale::qualifyRawReading(unsigned long sampleMillis, float rawReading, float& qualifiedRawReading) {
+    qualifiedRawReading = rawReading;
+
+    if (!hasLastAcceptedRawReading || sampleMillis - lastTareMillis <= PLAUSIBILITY_SUPPRESS_AFTER_TARE_MS) {
+        resetPlausibilityGate();
+        return true;
+    }
+
+    const float baselineDelta = fabsf(rawReading - lastAcceptedRawReading);
+
+    if (plausibilityCandidateActive) {
+        const float candidateMovement = fabsf(plausibilityCandidateRaw - plausibilityBaselineRaw);
+        const float confirmTolerance = fmaxf(PLAUSIBILITY_CONFIRM_TOLERANCE_GRAMS,
+                                             candidateMovement * PLAUSIBILITY_CONFIRM_TOLERANCE_FRACTION);
+        const float candidateDelta = fabsf(rawReading - plausibilityCandidateRaw);
+        const bool stillAwayFromBaseline = baselineDelta >= PLAUSIBILITY_JUMP_GRAMS;
+        const bool confirmsCandidate = stillAwayFromBaseline && candidateDelta <= confirmTolerance;
+        const bool returnedToBaseline = baselineDelta < PLAUSIBILITY_JUMP_GRAMS;
+        const bool timedOut = sampleMillis - plausibilityCandidateMillis > PLAUSIBILITY_CANDIDATE_TIMEOUT_MS;
+
+        if (confirmsCandidate) {
+            plausibilityCandidateCount++;
+            if (plausibilityCandidateCount >= PLAUSIBILITY_CONFIRM_SAMPLE_COUNT) {
+                resetPlausibilityGate();
+                return true;
+            }
+            return false;
+        }
+
+        if (returnedToBaseline || timedOut) {
+            recordRejectedGlitch(sampleMillis, candidateMovement);
+            resetPlausibilityGate();
+            return true;
+        }
+
+        // Still implausible, but not consistent with the first candidate. Treat
+        // the prior candidate as a glitch and start over from this raw sample.
+        recordRejectedGlitch(sampleMillis, candidateMovement);
+        plausibilityCandidateActive = true;
+        plausibilityCandidateCount = 1;
+        plausibilityCandidateMillis = sampleMillis;
+        plausibilityCandidateRaw = rawReading;
+        plausibilityBaselineRaw = lastAcceptedRawReading;
+        return false;
+    }
+
+    if (baselineDelta >= PLAUSIBILITY_JUMP_GRAMS) {
+        plausibilityCandidateActive = true;
+        plausibilityCandidateCount = 1;
+        plausibilityCandidateMillis = sampleMillis;
+        plausibilityCandidateRaw = rawReading;
+        plausibilityBaselineRaw = lastAcceptedRawReading;
+        return false;
+    }
+
+    return true;
+}
+
+void Scale::recordRejectedGlitch(unsigned long sampleMillis, float magnitudeGrams) {
+    glitchCount++;
+    lifetimeGlitchCount++;
+    samplesSinceQualityPersist++;
+    lastGlitchMillis = sampleMillis;
+    lastGlitchMagnitudeGrams = magnitudeGrams;
+    persistQualityStatsIfNeeded(false);
+}
+
+void Scale::resetPlausibilityGate() {
+    plausibilityCandidateActive = false;
+    plausibilityCandidateCount = 0;
+    plausibilityCandidateMillis = 0;
+    plausibilityCandidateRaw = 0.0f;
+    plausibilityBaselineRaw = 0.0f;
+    lastAcceptedRawReading = 0.0f;
+    hasLastAcceptedRawReading = false;
+}
+
+float Scale::applyZeroQualification(unsigned long sampleMillis, float rawReading, float filteredWeight) {
+    float correctedWeight = filteredWeight - autoZeroCorrectionGrams;
+
+    autoZeroActive = lastAutoZeroAdjustMillis > 0 &&
+                     sampleMillis - lastAutoZeroAdjustMillis <= AUTO_ZERO_ACTIVE_WINDOW_MS;
+
+    const bool suppressAfterTare = sampleMillis - lastTareMillis <= ZERO_SUPPRESS_AFTER_TARE_MS;
+    const bool recentBump = hasRecentBump(2000);
+    const bool recentGlitch = hasRecentGlitch(2000);
+    const bool stableFilter = currentFilterState == STABLE;
+    const bool nearZero = fabsf(correctedWeight) <= AUTO_ZERO_RANGE_GRAMS;
+    const bool quietRawStep = !hasLastRawSampleWeight ||
+                              fabsf(rawReading - lastRawSampleWeight) <= AUTO_ZERO_RAW_STEP_GRAMS;
+    const bool zeroCandidate = stableFilter && !suppressAfterTare && !recentBump && !recentGlitch && nearZero && quietRawStep;
+
+    if (zeroCandidate) {
+        if (zeroWindowStartMillis == 0) {
+            zeroWindowStartMillis = sampleMillis;
+            zeroWindowMinGrams = correctedWeight;
+            zeroWindowMaxGrams = correctedWeight;
+        } else {
+            if (correctedWeight < zeroWindowMinGrams) {
+                zeroWindowMinGrams = correctedWeight;
+            }
+            if (correctedWeight > zeroWindowMaxGrams) {
+                zeroWindowMaxGrams = correctedWeight;
+            }
+        }
+    } else {
+        zeroWindowStartMillis = 0;
+        zeroWindowMinGrams = correctedWeight;
+        zeroWindowMaxGrams = correctedWeight;
+        if (!nearZero || recentBump || recentGlitch || !stableFilter) {
+            zeroClampActive = false;
+        }
+    }
+
+    const bool zeroWindowReady = zeroWindowStartMillis > 0 &&
+                                 sampleMillis - zeroWindowStartMillis >= AUTO_ZERO_STABLE_MS;
+    const float zeroWindowPeakToPeak = zeroWindowMaxGrams - zeroWindowMinGrams;
+    const bool canAutoZero = zeroWindowReady &&
+                             zeroWindowPeakToPeak <= AUTO_ZERO_WINDOW_P2P_GRAMS &&
+                             sampleMillis - lastAutoZeroAdjustMillis >= AUTO_ZERO_ADJUST_INTERVAL_MS;
+
+    if (canAutoZero && fabsf(correctedWeight) > 0.02f) {
+        const float adjustment = clampFloat(correctedWeight * AUTO_ZERO_STEP_FRACTION,
+                                            -AUTO_ZERO_MAX_STEP_GRAMS,
+                                            AUTO_ZERO_MAX_STEP_GRAMS);
+        if (fabsf(adjustment) >= 0.001f) {
+            autoZeroCorrectionGrams = clampFloat(autoZeroCorrectionGrams + adjustment,
+                                                -AUTO_ZERO_MAX_CORRECTION_GRAMS,
+                                                AUTO_ZERO_MAX_CORRECTION_GRAMS);
+            lastAutoZeroAdjustMillis = sampleMillis;
+            autoZeroActive = true;
+            correctedWeight = filteredWeight - autoZeroCorrectionGrams;
+        }
+    }
+
+    if (zeroClampActive) {
+        if (fabsf(correctedWeight) > ZERO_CLAMP_EXIT_GRAMS) {
+            zeroClampActive = false;
+        }
+    } else {
+        const bool clampWindowReady = zeroWindowStartMillis > 0 &&
+                                      sampleMillis - zeroWindowStartMillis >= ZERO_CLAMP_ENTER_MS;
+        if (clampWindowReady && fabsf(correctedWeight) <= ZERO_CLAMP_ENTER_GRAMS) {
+            zeroClampActive = true;
+        }
+    }
+
+    return zeroClampActive ? 0.0f : correctedWeight;
+}
+
+void Scale::resetZeroQualification() {
+    zeroClampActive = false;
+    autoZeroActive = false;
+    zeroWindowStartMillis = 0;
+    lastAutoZeroAdjustMillis = 0;
+    zeroWindowMinGrams = 0.0f;
+    zeroWindowMaxGrams = 0.0f;
+    autoZeroCorrectionGrams = 0.0f;
+}
+
+void Scale::resetSampleCadenceStats() {
+    lastSampleMicros = 0;
+    lastSampleIntervalMicros = 0;
+    sampleIntervalTotalMicros = 0;
+    sampleIntervalStatsCount = 0;
+    sampleIntervalMinMicros = 0;
+    sampleIntervalMaxMicros = 0;
+    sampleIntervalLongGapCount = 0;
+    bumpCount = 0;
+    lastBumpMillis = 0;
+    lastBumpMagnitudeGrams = 0.0f;
+    glitchCount = 0;
+    lastGlitchMillis = 0;
+    lastGlitchMagnitudeGrams = 0.0f;
+    hasLastRawSampleWeight = false;
+    resetPlausibilityGate();
+}
+
+uint32_t Scale::getSampleIntervalAverageMicros() const {
+    if (sampleIntervalStatsCount == 0) {
+        return 0;
+    }
+    return static_cast<uint32_t>(sampleIntervalTotalMicros / sampleIntervalStatsCount);
+}
+
+float Scale::getDetectedSampleRateHz() const {
+    const uint32_t averageMicros = getSampleIntervalAverageMicros();
+    if (averageMicros == 0) {
+        return 0.0f;
+    }
+    return 1000000.0f / static_cast<float>(averageMicros);
+}
+
+String Scale::getDetectedHx711RateMode() const {
+    const float rateHz = getDetectedSampleRateHz();
+    if (rateHz >= 50.0f) {
+        return "80SPS";
+    }
+    if (rateHz >= 6.0f) {
+        return "10SPS";
+    }
+    return "UNKNOWN";
+}
+
+uint8_t Scale::getDetectedSampleRateRoundedHz() const {
+    const float rateHz = getDetectedSampleRateHz();
+    if (rateHz <= 0.0f) {
+        return 0;
+    }
+    if (rateHz >= 255.0f) {
+        return 255;
+    }
+    return static_cast<uint8_t>(roundf(rateHz));
+}
+
+bool Scale::hasRecentBump(unsigned long windowMs) const {
+    return lastBumpMillis > 0 && millis() - lastBumpMillis <= windowMs;
+}
+
+bool Scale::hasRecentGlitch(unsigned long windowMs) const {
+    return lastGlitchMillis > 0 && millis() - lastGlitchMillis <= windowMs;
+}
+
+uint8_t Scale::scoreFromRates(uint32_t sampleCount, uint32_t longGapCount, uint32_t bumpCount, uint32_t glitchCount) {
+    if (sampleCount == 0) {
+        return 0;
+    }
+
+    int score = 100;
+    const float gapRate = static_cast<float>(longGapCount) / static_cast<float>(sampleCount);
+    const float bumpRate = static_cast<float>(bumpCount) / static_cast<float>(sampleCount);
+    const float glitchRate = static_cast<float>(glitchCount) / static_cast<float>(sampleCount);
+
+    score -= min(40, static_cast<int>(roundf(gapRate * 1000.0f)));
+    score -= min(30, static_cast<int>(roundf(bumpRate * 1000.0f)));
+    score -= min(30, static_cast<int>(roundf(glitchRate * 2000.0f)));
+
+    return static_cast<uint8_t>(constrain(score, 0, 100));
+}
+
+uint8_t Scale::getScaleQualityScore() const {
+    if (!isConnected) {
+        return 0;
+    }
+
+    uint8_t score = scoreFromRates(sampleSequence > 0 ? sampleSequence : 1, sampleIntervalLongGapCount, bumpCount, glitchCount);
+
+    if (sampleIntervalStatsCount >= 5) {
+        const uint32_t avgMicros = getSampleIntervalAverageMicros();
+        const float rateHz = getDetectedSampleRateHz();
+
+        if (avgMicros > 0 && lastSampleIntervalMicros > avgMicros * 3UL && lastSampleIntervalMicros > 250000UL) {
+            score = score > 10 ? score - 10 : 0;
+        }
+
+        if (rateHz < 6.0f) {
+            score = score > 20 ? score - 20 : 0;
+        } else if (rateHz >= 15.0f && rateHz < 50.0f) {
+            score = score > 10 ? score - 10 : 0;
+        } else if (rateHz > 95.0f) {
+            score = score > 5 ? score - 5 : 0;
+        }
+    }
+
+    if (hasRecentBump()) {
+        score = score > 15 ? score - 15 : 0;
+    }
+
+    if (hasRecentGlitch()) {
+        score = score > 15 ? score - 15 : 0;
+    }
+
+    return score;
+}
+
+uint8_t Scale::getLifetimeQualityScore() const {
+    return scoreFromRates(lifetimeSampleCount, lifetimeLongGapCount, lifetimeBumpCount, lifetimeGlitchCount);
+}
+
+void Scale::loadQualityStats() {
+    lifetimeSampleCount = preferences.getUInt("q_samples", 0);
+    lifetimeLongGapCount = preferences.getUInt("q_gaps", 0);
+    lifetimeBumpCount = preferences.getUInt("q_bumps", 0);
+    lifetimeGlitchCount = preferences.getUInt("q_glitches", 0);
+    samplesSinceQualityPersist = 0;
+    lastQualityPersistMillis = millis();
+    Serial.printf("Scale quality lifetime loaded: score=%u samples=%lu gaps=%lu bumps=%lu glitches=%lu\n",
+                  getLifetimeQualityScore(),
+                  static_cast<unsigned long>(lifetimeSampleCount),
+                  static_cast<unsigned long>(lifetimeLongGapCount),
+                  static_cast<unsigned long>(lifetimeBumpCount),
+                  static_cast<unsigned long>(lifetimeGlitchCount));
+}
+
+void Scale::persistQualityStatsIfNeeded(bool force) {
+    const unsigned long now = millis();
+    const bool enoughSamples = samplesSinceQualityPersist >= 5000;
+    const bool enoughTime = now - lastQualityPersistMillis >= 300000UL;
+
+    if (!force && !enoughSamples && !enoughTime) {
+        return;
+    }
+
+    preferences.begin("scale", false);
+    preferences.putUInt("q_samples", lifetimeSampleCount);
+    preferences.putUInt("q_gaps", lifetimeLongGapCount);
+    preferences.putUInt("q_bumps", lifetimeBumpCount);
+    preferences.putUInt("q_glitches", lifetimeGlitchCount);
+    preferences.end();
+
+    samplesSinceQualityPersist = 0;
+    lastQualityPersistMillis = now;
+}
+
 long Scale::getRawValue() {
     if (!isConnected) {
         return 0;  // Return 0 if HX711 not connected
     }
     return hx711.get_value(1); // Get raw value from HX711
+}
+
+void Scale::powerDown() {
+    if (!isConnected) {
+        return;
+    }
+
+    hx711.power_down();
+    Serial.println("HX711 powered down for deep sleep");
 }
 
 void Scale::initializeSamples(float initialValue) {

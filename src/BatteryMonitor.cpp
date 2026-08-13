@@ -2,6 +2,21 @@
 
 BatteryMonitor::BatteryMonitor(uint8_t batteryPin) : batteryPin(batteryPin) {
     lastVoltage = 0.0f;
+    smoothedPercentage = -1.0f;
+    rawPercentage = 0;
+    hasReading = false;
+    dischargeStartPercentage = -1.0f;
+    dischargeStartMillis = 0;
+    estimatedRuntimeMinutes = -1.0f;
+    dischargeRatePercentPerHour = 0.0f;
+    runtimeEstimateConfidence = "learning";
+    chargeStartPercentage = -1.0f;
+    chargeStartMillis = 0;
+    estimatedMinutesTo80 = -1.0f;
+    estimatedMinutesTo100 = -1.0f;
+    chargeRatePercentPerHour = 0.0f;
+    chargeEstimateConfidence = "learning";
+    chargingState = "unknown";
     lastUpdate = 0;
 }
 
@@ -29,19 +44,36 @@ void BatteryMonitor::update() {
     unsigned long currentTime = millis();
     
     // Limit update frequency to reduce noise
-    if (currentTime - lastUpdate < UPDATE_INTERVAL) {
+    if (hasReading && currentTime - lastUpdate < UPDATE_INTERVAL) {
         return;
     }
     
     float newVoltage = readRawVoltage();
+    int newRawPercentage = voltageToPercentage(newVoltage);
     
     // Simple smoothing filter (exponential moving average)
-    if (lastVoltage == 0.0f) {
+    if (!hasReading) {
         lastVoltage = newVoltage;  // First reading
+        smoothedPercentage = newRawPercentage;
     } else {
-        lastVoltage = (lastVoltage * 0.8f) + (newVoltage * 0.2f);  // 80/20 smoothing
+        lastVoltage = (lastVoltage * (1.0f - VOLTAGE_EMA_ALPHA)) + (newVoltage * VOLTAGE_EMA_ALPHA);
+
+        float nextPercentage = (smoothedPercentage * (1.0f - PERCENT_EMA_ALPHA)) + (newRawPercentage * PERCENT_EMA_ALPHA);
+        float delta = nextPercentage - smoothedPercentage;
+
+        if (delta > PERCENT_MAX_STEP) {
+            nextPercentage = smoothedPercentage + PERCENT_MAX_STEP;
+        } else if (delta < -PERCENT_MAX_STEP) {
+            nextPercentage = smoothedPercentage - PERCENT_MAX_STEP;
+        }
+
+        smoothedPercentage = nextPercentage;
     }
     
+    rawPercentage = newRawPercentage;
+    hasReading = true;
+    updateRuntimeEstimate();
+    updateChargeEstimate();
     lastUpdate = currentTime;
 }
 
@@ -71,8 +103,102 @@ float BatteryMonitor::getBatteryVoltage() {
 }
 
 int BatteryMonitor::getBatteryPercentage() {
-    float voltage = getBatteryVoltage();
-    
+    if (!hasReading) {
+        update();
+    }
+
+    if (!hasReading) {
+        return 0;
+    }
+
+    return quantizePercentage((int)roundf(smoothedPercentage));
+}
+
+int BatteryMonitor::getRawBatteryPercentage() {
+    if (!hasReading) {
+        update();
+    }
+
+    return constrain(rawPercentage, 0, 100);
+}
+
+int BatteryMonitor::getEstimatedRuntimeMinutesRemaining() {
+    if (!hasReading) {
+        update();
+    }
+
+    if (estimatedRuntimeMinutes < 0.0f) {
+        return -1;
+    }
+
+    return (int)roundf(estimatedRuntimeMinutes);
+}
+
+String BatteryMonitor::getRuntimeEstimateConfidence() const {
+    return runtimeEstimateConfidence;
+}
+
+int BatteryMonitor::getRuntimeObservationMinutes() const {
+    if (dischargeStartMillis == 0) {
+        return 0;
+    }
+
+    return (int)((millis() - dischargeStartMillis) / 60000UL);
+}
+
+float BatteryMonitor::getDischargeRatePercentPerHour() const {
+    return dischargeRatePercentPerHour;
+}
+
+String BatteryMonitor::getChargingState() {
+    if (!hasReading) {
+        update();
+    }
+
+    return chargingState;
+}
+
+int BatteryMonitor::getEstimatedMinutesTo80() {
+    if (!hasReading) {
+        update();
+    }
+
+    if (estimatedMinutesTo80 < 0.0f) {
+        return -1;
+    }
+
+    return (int)roundf(estimatedMinutesTo80);
+}
+
+int BatteryMonitor::getEstimatedMinutesTo100() {
+    if (!hasReading) {
+        update();
+    }
+
+    if (estimatedMinutesTo100 < 0.0f) {
+        return -1;
+    }
+
+    return (int)roundf(estimatedMinutesTo100);
+}
+
+String BatteryMonitor::getChargeEstimateConfidence() const {
+    return chargeEstimateConfidence;
+}
+
+int BatteryMonitor::getChargeObservationMinutes() const {
+    if (chargeStartMillis == 0) {
+        return 0;
+    }
+
+    return (int)((millis() - chargeStartMillis) / 60000UL);
+}
+
+float BatteryMonitor::getChargeRatePercentPerHour() const {
+    return chargeRatePercentPerHour;
+}
+
+int BatteryMonitor::voltageToPercentage(float voltage) const {
     // Convert voltage to percentage using Li-ion discharge curve
     int percentage;
     
@@ -100,6 +226,153 @@ int BatteryMonitor::getBatteryPercentage() {
     return constrain(percentage, 0, 100);
 }
 
+int BatteryMonitor::quantizePercentage(int percentage) const {
+    percentage = constrain(percentage, 0, 100);
+    return constrain(((percentage + (PERCENT_VISIBLE_STEP / 2)) / PERCENT_VISIBLE_STEP) * PERCENT_VISIBLE_STEP, 0, 100);
+}
+
+void BatteryMonitor::updateRuntimeEstimate() {
+    const unsigned long now = millis();
+    const float currentPercentage = constrain(smoothedPercentage, 0.0f, 100.0f);
+
+    if (dischargeStartPercentage < 0.0f) {
+        dischargeStartPercentage = currentPercentage;
+        dischargeStartMillis = now;
+        estimatedRuntimeMinutes = -1.0f;
+        dischargeRatePercentPerHour = 0.0f;
+        runtimeEstimateConfidence = "learning";
+        return;
+    }
+
+    // A material increase means USB/charging/noise changed the discharge curve.
+    // Start a new observation window rather than learning from mixed states.
+    if (currentPercentage > dischargeStartPercentage + 1.0f) {
+        dischargeStartPercentage = currentPercentage;
+        dischargeStartMillis = now;
+        estimatedRuntimeMinutes = -1.0f;
+        dischargeRatePercentPerHour = 0.0f;
+        runtimeEstimateConfidence = "reset";
+        return;
+    }
+
+    const unsigned long elapsedMillis = now - dischargeStartMillis;
+    const float elapsedMinutes = elapsedMillis / 60000.0f;
+    const float percentDrop = dischargeStartPercentage - currentPercentage;
+
+    if (elapsedMinutes < 5.0f || percentDrop < 1.0f) {
+        estimatedRuntimeMinutes = -1.0f;
+        dischargeRatePercentPerHour = 0.0f;
+        runtimeEstimateConfidence = "learning";
+        return;
+    }
+
+    const float percentPerMinute = percentDrop / elapsedMinutes;
+    if (percentPerMinute <= 0.0f) {
+        estimatedRuntimeMinutes = -1.0f;
+        dischargeRatePercentPerHour = 0.0f;
+        runtimeEstimateConfidence = "learning";
+        return;
+    }
+
+    estimatedRuntimeMinutes = currentPercentage / percentPerMinute;
+    dischargeRatePercentPerHour = percentPerMinute * 60.0f;
+
+    if (elapsedMinutes >= 60.0f && percentDrop >= 8.0f) {
+        runtimeEstimateConfidence = "high";
+    } else if (elapsedMinutes >= 20.0f && percentDrop >= 3.0f) {
+        runtimeEstimateConfidence = "medium";
+    } else {
+        runtimeEstimateConfidence = "low";
+    }
+}
+
+void BatteryMonitor::updateChargeEstimate() {
+    const unsigned long now = millis();
+    const float currentPercentage = constrain(smoothedPercentage, 0.0f, 100.0f);
+
+    if (chargeStartPercentage < 0.0f || chargeStartMillis == 0) {
+        chargeStartPercentage = currentPercentage;
+        chargeStartMillis = now;
+        estimatedMinutesTo80 = -1.0f;
+        estimatedMinutesTo100 = -1.0f;
+        chargeRatePercentPerHour = 0.0f;
+        chargeEstimateConfidence = "learning";
+        chargingState = "unknown";
+        return;
+    }
+
+    // Near full is a state, not an ETA problem. With only ADC battery sense we
+    // intentionally call this "full" instead of "done charging"; charger STAT
+    // hardware can make that authoritative later.
+    if (currentPercentage >= CHARGE_FULL_PERCENT || lastVoltage >= CHARGE_FULL_VOLTAGE) {
+        estimatedMinutesTo80 = 0.0f;
+        estimatedMinutesTo100 = 0.0f;
+        chargeRatePercentPerHour = 0.0f;
+        chargeEstimateConfidence = "full";
+        chargingState = "full";
+        return;
+    }
+
+    const float percentChange = currentPercentage - chargeStartPercentage;
+
+    // A material drop means the pack is discharging or the previous charging
+    // observation window was invalid. Start fresh from the current level.
+    if (percentChange < -CHARGE_DETECTION_DELTA_PERCENT) {
+        chargeStartPercentage = currentPercentage;
+        chargeStartMillis = now;
+        estimatedMinutesTo80 = -1.0f;
+        estimatedMinutesTo100 = -1.0f;
+        chargeRatePercentPerHour = 0.0f;
+        chargeEstimateConfidence = "discharging";
+        chargingState = "discharging";
+        return;
+    }
+
+    const unsigned long elapsedMillis = now - chargeStartMillis;
+    const float elapsedMinutes = elapsedMillis / 60000.0f;
+
+    if (percentChange < CHARGE_DETECTION_DELTA_PERCENT) {
+        estimatedMinutesTo80 = -1.0f;
+        estimatedMinutesTo100 = -1.0f;
+        chargeRatePercentPerHour = 0.0f;
+        chargeEstimateConfidence = "learning";
+        chargingState = dischargeRatePercentPerHour > 0.0f ? "discharging" : "unknown";
+        return;
+    }
+
+    chargingState = "charging_likely";
+
+    if (elapsedMinutes < CHARGE_ESTIMATE_MIN_MINUTES ||
+        percentChange < CHARGE_ESTIMATE_MIN_DELTA_PERCENT) {
+        estimatedMinutesTo80 = -1.0f;
+        estimatedMinutesTo100 = -1.0f;
+        chargeRatePercentPerHour = 0.0f;
+        chargeEstimateConfidence = "learning";
+        return;
+    }
+
+    const float percentPerMinute = percentChange / elapsedMinutes;
+    if (percentPerMinute <= 0.0f) {
+        estimatedMinutesTo80 = -1.0f;
+        estimatedMinutesTo100 = -1.0f;
+        chargeRatePercentPerHour = 0.0f;
+        chargeEstimateConfidence = "learning";
+        return;
+    }
+
+    estimatedMinutesTo80 = currentPercentage >= 80.0f ? 0.0f : (80.0f - currentPercentage) / percentPerMinute;
+    estimatedMinutesTo100 = currentPercentage >= 100.0f ? 0.0f : (100.0f - currentPercentage) / percentPerMinute;
+    chargeRatePercentPerHour = percentPerMinute * 60.0f;
+
+    if (elapsedMinutes >= 45.0f && percentChange >= 8.0f) {
+        chargeEstimateConfidence = "high";
+    } else if (elapsedMinutes >= 15.0f && percentChange >= 3.0f) {
+        chargeEstimateConfidence = "medium";
+    } else {
+        chargeEstimateConfidence = "low";
+    }
+}
+
 String BatteryMonitor::getBatteryStatus() {
     float voltage = getBatteryVoltage();
     
@@ -119,9 +392,11 @@ String BatteryMonitor::getBatteryStatus() {
 }
 
 bool BatteryMonitor::isCharging() {
-    // Future implementation: detect if voltage is increasing over time
-    // For now, return false (would need additional circuitry to detect charging)
-    return false;
+    if (!hasReading) {
+        update();
+    }
+
+    return chargingState == "charging_likely";
 }
 
 bool BatteryMonitor::isLowBattery() {

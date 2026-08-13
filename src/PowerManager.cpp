@@ -121,6 +121,14 @@ void PowerManager::enterDeepSleep() {
         delay(2000);
         displayPtr->clear();
     }
+
+    if (_beforeSleepCb) {
+        _beforeSleepCb();
+    }
+
+    if (displayPtr != nullptr) {
+        displayPtr->powerOff();
+    }
     
     // Print wake-up configuration for debugging
     Serial.println("Wake-up configured for EXT0 on GPIO" + String(sleepTouchPin));

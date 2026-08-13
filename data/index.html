@@ -155,7 +155,7 @@
           <i id="bluetoothIcon" class="fa fa-bluetooth" style="font-size: 14px; color: #9ca3af;"></i>
         </div>
         <!-- Phone-style battery indicator -->
-        <div id="batteryStatus" class="flex items-center space-x-1">
+        <div id="batteryStatus" class="flex items-center space-x-1" title="Battery">
           <!-- Battery icon with Font Awesome as backup -->
           <i class="fa fa-battery-three-quarters" id="batteryIconFA" style="font-size: 14px; color: #22c55e; display: none;"></i>
           <!-- Custom SVG battery icon (primary) -->
@@ -171,6 +171,7 @@
             <rect id="batterySegment4" x="17" y="3" width="3" height="6" rx="0.5" fill="currentColor"/>
           </svg>
           <span id="batteryPercentage" class="text-sm font-medium">100%</span>
+          <span id="batteryRuntime" class="text-xs text-gray-400">Estimating</span>
         </div>
       </div>
     </div>
@@ -224,6 +225,12 @@
     <div class="bg-black-select rounded-xl p-3 space-y-2 mt-2">
       <div class="flex justify-center space-x-2">
         <span id="scaleStatus" class="px-3 py-1 bg-green-600 text-white rounded-full text-xs font-medium">HX711 Connected</span>
+      </div>
+      <div class="text-center text-xs text-gray-400" id="scaleCadenceStatus">
+        Cadence: waiting for samples
+      </div>
+      <div class="text-center text-xs text-gray-400" id="scaleQualityStatus">
+        Quality: waiting for samples
       </div>
     </div>
     
@@ -607,6 +614,31 @@
           scaleStatus.innerText = 'HX711 Disconnected';
           scaleStatus.className = 'px-3 py-1 bg-red-600 text-white rounded-full text-xs font-medium';
         }
+
+        const scaleCadenceStatus = document.getElementById('scaleCadenceStatus');
+        if (scaleCadenceStatus && data.scale_detected_rate_hz !== undefined) {
+          const rateHz = Number(data.scale_detected_rate_hz) || 0;
+          const mode = data.scale_detected_rate_mode || 'UNKNOWN';
+          const avgMs = data.scale_avg_interval_us ? Number(data.scale_avg_interval_us) / 1000 : 0;
+          const maxMs = data.scale_max_interval_us ? Number(data.scale_max_interval_us) / 1000 : 0;
+          const longGaps = data.scale_long_gap_count || 0;
+          scaleCadenceStatus.innerText =
+            `Cadence: ${mode} · ${rateHz.toFixed(1)} Hz · avg ${avgMs.toFixed(1)} ms · max ${maxMs.toFixed(1)} ms · gaps ${longGaps}`;
+        }
+
+        const scaleQualityStatus = document.getElementById('scaleQualityStatus');
+        if (scaleQualityStatus && data.scale_quality_score !== undefined) {
+          const quality = Number(data.scale_quality_score) || 0;
+          const lifetime = Number(data.scale_lifetime_quality_score) || 0;
+          const bumps = data.scale_bump_count || 0;
+          const recentBump = data.scale_recent_bump ? ' · recent bump' : '';
+          scaleQualityStatus.innerText =
+            `Quality: ${quality}/100 · lifetime ${lifetime}/100 · bumps ${bumps}${recentBump}`;
+          scaleQualityStatus.className =
+            quality >= 90 ? 'text-center text-xs text-green-400' :
+            quality >= 75 ? 'text-center text-xs text-yellow-400' :
+            'text-center text-xs text-red-400';
+        }
         
         // Update battery status indicator
         if (data.battery_percentage !== undefined) {
@@ -616,8 +648,33 @@
           const segment2 = document.getElementById('batterySegment2');
           const segment3 = document.getElementById('batterySegment3');
           const segment4 = document.getElementById('batterySegment4');
+          const batteryRuntime = document.getElementById('batteryRuntime');
           
           batteryPercentage.innerText = data.battery_percentage + '%';
+          if (batteryRuntime) {
+            const chargingState = data.battery_charging_state || 'unknown';
+            let batteryDetail = data.battery_runtime_display || 'Estimating';
+            let estimateLabel = `runtime ${batteryDetail}`;
+
+            if (chargingState === 'full') {
+              batteryDetail = 'Full';
+              estimateLabel = 'full';
+            } else if (chargingState === 'charging_likely') {
+              const to80 = Number(data.battery_minutes_to_80);
+              const to100 = Number(data.battery_minutes_to_100);
+              if (Number.isFinite(to80) && to80 > 0) {
+                batteryDetail = `80% in ${data.battery_minutes_to_80_display || `${to80}m`}`;
+              } else if (Number.isFinite(to100) && to100 > 0) {
+                batteryDetail = `100% in ${data.battery_minutes_to_100_display || `${to100}m`}`;
+              } else {
+                batteryDetail = 'Charging';
+              }
+              estimateLabel = `charge ${batteryDetail}`;
+            }
+
+            batteryRuntime.innerText = batteryDetail;
+            batteryStatus.title = `Battery: ${data.battery_percentage}% · ${chargingState} · ${estimateLabel} · Confidence: ${data.battery_charge_confidence || data.battery_runtime_confidence || 'learning'}`;
+          }
           
           // Calculate segments based on percentage (0-4 segments)
           let activeSegments = 0;
