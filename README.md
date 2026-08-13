@@ -138,6 +138,24 @@ WMBP_WEIGHT_V1,123456,9821,18.423,1.731,0x0041,98,75,79.82,0
 
 See [USB serial protocol](docs/USB_SERIAL.md) for field definitions.
 
+## Apple Silicon LittleFS builds
+
+The project pins the newer ESP32-oriented PlatformIO LittleFS tool:
+
+```ini
+platform_packages =
+  tasmota/tool-mklittlefs@^4.0.0
+```
+
+On Apple Silicon, PlatformIO may still install an x86_64 `mklittlefs` binary for that package. If `pio run -e esp32s3-xiao -t buildfs` fails with `Bad CPU type in executable`, run:
+
+```bash
+tools/install-macos-arm64-mklittlefs.sh
+pio run -e esp32s3-xiao -t buildfs
+```
+
+The helper builds `mklittlefs` 4.0.0 locally as an arm64 binary and backs up the previous PlatformIO executable.
+
 ## Compatibility policy
 
 Compatibility paths stay conservative:
