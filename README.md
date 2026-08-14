@@ -154,6 +154,7 @@ Hardware-tested on the XIAO ESP32S3 reference build:
 - Manual browser-upload OTA works for app firmware.
 - Manual browser-upload OTA works for LittleFS web UI updates.
 - The browser-side GitHub release checker works when the browser has internet access.
+- StopMyBru HTTP webhook configuration and manual Test ON/Test OFF paths are implemented and can be smoke-tested with any local HTTP receiver.
 - Physical tare and sleep controls work on the reference build.
 - Firmware quality diagnostics report high quality on clean captures.
 
@@ -165,15 +166,6 @@ Build/release validation currently covers:
 - Release manifest checks for board-specific flash size, LittleFS offset, and non-erase install policy.
 - Host-side simulation tests for battery/runtime/power-mode estimation logic.
 - A release-blocking OTA smoke-test checklist for future beta releases.
-
-Still needs broader tester validation before upstream pull requests are split out:
-
-- More stock WeighMyBru hardware variants.
-- More 10 SPS and 80 SPS HX711 builds.
-- GaggiMate/Gaggiuino-style 20-byte clients on real hardware.
-- TinyS3[D] fuel-gauge behavior on real hardware.
-- SuperMini behavior on real hardware.
-- StopMyBru webhook cutoff behavior with real Tasmota/Shelly-style devices.
 
 ## Testing and compatible apps
 

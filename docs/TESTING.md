@@ -138,6 +138,19 @@ Learning test:
 
 ## 9. StopMyBru HTTP webhook relay
 
+Smoke-test the HTTP webhook path before every public beta. A real relay is useful, but not required for the basic ON/OFF HTTP test.
+
+Without a real relay:
+
+- Start a simple HTTP receiver on a computer on the same LAN as the scale, for example `python3 -m http.server 8080`.
+- Enable WiFi and connect the scale to the same LAN as the receiver.
+- Open the StopMyBru web page.
+- Enable HTTP webhook relay.
+- Use custom `http://` URLs for the receiver, for example `http://<computer-ip>:8080/wmbplus/on` and `http://<computer-ip>:8080/wmbplus/off`.
+- Save the webhook settings.
+- Press Test ON and Test OFF from the page.
+- Confirm both requests appear in the receiver logs and the StopMyBru page reports HTTP `2xx` or `3xx`.
+
 If you have a local Tasmota or Shelly relay:
 
 - Enable WiFi and connect the scale to the same LAN as the relay.
@@ -155,6 +168,7 @@ Expected:
 
 - The page reports WiFi connected before tests.
 - Test ON and Test OFF return HTTP `2xx` or `3xx`.
+- A fake local HTTP receiver sees both the ON and OFF requests during the smoke test.
 - Manual OFF and target-weight cutoff both send the OFF webhook.
 - Manual OFF does not train the learned offset.
 - Automatic target cutoff waits for settled final weight, then adjusts the learned offset toward the observed overshoot/undershoot.

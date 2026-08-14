@@ -36,6 +36,21 @@ Use the primary XIAO reference unit and start from the previous published beta w
 
 Do not replace this with USB flashing, release asset size checks, partition-offset checks, or `factory-full.bin` validation. This gate exists specifically to exercise the real browser multipart upload path.
 
+## Release-blocking StopMyBru webhook smoke test
+
+This validates the firmware HTTP client path without requiring a real relay.
+
+- Start a simple local HTTP receiver on a computer on the same LAN as the scale, for example `python3 -m http.server 8080`.
+- Connect the scale to that LAN WiFi.
+- Open the StopMyBru page.
+- Enable HTTP webhook relay with custom local `http://` URLs such as `http://<computer-ip>:8080/wmbplus/on` and `http://<computer-ip>:8080/wmbplus/off`.
+- Save the webhook settings.
+- Press Test ON and confirm the receiver logs the request and the page reports HTTP `2xx` or `3xx`.
+- Press Test OFF and confirm the receiver logs the request and the page reports HTTP `2xx` or `3xx`.
+- Confirm `/api/smb/status` reports the last webhook HTTP code and message.
+
+This does not replace real Tasmota/Shelly validation for automatic target cutoff. It only proves the release still fires configured HTTP webhook URLs.
+
 ## Release asset verification
 
 After GitHub Actions publishes the release:
