@@ -101,6 +101,29 @@ static void captureSleepSnapshot() {
   rtcSleepSnapshot.enterMillis = millis();
 }
 
+static void preparePeripheralsForDeepSleep(const char* reason) {
+  const char* sleepReason = reason ? reason : "deep sleep";
+  Serial.printf("Preparing peripherals for deep sleep: %s\n", sleepReason);
+  captureSleepSnapshot();
+  diagnosticEventLog.record(DiagnosticEventType::SleepEnter,
+                            batteryMonitor.getBatteryVoltage(),
+                            sleepReason);
+  boardHardware.prepareForSleep();
+
+  if (scale.isHX711Connected()) {
+    scale.powerDown();
+  }
+
+  WiFi.disconnect(true);
+  WiFi.mode(WIFI_OFF);
+#ifdef ESP_IDF_VERSION_MAJOR
+  esp_err_t sleepWifiStopResult = esp_wifi_stop();
+  if (sleepWifiStopResult == ESP_OK) {
+    Serial.println("WiFi subsystem stopped for deep sleep");
+  }
+#endif
+}
+
 static void recordWakeSnapshot(esp_sleep_wakeup_cause_t wakeupReason) {
   String detail = "cause=" + String(wakeCauseName(wakeupReason));
   if (rtcSleepSnapshot.magic == SLEEP_SNAPSHOT_MAGIC && rtcSleepSnapshot.sleepCount > 0) {
@@ -185,6 +208,48 @@ static void recordRuntimeDiagnosticEvents() {
   } else if (!lowBattery) {
     lowBatteryReported = false;
   }
+}
+
+static void enforceRuntimeCriticalBatterySleep() {
+  static bool armed = false;
+  static uint32_t armedMillis = 0;
+  static constexpr uint32_t CRITICAL_SLEEP_WARNING_MS = 3000;
+
+  if (!batteryMonitor.shouldForceCriticalSleep()) {
+    armed = false;
+    armedMillis = 0;
+    return;
+  }
+
+  if (!armed) {
+    armed = true;
+    armedMillis = millis();
+    const float voltage = batteryMonitor.getBatteryVoltage();
+    const int percent = batteryMonitor.getBatteryPercentage();
+    Serial.printf("CRITICAL: Battery %.2fV %d%% below shutdown threshold - sleeping in %lus\n",
+                  voltage,
+                  percent,
+                  static_cast<unsigned long>(CRITICAL_SLEEP_WARNING_MS / 1000));
+    diagnosticEventLog.record(DiagnosticEventType::CriticalBattery,
+                              voltage,
+                              "runtime critical battery sleep armed");
+    if (oledDisplay.isConnected()) {
+      oledDisplay.showBatteryLowMessage(voltage, CRITICAL_SLEEP_WARNING_MS);
+    }
+    return;
+  }
+
+  if (millis() - armedMillis < CRITICAL_SLEEP_WARNING_MS) {
+    return;
+  }
+
+  Serial.println("CRITICAL: Runtime battery guard entering deep sleep now");
+  if (oledDisplay.isConnected()) {
+    oledDisplay.powerOff();
+  }
+  preparePeripheralsForDeepSleep("runtime critical battery");
+  Serial.flush();
+  esp_deep_sleep_start();
 }
 
 static const char* wifiModeName(wifi_mode_t mode) {
@@ -736,31 +801,15 @@ void setup() {
   powerManager.begin();
   powerManager.loadAutoSleepSettings();
   powerManager.setBeforeSleepCallback([]() {
-    Serial.println("Preparing peripherals for deep sleep...");
-    captureSleepSnapshot();
-    diagnosticEventLog.record(DiagnosticEventType::SleepEnter,
-                              batteryMonitor.getBatteryVoltage(),
-                              "deep sleep");
-    boardHardware.prepareForSleep();
-
-    if (scale.isHX711Connected()) {
-      scale.powerDown();
-    }
-
-    WiFi.disconnect(true);
-    WiFi.mode(WIFI_OFF);
-    #ifdef ESP_IDF_VERSION_MAJOR
-      esp_err_t sleepWifiStopResult = esp_wifi_stop();
-      if (sleepWifiStopResult == ESP_OK) {
-        Serial.println("WiFi subsystem stopped for deep sleep");
-      }
-    #endif
+    preparePeripheralsForDeepSleep("deep sleep");
   });
 
-  // Check for low battery - prevent boot if voltage too low
+  // Check for critical battery - prevent boot if voltage/SOC is too low.
   float batteryVoltage = batteryMonitor.getBatteryVoltage();
-  if (batteryVoltage < 3.2f && batteryVoltage > 0.1f) { // > 0.1f to avoid false readings
-    Serial.printf("CRITICAL: Battery voltage too low (%.2fV) - entering sleep\n", batteryVoltage);
+  if (batteryMonitor.shouldForceCriticalSleep()) {
+    Serial.printf("CRITICAL: Battery %.2fV %d%% below shutdown threshold - entering sleep\n",
+                  batteryVoltage,
+                  batteryMonitor.getBatteryPercentage());
     diagnosticEventLog.record(DiagnosticEventType::CriticalBattery, batteryVoltage, "boot guard sleep");
     
     // Show battery low message on display with large, centered formatting
@@ -776,8 +825,11 @@ void setup() {
     }
     
     Serial.println("Forcing deep sleep now...");
-    captureSleepSnapshot();
-    boardHardware.prepareForSleep();
+    preparePeripheralsForDeepSleep("boot critical battery");
+    if (oledDisplay.isConnected()) {
+      oledDisplay.powerOff();
+    }
+    Serial.flush();
     esp_deep_sleep_start();
   }
   
@@ -874,6 +926,7 @@ void loop() {
   batteryMonitor.update();
   updateBatteryDrainSession();
   recordRuntimeDiagnosticEvents();
+  enforceRuntimeCriticalBatterySleep();
   boardHardware.updateStatus(currentBoardStatus());
 
   // Emit lightweight battery/runtime benchmark telemetry for old-vs-new

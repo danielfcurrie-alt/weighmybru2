@@ -1,6 +1,7 @@
 #include "BatteryMonitor.h"
 #include "SimulationProfiles.h"
 #include <Wire.h>
+#include <math.h>
 
 BatteryMonitor::BatteryMonitor(uint8_t batteryPin) : batteryPin(batteryPin) {
     lastVoltage = 0.0f;
@@ -55,6 +56,7 @@ void BatteryMonitor::begin() {
     preferences.begin("battery", false);
     loadCalibration();
     loadCapacitySetting();
+    loadSafetySettings();
     loadLearningProfile();
     preferences.end();
     
@@ -815,6 +817,78 @@ void BatteryMonitor::setBatteryCapacityMah(uint16_t capacityMah) {
     Serial.printf("Battery capacity setting updated: %u mAh\n", batteryCapacityMah);
 }
 
+void BatteryMonitor::setCriticalShutdownEnabled(bool enabled) {
+    if (enabled == criticalShutdownEnabled) {
+        return;
+    }
+
+    criticalShutdownEnabled = enabled;
+    preferences.begin("battery", false);
+    saveSafetySettings();
+    preferences.end();
+    Serial.printf("Battery critical shutdown %s\n", criticalShutdownEnabled ? "enabled" : "disabled");
+}
+
+void BatteryMonitor::setCriticalShutdownVoltage(float voltage) {
+    const float constrainedVoltage = constrain(voltage,
+                                               MIN_CRITICAL_SHUTDOWN_VOLTAGE,
+                                               MAX_CRITICAL_SHUTDOWN_VOLTAGE);
+    if (fabsf(constrainedVoltage - criticalShutdownVoltage) < 0.001f) {
+        return;
+    }
+
+    criticalShutdownVoltage = constrainedVoltage;
+    preferences.begin("battery", false);
+    saveSafetySettings();
+    preferences.end();
+    Serial.printf("Battery critical shutdown voltage updated: %.2fV\n", criticalShutdownVoltage);
+}
+
+void BatteryMonitor::setCriticalShutdownPercent(uint8_t percent) {
+    const uint8_t constrainedPercent = constrain(percent,
+                                                 MIN_CRITICAL_SHUTDOWN_PERCENT,
+                                                 MAX_CRITICAL_SHUTDOWN_PERCENT);
+    if (constrainedPercent == criticalShutdownPercent) {
+        return;
+    }
+
+    criticalShutdownPercent = constrainedPercent;
+    preferences.begin("battery", false);
+    saveSafetySettings();
+    preferences.end();
+    Serial.printf("Battery critical shutdown percent updated: %u%%\n", criticalShutdownPercent);
+}
+
+bool BatteryMonitor::shouldForceCriticalSleep() {
+    if (!criticalShutdownEnabled) {
+        return false;
+    }
+    if (!hasReading) {
+        update();
+    }
+    if (!hasReading) {
+        return false;
+    }
+
+    const float voltage = getBatteryVoltage();
+    if (voltage <= 0.1f) {
+        return false;
+    }
+
+    // Boards with real USB-power detection should not force sleep while USB is
+    // present; let them charge and keep the web/USB diagnostics reachable.
+    if (usbPowerPresent) {
+        return false;
+    }
+
+    if (fuelGaugeAvailable && fuelGaugeStateOfCharge >= 0.0f &&
+        fuelGaugeStateOfCharge <= criticalShutdownPercent) {
+        return true;
+    }
+
+    return voltage <= criticalShutdownVoltage;
+}
+
 void BatteryMonitor::loadCalibration() {
     calibrationOffset = preferences.getFloat("cal_offset", 0.0f);
     Serial.printf("Battery calibration loaded: offset = %.3fV\n", calibrationOffset);
@@ -836,6 +910,31 @@ void BatteryMonitor::loadCapacitySetting() {
 void BatteryMonitor::saveCapacitySetting() {
     preferences.putUShort("capMah", batteryCapacityMah);
     Serial.println("Battery capacity saved");
+}
+
+void BatteryMonitor::loadSafetySettings() {
+    criticalShutdownEnabled = preferences.getBool("critEn", true);
+    criticalShutdownVoltage = preferences.getFloat("critVolt", DEFAULT_CRITICAL_SHUTDOWN_VOLTAGE);
+    criticalShutdownPercent = preferences.getUChar("critPct", DEFAULT_CRITICAL_SHUTDOWN_PERCENT);
+
+    criticalShutdownVoltage = constrain(criticalShutdownVoltage,
+                                        MIN_CRITICAL_SHUTDOWN_VOLTAGE,
+                                        MAX_CRITICAL_SHUTDOWN_VOLTAGE);
+    criticalShutdownPercent = constrain(criticalShutdownPercent,
+                                        MIN_CRITICAL_SHUTDOWN_PERCENT,
+                                        MAX_CRITICAL_SHUTDOWN_PERCENT);
+
+    Serial.printf("Battery safety loaded: criticalShutdown=%s voltage=%.2fV percent=%u%%\n",
+                  criticalShutdownEnabled ? "enabled" : "disabled",
+                  criticalShutdownVoltage,
+                  criticalShutdownPercent);
+}
+
+void BatteryMonitor::saveSafetySettings() {
+    preferences.putBool("critEn", criticalShutdownEnabled);
+    preferences.putFloat("critVolt", criticalShutdownVoltage);
+    preferences.putUChar("critPct", criticalShutdownPercent);
+    Serial.println("Battery safety settings saved");
 }
 
 void BatteryMonitor::loadLearningProfile() {

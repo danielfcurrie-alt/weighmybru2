@@ -27,7 +27,7 @@ Main reasons to try it:
 - **USB-C serial capture:** ScaleBench or a terminal can record high-rate wired samples directly over USB CDC serial.
 - **Firmware-side quality monitoring:** the scale tracks sample cadence, long gaps, bump/glitch diagnostics, current quality, and lifetime quality.
 - **Webhook stop targets:** StopMyBru can drive local HTTP relays such as Tasmota and Shelly in addition to the ESP-NOW relay module.
-- **Power controls:** WiFi can stay disabled for battery saving, and sleep shuts down HX711/display paths where supported.
+- **Power controls:** WiFi can stay disabled for battery saving, critical battery can force deep sleep, and sleep sends HX711 power-down plus display/board sleep prep.
 - **Rollback-friendly beta:** the release provides app-only and factory images so testers can choose the least invasive flash path for their device.
 
 This is beta firmware for testers. It is not an official upstream WeighMyBru release.
@@ -112,7 +112,8 @@ Important: the originally published `0.2.0-beta.1` XIAO fallback assets used Lit
 - StopMyBru target stop learning to compensate for grinder/brewer overshoot after relay cutoff.
 - Web OTA upload for app firmware and LittleFS web UI images.
 - WiFi-disabled workflow for lower battery draw.
-- HX711/display shutdown before ESP32 deep sleep where supported.
+- Critical-battery deep sleep guard. Defaults are enabled, `3.45V` for ADC-backed boards and `7%` state of charge for fuel-gauge boards.
+- HX711 power-down before ESP32 deep sleep. This uses the HX711 clock-hold/power-down path, then turns off display/board peripherals where supported.
 
 The Bluetooth extension packet is documented in [WMB+ BLE protocol](docs/WMB_PLUS_PROTOCOL.md). The USB-C text stream is documented in [USB serial protocol](docs/USB_SERIAL.md).
 
@@ -284,6 +285,14 @@ curl -X POST http://wmbplus.local/api/battery/capacity \
 
 Capacity does not change the voltage-to-percent curve. It lets WMB+ convert learned percent/hour into estimated mA and more realistic runtime/charge-time estimates.
 
+Critical battery sleep is configurable from the Settings page or with:
+
+```bash
+curl -X POST http://wmbplus.local/api/battery/settings \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  --data 'capacityMah=700&criticalShutdownEnabled=true&criticalShutdownVoltage=3.45&criticalShutdownPercent=7'
+```
+
 ## Development checks
 
 Host-side tests for firmware math:
@@ -361,6 +370,7 @@ Compatibility paths stay conservative:
 - App firmware OTA requires the new dual-OTA partition table. Existing devices on a legacy/single-app layout need the `0.2.0-beta.2` full factory flash before relying on app OTA.
 - Calibration is still per-device and must be verified by the builder.
 - 80 SPS requires the HX711 hardware rate pin/jumper to be configured correctly.
+- Tare and sleep inputs expect active-high digital touch sensor modules. The firmware enables `INPUT_PULLDOWN` on those pins; bare capacitive pads or open-drain sensors need appropriate external conditioning.
 
 ## Original WeighMyBru README
 

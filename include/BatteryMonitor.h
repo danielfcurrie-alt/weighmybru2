@@ -37,6 +37,13 @@ public:
     String getBatteryBackend() const;
     uint16_t getBatteryCapacityMah() const { return batteryCapacityMah; }
     void setBatteryCapacityMah(uint16_t capacityMah);
+    bool isCriticalShutdownEnabled() const { return criticalShutdownEnabled; }
+    void setCriticalShutdownEnabled(bool enabled);
+    float getCriticalShutdownVoltage() const { return criticalShutdownVoltage; }
+    void setCriticalShutdownVoltage(float voltage);
+    uint8_t getCriticalShutdownPercent() const { return criticalShutdownPercent; }
+    void setCriticalShutdownPercent(uint8_t percent);
+    bool shouldForceCriticalSleep();
     bool hasFuelGauge() const { return fuelGaugeAvailable; }
     bool isUsbPowerPresent() const { return usbPowerPresent; }
     float getFuelGaugeStateOfCharge() const { return fuelGaugeStateOfCharge; }
@@ -77,10 +84,19 @@ private:
     static constexpr uint16_t DEFAULT_BATTERY_CAPACITY_MAH = 700;
     static constexpr uint16_t MIN_BATTERY_CAPACITY_MAH = 100;
     static constexpr uint16_t MAX_BATTERY_CAPACITY_MAH = 5000;
+    static constexpr float DEFAULT_CRITICAL_SHUTDOWN_VOLTAGE = 3.45f;
+    static constexpr float MIN_CRITICAL_SHUTDOWN_VOLTAGE = 3.20f;
+    static constexpr float MAX_CRITICAL_SHUTDOWN_VOLTAGE = 3.80f;
+    static constexpr uint8_t DEFAULT_CRITICAL_SHUTDOWN_PERCENT = 7;
+    static constexpr uint8_t MIN_CRITICAL_SHUTDOWN_PERCENT = 1;
+    static constexpr uint8_t MAX_CRITICAL_SHUTDOWN_PERCENT = 20;
     
     // Calibration and smoothing
     float calibrationOffset = 0.0f;  // Voltage adjustment for accuracy
     uint16_t batteryCapacityMah = DEFAULT_BATTERY_CAPACITY_MAH;
+    bool criticalShutdownEnabled = true;
+    float criticalShutdownVoltage = DEFAULT_CRITICAL_SHUTDOWN_VOLTAGE;
+    uint8_t criticalShutdownPercent = DEFAULT_CRITICAL_SHUTDOWN_PERCENT;
     float lastVoltage = 0.0f;        // For smoothing readings
     float smoothedPercentage = -1.0f;
     int rawPercentage = 0;
@@ -140,6 +156,8 @@ private:
     void maybeLearnChargeRate(float ratePercentPerHour, float elapsedMinutes);
     void loadCapacitySetting();
     void saveCapacitySetting();
+    void loadSafetySettings();
+    void saveSafetySettings();
     void loadLearningProfile();
     void saveLearningProfile();
     void loadCalibration();
