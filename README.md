@@ -173,6 +173,7 @@ If you see a regression in Bean Conqueror, GaggiMate, or Gaggiuino compared with
 - [Rollback instructions](docs/ROLLBACK.md)
 - [Compatibility checklist](docs/COMPATIBILITY.md)
 - [Tester checklist](docs/TESTING.md)
+- [Release checklist](docs/RELEASE_CHECKLIST.md)
 - [USB serial protocol](docs/USB_SERIAL.md)
 - [WMB+ BLE protocol](docs/WMB_PLUS_PROTOCOL.md)
 - [Release notes](docs/RELEASE_NOTES_0.2.0-beta.5.md)

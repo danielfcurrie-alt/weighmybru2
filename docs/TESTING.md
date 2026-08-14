@@ -160,7 +160,35 @@ Expected:
 - Automatic target cutoff waits for settled final weight, then adjusts the learned offset toward the observed overshoot/undershoot.
 - If WiFi is disabled or disconnected, the page reports that the webhook cannot run.
 
-## 10. Web OTA
+## 10. Release-blocking OTA smoke test
+
+Run this before every public beta tag. Do not mark a release ready until this passes on the primary XIAO reference unit.
+
+Start from the previous published beta installed with the dual-OTA factory layout, then update to the release candidate using only the browser Updates page.
+
+Required:
+
+- Download the candidate `xiao-app.bin`.
+- Upload `xiao-app.bin` through **App Firmware OTA**.
+- Confirm the upload reaches 100%, the scale restarts, and the version/boot log reports the candidate version.
+- Confirm `/api/ota/status` or the Updates page shows the active partition changed and the next OTA partition is available.
+- Download the candidate `xiao-littlefs.bin`.
+- Upload `xiao-littlefs.bin` through **Web UI / LittleFS OTA**.
+- Confirm the upload reaches 100% and the web UI remains available after restart/reload.
+- Confirm the Updates page shows the candidate UI text/assets.
+- Confirm NVS settings, calibration factor, WiFi settings, and learned battery/StopMyBru state survive.
+
+This test must use the actual browser multipart upload path. Building LittleFS, checking release asset size, verifying partition offsets, or flashing `factory-full.bin` over USB is not a substitute.
+
+Failure examples this test is meant to catch:
+
+- app OTA writes to the wrong partition
+- LittleFS OTA rejects a valid filesystem image
+- multipart upload size is confused with file size
+- OTA succeeds but calibration/NVS is lost
+- web UI assets are stale after an app update
+
+## 11. Web OTA
 
 After installing the WMB+ dual-OTA factory image:
 
@@ -177,7 +205,7 @@ Expected:
 - Successful OTA restarts the scale automatically.
 - NVS settings, calibration, and learned battery/StopMyBru state survive.
 
-## 11. Report useful failures
+## 12. Report useful failures
 
 Include:
 
