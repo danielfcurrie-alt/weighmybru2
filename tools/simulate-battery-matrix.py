@@ -76,8 +76,8 @@ BOARD_MODELS = [
         sps80_delta_ma=3.0,
         sleep_ma=0.22,
         hx711_ma=1.5,
-        charge_current_ma=250.0,
-        notes="XIAO reference class; ADC battery estimate; WiFi AP is the large variable.",
+        charge_current_ma=100.0,
+        notes="XIAO reference class; ADC battery estimate; onboard charger is assumed around 100mA.",
     ),
     BoardModel(
         board="tinys3d",
@@ -86,8 +86,8 @@ BOARD_MODELS = [
         sps80_delta_ma=3.0,
         sleep_ma=0.10,
         hx711_ma=1.5,
-        charge_current_ma=350.0,
-        notes="TinyS3[D] estimate; MAX17048 gives better SoC/USB-power telemetry, not lower HX711 power.",
+        charge_current_ma=300.0,
+        notes="TinyS3[D] estimate; MAX17048 gives better SoC/USB-power telemetry, not lower HX711 power; charger assumed around 300mA.",
     ),
     BoardModel(
         board="supermini",
