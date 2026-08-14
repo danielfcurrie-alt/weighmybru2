@@ -54,6 +54,7 @@ void BatteryMonitor::begin() {
     // Load calibration from preferences
     preferences.begin("battery", false);
     loadCalibration();
+    loadCapacitySetting();
     loadLearningProfile();
     preferences.end();
     
@@ -423,6 +424,34 @@ float BatteryMonitor::getLearnedChargeRatePercentPerHour() const {
     return learnedChargeRatePercentPerHour;
 }
 
+float BatteryMonitor::getEstimatedDischargeCurrentMa() const {
+    if (dischargeRatePercentPerHour <= 0.0f) {
+        return 0.0f;
+    }
+    return (dischargeRatePercentPerHour * batteryCapacityMah) / 100.0f;
+}
+
+float BatteryMonitor::getEstimatedChargeCurrentMa() const {
+    if (chargeRatePercentPerHour <= 0.0f) {
+        return 0.0f;
+    }
+    return (chargeRatePercentPerHour * batteryCapacityMah) / 100.0f;
+}
+
+float BatteryMonitor::getLearnedDischargeCurrentMa() const {
+    if (learnedDischargeRatePercentPerHour <= 0.0f) {
+        return 0.0f;
+    }
+    return (learnedDischargeRatePercentPerHour * batteryCapacityMah) / 100.0f;
+}
+
+float BatteryMonitor::getLearnedChargeCurrentMa() const {
+    if (learnedChargeRatePercentPerHour <= 0.0f) {
+        return 0.0f;
+    }
+    return (learnedChargeRatePercentPerHour * batteryCapacityMah) / 100.0f;
+}
+
 uint16_t BatteryMonitor::getLearnedDischargeObservations() const {
     return learnedDischargeObservations;
 }
@@ -770,6 +799,22 @@ void BatteryMonitor::calibrateVoltage(float actualVoltage) {
     Serial.printf("Battery calibrated: offset = %.3fV\n", calibrationOffset);
 }
 
+void BatteryMonitor::setBatteryCapacityMah(uint16_t capacityMah) {
+    uint16_t constrainedCapacity = constrain(capacityMah,
+                                             MIN_BATTERY_CAPACITY_MAH,
+                                             MAX_BATTERY_CAPACITY_MAH);
+    if (constrainedCapacity == batteryCapacityMah) {
+        return;
+    }
+
+    batteryCapacityMah = constrainedCapacity;
+    preferences.begin("battery", false);
+    saveCapacitySetting();
+    preferences.end();
+
+    Serial.printf("Battery capacity setting updated: %u mAh\n", batteryCapacityMah);
+}
+
 void BatteryMonitor::loadCalibration() {
     calibrationOffset = preferences.getFloat("cal_offset", 0.0f);
     Serial.printf("Battery calibration loaded: offset = %.3fV\n", calibrationOffset);
@@ -778,6 +823,19 @@ void BatteryMonitor::loadCalibration() {
 void BatteryMonitor::saveCalibration() {
     preferences.putFloat("cal_offset", calibrationOffset);
     Serial.println("Battery calibration saved");
+}
+
+void BatteryMonitor::loadCapacitySetting() {
+    batteryCapacityMah = preferences.getUShort("capMah", DEFAULT_BATTERY_CAPACITY_MAH);
+    batteryCapacityMah = constrain(batteryCapacityMah,
+                                   MIN_BATTERY_CAPACITY_MAH,
+                                   MAX_BATTERY_CAPACITY_MAH);
+    Serial.printf("Battery capacity loaded: %u mAh\n", batteryCapacityMah);
+}
+
+void BatteryMonitor::saveCapacitySetting() {
+    preferences.putUShort("capMah", batteryCapacityMah);
+    Serial.println("Battery capacity saved");
 }
 
 void BatteryMonitor::loadLearningProfile() {

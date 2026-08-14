@@ -409,6 +409,7 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
     json += ",\"battery_voltage\":" + String(battery.getBatteryVoltage(), 2);
     json += ",\"battery_percentage\":" + String(battery.getBatteryPercentage());
     json += ",\"battery_raw_percentage\":" + String(battery.getRawBatteryPercentage());
+    json += ",\"battery_capacity_mah\":" + String(battery.getBatteryCapacityMah());
     json += ",\"battery_backend\":\"" + battery.getBatteryBackend() + "\"";
     json += ",\"battery_fuel_gauge\":" + String(battery.hasFuelGauge() ? "true" : "false");
     json += ",\"battery_fuel_gauge_soc\":" + String(battery.getFuelGaugeStateOfCharge(), 2);
@@ -427,6 +428,7 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
     json += ",\"battery_runtime_confidence\":\"" + battery.getRuntimeEstimateConfidence() + "\"";
     json += ",\"battery_runtime_observation_minutes\":" + String(battery.getRuntimeObservationMinutes());
     json += ",\"battery_discharge_rate_percent_per_hour\":" + String(battery.getDischargeRatePercentPerHour(), 3);
+    json += ",\"battery_discharge_current_ma\":" + String(battery.getEstimatedDischargeCurrentMa(), 2);
     int dashboardMinutesTo80 = battery.getEstimatedMinutesTo80();
     int dashboardMinutesTo100 = battery.getEstimatedMinutesTo100();
     json += ",\"battery_charge_estimate_available\":" + String((dashboardMinutesTo80 >= 0 || dashboardMinutesTo100 >= 0) ? "true" : "false");
@@ -439,8 +441,11 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
     json += ",\"battery_charge_confidence\":\"" + battery.getChargeEstimateConfidence() + "\"";
     json += ",\"battery_charge_observation_minutes\":" + String(battery.getChargeObservationMinutes());
     json += ",\"battery_charge_rate_percent_per_hour\":" + String(battery.getChargeRatePercentPerHour(), 3);
+    json += ",\"battery_charge_current_ma\":" + String(battery.getEstimatedChargeCurrentMa(), 2);
     json += ",\"battery_learned_discharge_rate_percent_per_hour\":" + String(battery.getLearnedDischargeRatePercentPerHour(), 3);
     json += ",\"battery_learned_charge_rate_percent_per_hour\":" + String(battery.getLearnedChargeRatePercentPerHour(), 3);
+    json += ",\"battery_learned_discharge_current_ma\":" + String(battery.getLearnedDischargeCurrentMa(), 2);
+    json += ",\"battery_learned_charge_current_ma\":" + String(battery.getLearnedChargeCurrentMa(), 2);
     json += ",\"battery_learned_discharge_observations\":" + String(battery.getLearnedDischargeObservations());
     json += ",\"battery_learned_charge_observations\":" + String(battery.getLearnedChargeObservations());
     json += ",\"battery_learning_confidence\":\"" + battery.getBatteryLearningConfidence() + "\"";
@@ -582,6 +587,7 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
     json += "\"voltage\":" + String(battery.getBatteryVoltage(), 3);
     json += ",\"percentage\":" + String(battery.getBatteryPercentage());
     json += ",\"raw_percentage\":" + String(battery.getRawBatteryPercentage());
+    json += ",\"capacity_mah\":" + String(battery.getBatteryCapacityMah());
     json += ",\"backend\":\"" + battery.getBatteryBackend() + "\"";
     json += ",\"fuel_gauge\":" + String(battery.hasFuelGauge() ? "true" : "false");
     json += ",\"fuel_gauge_soc\":" + String(battery.getFuelGaugeStateOfCharge(), 2);
@@ -600,7 +606,9 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
     json += ",\"runtime_confidence\":\"" + battery.getRuntimeEstimateConfidence() + "\"";
     json += ",\"runtime_observation_minutes\":" + String(battery.getRuntimeObservationMinutes());
     json += ",\"discharge_rate_percent_per_hour\":" + String(battery.getDischargeRatePercentPerHour(), 3);
+    json += ",\"discharge_current_ma\":" + String(battery.getEstimatedDischargeCurrentMa(), 2);
     json += ",\"learned_discharge_rate_percent_per_hour\":" + String(battery.getLearnedDischargeRatePercentPerHour(), 3);
+    json += ",\"learned_discharge_current_ma\":" + String(battery.getLearnedDischargeCurrentMa(), 2);
     json += ",\"learned_discharge_observations\":" + String(battery.getLearnedDischargeObservations());
     int minutesTo80 = battery.getEstimatedMinutesTo80();
     int minutesTo100 = battery.getEstimatedMinutesTo100();
@@ -614,7 +622,9 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
     json += ",\"charge_confidence\":\"" + battery.getChargeEstimateConfidence() + "\"";
     json += ",\"charge_observation_minutes\":" + String(battery.getChargeObservationMinutes());
     json += ",\"charge_rate_percent_per_hour\":" + String(battery.getChargeRatePercentPerHour(), 3);
+    json += ",\"charge_current_ma\":" + String(battery.getEstimatedChargeCurrentMa(), 2);
     json += ",\"learned_charge_rate_percent_per_hour\":" + String(battery.getLearnedChargeRatePercentPerHour(), 3);
+    json += ",\"learned_charge_current_ma\":" + String(battery.getLearnedChargeCurrentMa(), 2);
     json += ",\"learned_charge_observations\":" + String(battery.getLearnedChargeObservations());
     json += ",\"battery_learning_confidence\":\"" + battery.getBatteryLearningConfidence() + "\"";
     json += ",\"calibration_offset\":" + String(battery.getCalibrationOffset(), 3);
@@ -622,9 +632,37 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
     request->send(200, "application/json", json);
   });
 
+  server.on("/api/battery/capacity", HTTP_POST, [&battery](AsyncWebServerRequest *request) {
+    String value;
+    if (request->hasParam("capacityMah", true)) {
+      value = request->getParam("capacityMah", true)->value();
+    } else if (request->hasParam("capacity_mah", true)) {
+      value = request->getParam("capacity_mah", true)->value();
+    } else if (request->hasParam("capacityMah")) {
+      value = request->getParam("capacityMah")->value();
+    } else if (request->hasParam("capacity_mah")) {
+      value = request->getParam("capacity_mah")->value();
+    }
+
+    const int requestedCapacity = value.toInt();
+    if (requestedCapacity < 100 || requestedCapacity > 5000) {
+      request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"capacityMah must be 100-5000 mAh\"}");
+      return;
+    }
+
+    battery.setBatteryCapacityMah(static_cast<uint16_t>(requestedCapacity));
+    String json = "{";
+    json += "\"status\":\"success\",";
+    json += "\"message\":\"Battery capacity saved\",";
+    json += "\"capacity_mah\":" + String(battery.getBatteryCapacityMah());
+    json += "}";
+    request->send(200, "application/json", json);
+  });
+
   server.on("/api/battery/benchmark", HTTP_GET, [&battery, &batteryDrainSession, &scale, &display, &bluetoothScale](AsyncWebServerRequest *request) {
     String json = "{";
     json += "\"label\":\"" + String(batteryDrainSession.getLabel()) + "\"";
+    json += ",\"capacity_mah\":" + String(battery.getBatteryCapacityMah());
     json += ",\"elapsed_minutes\":" + String(batteryDrainSession.getElapsedMinutes(), 3);
     json += ",\"samples\":" + String(batteryDrainSession.getSamples());
     json += ",\"invalid_samples\":" + String(batteryDrainSession.getInvalidSamples());
@@ -664,6 +702,10 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
     json += ",\"charge_confidence\":\"" + battery.getChargeEstimateConfidence() + "\"";
     json += ",\"learned_discharge_rate_percent_per_hour\":" + String(battery.getLearnedDischargeRatePercentPerHour(), 3);
     json += ",\"learned_charge_rate_percent_per_hour\":" + String(battery.getLearnedChargeRatePercentPerHour(), 3);
+    json += ",\"discharge_current_ma\":" + String(battery.getEstimatedDischargeCurrentMa(), 2);
+    json += ",\"charge_current_ma\":" + String(battery.getEstimatedChargeCurrentMa(), 2);
+    json += ",\"learned_discharge_current_ma\":" + String(battery.getLearnedDischargeCurrentMa(), 2);
+    json += ",\"learned_charge_current_ma\":" + String(battery.getLearnedChargeCurrentMa(), 2);
     json += ",\"learning_confidence\":\"" + battery.getBatteryLearningConfidence() + "\"";
     json += ",\"cpu_mhz\":" + String(ESP.getCpuFreqMHz());
     json += ",\"wifi_mode\":" + String(static_cast<int>(WiFi.getMode()));
@@ -715,6 +757,7 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
     json += "\"fuel_gauge_soc\":" + String(battery.getFuelGaugeStateOfCharge(), 2) + ",";
     json += "\"usb_power_present\":" + String(battery.isUsbPowerPresent() ? "true" : "false") + ",";
     json += "\"calibration_offset\":" + String(battery.getCalibrationOffset(), 3) + ",";
+    json += "\"capacity_mah\":" + String(battery.getBatteryCapacityMah()) + ",";
     json += "\"percentage\":" + String(battery.getBatteryPercentage()) + ",";
     json += "\"raw_percentage\":" + String(battery.getRawBatteryPercentage()) + ",";
     json += "\"charging\":" + String(battery.isCharging() ? "true" : "false") + ",";
@@ -739,8 +782,12 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
     json += ",\"charge_confidence\":\"" + battery.getChargeEstimateConfidence() + "\"";
     json += ",\"charge_observation_minutes\":" + String(battery.getChargeObservationMinutes());
     json += ",\"charge_rate_percent_per_hour\":" + String(battery.getChargeRatePercentPerHour(), 3);
+    json += ",\"discharge_current_ma\":" + String(battery.getEstimatedDischargeCurrentMa(), 2);
+    json += ",\"charge_current_ma\":" + String(battery.getEstimatedChargeCurrentMa(), 2);
     json += ",\"learned_discharge_rate_percent_per_hour\":" + String(battery.getLearnedDischargeRatePercentPerHour(), 3);
     json += ",\"learned_charge_rate_percent_per_hour\":" + String(battery.getLearnedChargeRatePercentPerHour(), 3);
+    json += ",\"learned_discharge_current_ma\":" + String(battery.getLearnedDischargeCurrentMa(), 2);
+    json += ",\"learned_charge_current_ma\":" + String(battery.getLearnedChargeCurrentMa(), 2);
     json += ",\"learned_discharge_observations\":" + String(battery.getLearnedDischargeObservations());
     json += ",\"learned_charge_observations\":" + String(battery.getLearnedChargeObservations());
     json += ",\"battery_learning_confidence\":\"" + battery.getBatteryLearningConfidence() + "\"";
@@ -1151,7 +1198,7 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
   });
 
   // Combined settings endpoint for faster loading
-  server.on("/api/settings", HTTP_GET, [&powerManager](AsyncWebServerRequest *request) {
+  server.on("/api/settings", HTTP_GET, [&powerManager, &battery](AsyncWebServerRequest *request) {
     // Get WiFi credentials (from cache)
     String ssid = getStoredSSID();
     String password = getStoredPassword();
@@ -1166,7 +1213,8 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
     json += "\"decimals\":" + String(decimals) + ",";
     json += "\"autoSleepEnabled\":" + String(powerManager.getAutoSleepEnabled() ? "true" : "false") + ",";
     json += "\"autoSleepTime\":" + String(powerManager.getAutoSleepTime()) + ",";
-    json += "\"autoSleepDrift\":" + String(powerManager.getAutoSleepDrift(), 1);
+    json += "\"autoSleepDrift\":" + String(powerManager.getAutoSleepDrift(), 1) + ",";
+    json += "\"batteryCapacityMah\":" + String(battery.getBatteryCapacityMah());
     json += "}";
     
     request->send(200, "application/json", json);

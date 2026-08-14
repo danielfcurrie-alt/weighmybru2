@@ -258,13 +258,14 @@ static void printBatteryBenchmarkLog(bool force = false) {
 
   Serial.printf(
       "BATTERY_BENCH ms=%lu uptimeMin=%.1f backend=%s voltage=%.3f percent=%d rawPercent=%d valid=%s "
-      "fuelGauge=%s usbPower=%s soc=%.2f chargingState=%s charging=%s "
+      "capacityMah=%u fuelGauge=%s usbPower=%s soc=%.2f chargingState=%s charging=%s "
       "session=%s sessionMin=%.1f sessionSamples=%lu sessionInvalid=%lu "
       "sessionStartV=%.3f sessionStartPercent=%d sessionStartRawPercent=%d "
       "sessionDeltaV=%.3f sessionDeltaRawPercent=%d voltageMvPerHour=%.2f rawPercentPerHour=%.3f "
       "sessionTrend=%s sessionConfidence=%s "
       "runtimeMin=%d runtimeConfidence=%s observationMin=%d dischargePctPerHour=%.3f "
       "chargeTo80Min=%d chargeTo100Min=%d chargeConfidence=%s chargeObservationMin=%d chargePctPerHour=%.3f "
+      "dischargeMa=%.2f chargeMa=%.2f learnedDischargeMa=%.2f learnedChargeMa=%.2f "
       "learnedDischargePctPerHour=%.3f learnedChargePctPerHour=%.3f learnedDischargeObs=%u learnedChargeObs=%u learningConfidence=%s "
       "cpuMHz=%u wifiEnabled=%s wifiMode=%s wifiSleep=%s bleConnected=%s display=%s hx711=%s hx711Hz=%.2f hx711Mode=%s usbWeightStream=%s "
       "scaleHz=%.2f extendedNotifyHz=%.2f float32NotifyHz=%.2f batteryNotifyHz=%.2f "
@@ -276,6 +277,7 @@ static void printBatteryBenchmarkLog(bool force = false) {
       batteryMonitor.getBatteryPercentage(),
       batteryMonitor.getRawBatteryPercentage(),
       boolText(batteryMonitor.hasValidReading()),
+      batteryMonitor.getBatteryCapacityMah(),
       boolText(batteryMonitor.hasFuelGauge()),
       boolText(batteryMonitor.isUsbPowerPresent()),
       batteryMonitor.getFuelGaugeStateOfCharge(),
@@ -303,6 +305,10 @@ static void printBatteryBenchmarkLog(bool force = false) {
       chargeConfidence.c_str(),
       batteryMonitor.getChargeObservationMinutes(),
       batteryMonitor.getChargeRatePercentPerHour(),
+      batteryMonitor.getEstimatedDischargeCurrentMa(),
+      batteryMonitor.getEstimatedChargeCurrentMa(),
+      batteryMonitor.getLearnedDischargeCurrentMa(),
+      batteryMonitor.getLearnedChargeCurrentMa(),
       batteryMonitor.getLearnedDischargeRatePercentPerHour(),
       batteryMonitor.getLearnedChargeRatePercentPerHour(),
       batteryMonitor.getLearnedDischargeObservations(),
@@ -422,9 +428,10 @@ static void printConfigDiagnostics() {
 #endif
   Serial.printf("HX711 DOUT GPIO%u, SCK GPIO%u\n", dataPin, clockPin);
   Serial.printf("Touch tare GPIO%u, sleep GPIO%u\n", touchPin, sleepTouchPin);
-  Serial.printf("Battery backend=%s ADC GPIO%u voltage=%.3fV percent=%d rawPercent=%d valid=%s fuelGauge=%s usbPower=%s soc=%.2f%%\n",
+  Serial.printf("Battery backend=%s ADC GPIO%u capacity=%umAh voltage=%.3fV percent=%d rawPercent=%d valid=%s fuelGauge=%s usbPower=%s soc=%.2f%%\n",
                 batteryMonitor.getBatteryBackend().c_str(),
                 batteryPin,
+                batteryMonitor.getBatteryCapacityMah(),
                 batteryMonitor.getBatteryVoltage(),
                 batteryMonitor.getBatteryPercentage(),
                 batteryMonitor.getRawBatteryPercentage(),
@@ -432,24 +439,28 @@ static void printConfigDiagnostics() {
                 batteryMonitor.hasFuelGauge() ? "true" : "false",
                 batteryMonitor.isUsbPowerPresent() ? "true" : "false",
                 batteryMonitor.getFuelGaugeStateOfCharge());
-  Serial.printf("Battery runtime estimate: minutes=%d confidence=%s observation=%dmin discharge=%.3f%%/h\n",
+  Serial.printf("Battery runtime estimate: minutes=%d confidence=%s observation=%dmin discharge=%.3f%%/h %.2fmA\n",
                 batteryMonitor.getEstimatedRuntimeMinutesRemaining(),
                 batteryMonitor.getRuntimeEstimateConfidence().c_str(),
                 batteryMonitor.getRuntimeObservationMinutes(),
-                batteryMonitor.getDischargeRatePercentPerHour());
-  Serial.printf("Battery charge estimate: state=%s charging=%s to80=%dmin to100=%dmin confidence=%s observation=%dmin charge=%.3f%%/h\n",
+                batteryMonitor.getDischargeRatePercentPerHour(),
+                batteryMonitor.getEstimatedDischargeCurrentMa());
+  Serial.printf("Battery charge estimate: state=%s charging=%s to80=%dmin to100=%dmin confidence=%s observation=%dmin charge=%.3f%%/h %.2fmA\n",
                 batteryMonitor.getChargingState().c_str(),
                 batteryMonitor.isCharging() ? "true" : "false",
                 batteryMonitor.getEstimatedMinutesTo80(),
                 batteryMonitor.getEstimatedMinutesTo100(),
                 batteryMonitor.getChargeEstimateConfidence().c_str(),
                 batteryMonitor.getChargeObservationMinutes(),
-                batteryMonitor.getChargeRatePercentPerHour());
-  Serial.printf("Battery learned profile: confidence=%s discharge=%.3f%%/h (%u obs) charge=%.3f%%/h (%u obs)\n",
+                batteryMonitor.getChargeRatePercentPerHour(),
+                batteryMonitor.getEstimatedChargeCurrentMa());
+  Serial.printf("Battery learned profile: confidence=%s discharge=%.3f%%/h %.2fmA (%u obs) charge=%.3f%%/h %.2fmA (%u obs)\n",
                 batteryMonitor.getBatteryLearningConfidence().c_str(),
                 batteryMonitor.getLearnedDischargeRatePercentPerHour(),
+                batteryMonitor.getLearnedDischargeCurrentMa(),
                 batteryMonitor.getLearnedDischargeObservations(),
                 batteryMonitor.getLearnedChargeRatePercentPerHour(),
+                batteryMonitor.getLearnedChargeCurrentMa(),
                 batteryMonitor.getLearnedChargeObservations());
   Serial.printf("Scale connected=%s calibration=%.6f\n",
                 scale.isHX711Connected() ? "true" : "false",

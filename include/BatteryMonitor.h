@@ -27,10 +27,16 @@ public:
     float getChargeRatePercentPerHour() const;
     float getLearnedDischargeRatePercentPerHour() const;
     float getLearnedChargeRatePercentPerHour() const;
+    float getEstimatedDischargeCurrentMa() const;
+    float getEstimatedChargeCurrentMa() const;
+    float getLearnedDischargeCurrentMa() const;
+    float getLearnedChargeCurrentMa() const;
     uint16_t getLearnedDischargeObservations() const;
     uint16_t getLearnedChargeObservations() const;
     String getBatteryLearningConfidence() const;
     String getBatteryBackend() const;
+    uint16_t getBatteryCapacityMah() const { return batteryCapacityMah; }
+    void setBatteryCapacityMah(uint16_t capacityMah);
     bool hasFuelGauge() const { return fuelGaugeAvailable; }
     bool isUsbPowerPresent() const { return usbPowerPresent; }
     float getFuelGaugeStateOfCharge() const { return fuelGaugeStateOfCharge; }
@@ -55,7 +61,8 @@ private:
     uint8_t batteryPin;
     Preferences preferences;
     
-    // Li-ion voltage thresholds optimized for ESP32 operation (700mAh battery)
+    // Li-ion voltage thresholds optimized for ESP32 operation. Capacity is
+    // separately configurable for runtime/current estimates.
     static constexpr float BATTERY_FULL = 4.2f;      // 100% - Fresh charge
     static constexpr float BATTERY_GOOD = 4.0f;      // ~75% - Reliable ESP32 operation
     static constexpr float BATTERY_NOMINAL = 3.8f;   // ~50% - Normal operation
@@ -67,9 +74,13 @@ private:
     static constexpr float VOLTAGE_DIVIDER_RATIO = 2.0f;  // 100k + 100k resistors
     static constexpr float ADC_REFERENCE = 3.3f;          // ESP32-S3 with ADC_11db attenuation (0-3.3V)
     static constexpr int ADC_MAX_READING = 4095;
+    static constexpr uint16_t DEFAULT_BATTERY_CAPACITY_MAH = 700;
+    static constexpr uint16_t MIN_BATTERY_CAPACITY_MAH = 100;
+    static constexpr uint16_t MAX_BATTERY_CAPACITY_MAH = 5000;
     
     // Calibration and smoothing
     float calibrationOffset = 0.0f;  // Voltage adjustment for accuracy
+    uint16_t batteryCapacityMah = DEFAULT_BATTERY_CAPACITY_MAH;
     float lastVoltage = 0.0f;        // For smoothing readings
     float smoothedPercentage = -1.0f;
     int rawPercentage = 0;
@@ -127,6 +138,8 @@ private:
     void updateChargeEstimate();
     void maybeLearnDischargeRate(float ratePercentPerHour, float elapsedMinutes);
     void maybeLearnChargeRate(float ratePercentPerHour, float elapsedMinutes);
+    void loadCapacitySetting();
+    void saveCapacitySetting();
     void loadLearningProfile();
     void saveLearningProfile();
     void loadCalibration();

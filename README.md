@@ -274,6 +274,16 @@ See [USB serial protocol](docs/USB_SERIAL.md) for field definitions.
 
 Battery benchmark data is also available at `/api/battery/benchmark`. Reset the comparison baseline with `POST /api/battery/benchmark/reset`; optional form/query parameter `label` can identify the active test, e.g. `wifi-off`, `wifi-ap`, `oled-on`, `ble-connected`, or `charging`.
 
+The firmware defaults to a 700 mAh battery capacity setting. If your build uses a different pack, set the capacity on the Settings page or with:
+
+```bash
+curl -X POST http://wmbplus.local/api/battery/capacity \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  --data 'capacityMah=1000'
+```
+
+Capacity does not change the voltage-to-percent curve. It lets WMB+ convert learned percent/hour into estimated mA and more realistic runtime/charge-time estimates.
+
 ## Development checks
 
 Host-side tests for firmware math:
@@ -301,7 +311,13 @@ Estimated battery/runtime matrix:
 tools/simulate-battery-matrix.py --capacity-mah 700
 ```
 
-This compares XIAO ESP32S3, TinyS3[D], ESP32-S3 SuperMini, and Waveshare ESP32-S3-Zero-style boards across WiFi off/on, 10/80 SPS, and sleep/HX711-power states. It is an explicit assumption model for planning and should be replaced with measured drain-test constants as tester data arrives.
+For a 1000 mAh pack:
+
+```bash
+tools/simulate-battery-matrix.py --capacity-mah 1000
+```
+
+This compares XIAO ESP32S3, TinyS3[D], ESP32-S3 SuperMini, and Waveshare ESP32-S3-Zero-style boards across WiFi off/on, 10/80 SPS, and sleep/HX711-power states. It also prints a sleep-charging estimate for XIAO vs TinyS3[D] with HX711 powered and HX711 power-off variants. It is an explicit assumption model for planning and should be replaced with measured drain-test constants as tester data arrives.
 
 ## Apple Silicon LittleFS builds
 

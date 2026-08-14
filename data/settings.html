@@ -72,6 +72,17 @@
         <button type="submit" class="bg-gray-600 hover:bg-button-green active:bg-green-900 text-white px-4 py-2 rounded ml-2">Save Display Settings</button>
       </form>
       <div id="displayMessage" class="text-green-400 mb-2"></div>
+
+      <h2 class="text-2xl font-semibold mb-4 mt-8">Battery Settings</h2>
+      <form id="batteryForm" class="mb-6">
+        <label for="batteryCapacityMah" class="block mb-2">Battery capacity:</label>
+        <input type="number" id="batteryCapacityMah" name="batteryCapacityMah" min="100" max="5000" step="50" class="w-32 px-3 py-2 mb-2 rounded text-black" />
+        <span class="text-gray-400 ml-2">mAh</span>
+        <p class="text-gray-400 text-sm mb-4">Used for learned runtime, charge-time, and current estimates. Default is 700 mAh; set this to your actual battery, for example 1000 mAh.</p>
+        <button type="submit" class="bg-gray-600 hover:bg-button-green active:bg-green-900 text-white px-4 py-2 rounded">Save Battery Settings</button>
+      </form>
+      <div id="batteryMessage" class="text-green-400 mb-2"></div>
+      <p id="batteryStatus" class="text-red-400"></p>
       
       <h2 class="text-2xl font-semibold mb-4 mt-8">Filtering Settings</h2>
       <form id="filterForm" class="mb-6">
@@ -156,6 +167,8 @@
       if (settingsData.decimals !== undefined) {
         document.getElementById('decimals').value = settingsData.decimals;
       }
+
+      applyBatteryData(settingsData);
       
       // Set filter settings
       document.getElementById('brewingThreshold').value = filterData.brewingThreshold || 0.15;
@@ -195,7 +208,15 @@
         document.getElementById('medianSamples').value = filterData.medianSamples || 3;
         document.getElementById('averageSamples').value = filterData.averageSamples || 5;
         applyAutoSleepData(autoSleepData);
+        fetch('/api/battery').then(r => r.json()).then(applyBatteryData).catch(() => {});
       }).catch(err => console.error('Error loading individual settings:', err));
+    }
+
+    function applyBatteryData(data) {
+      const capacity = data.batteryCapacityMah !== undefined ? data.batteryCapacityMah : data.capacity_mah;
+      if (capacity !== undefined) {
+        document.getElementById('batteryCapacityMah').value = capacity;
+      }
     }
 
     // Apply auto-sleep data to the UI (handles both /api/settings and /api/auto-sleep key names)
@@ -365,6 +386,42 @@
       });
       const result = await response.text();
       document.getElementById('displayMessage').textContent = result;
+    });
+
+    document.getElementById('batteryForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const messageEl = document.getElementById('batteryMessage');
+      const statusEl = document.getElementById('batteryStatus');
+      const capacity = parseInt(document.getElementById('batteryCapacityMah').value, 10);
+
+      if (isNaN(capacity) || capacity < 100 || capacity > 5000) {
+        statusEl.textContent = 'Battery capacity must be between 100 and 5000 mAh.';
+        messageEl.textContent = '';
+        return;
+      }
+
+      const params = new URLSearchParams();
+      params.append('capacityMah', capacity.toString());
+
+      try {
+        const response = await fetch('/api/battery/capacity', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: params.toString()
+        });
+        const result = await response.json();
+        if (result.status === 'success') {
+          messageEl.textContent = `Battery capacity saved: ${result.capacity_mah} mAh`;
+          statusEl.textContent = '';
+        } else {
+          statusEl.textContent = result.message || 'Error saving battery settings.';
+          messageEl.textContent = '';
+        }
+      } catch (err) {
+        statusEl.textContent = 'Error saving battery settings.';
+        messageEl.textContent = '';
+        console.error('Battery settings error:', err);
+      }
     });
 
     // Handle filter settings
