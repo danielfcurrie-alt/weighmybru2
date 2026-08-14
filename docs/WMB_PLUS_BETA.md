@@ -10,7 +10,7 @@ The headline improvement is real 80 SPS operation. On the reference 80 SPS HX711
 
 - Firmware name: `WMB+`
 - BLE name: `WeighMyBru+`
-- Version: `0.2.0-beta.2`
+- Version: `0.2.0-beta.3`
 - Primary tested board: Seeed Studio XIAO ESP32S3
 - Primary tested HX711 mode: 80 SPS hardware configuration
 
@@ -39,7 +39,7 @@ The headline improvement is real 80 SPS operation. On the reference 80 SPS HX711
 - USB-C serial weight capture.
 - StopMyBru HTTP webhook relay support for local Tasmota/Shelly-style devices.
 - StopMyBru target stop learning for grinder/brewer overshoot compensation.
-- Web update UI support. App OTA requires the dual-OTA factory image included in `0.2.0-beta.2`.
+- Web update UI support. App OTA requires the dual-OTA factory image included in `0.2.0-beta.3`.
 - WiFi disabled-by-default workflow.
 - Deeper pre-sleep peripheral shutdown.
 
@@ -55,10 +55,10 @@ The compatibility lanes stay conservative:
 
 - Battery percentage is voltage-estimated on XIAO/SuperMini. TinyS3[D] development builds use the MAX17048 fuel gauge when present.
 - Charging/time-remaining estimates are experimental. WMB+ learns observed charge/discharge rates over time; TinyS3[D] fuel-gauge data should improve this once validated on real hardware.
-- XIAO ESP32S3 is the only board treated as beta-supported in this release.
+- XIAO ESP32S3 is the primary hardware-tested beta reference. SuperMini and TinyS3[D] assets are available for beta/development testing.
 - The originally published `0.2.0-beta.1` XIAO fallback asset used LittleFS at `0x310000` and appeared to use a legacy/single-app layout.
-- `0.2.0-beta.2` XIAO factory-full uses the dual-OTA layout with LittleFS at `0x610000`.
-- App firmware OTA requires the WMB+ dual-OTA partition table. Devices flashed with beta.1 or another legacy/single-app layout need a `0.2.0-beta.2` full factory flash before app OTA is available.
+- `0.2.0-beta.3` XIAO factory-full uses the dual-OTA layout with LittleFS at `0x610000`.
+- App firmware OTA requires the WMB+ dual-OTA partition table. Devices flashed with beta.1 or another legacy/single-app layout need a `0.2.0-beta.3` full factory flash before app OTA is available.
 - HTTP webhook relay support requires WiFi to be connected to the same local network as the relay. Local `http://` URLs are supported; HTTPS is intentionally not part of the beta path.
 - StopMyBru target stop learning is based on settled scale weight after automatic target cutoff. It intentionally ignores large errors and manual OFF actions.
 - Calibration remains per-device and must be checked by the builder.

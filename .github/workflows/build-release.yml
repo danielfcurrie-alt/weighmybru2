@@ -1,6 +1,9 @@
 name: Build Release Binaries
 
 on:
+  push:
+    tags:
+      - 'v*'
   # WMB+ beta releases are currently created manually so prerelease notes,
   # asset names, and supported boards stay explicit. Keep this workflow manual
   # until release automation is rewritten for WMB+ instead of upstream naming.
@@ -294,8 +297,9 @@ jobs:
           
           ### 🚀 Installation Options
           
-          1. **Web-based (Recommended):** Use ESP32 Web Tools on [weighmybru.com](https://weighmybru.com)
-          2. **Manual:** Download binaries and flash with esptool or PlatformIO
+          1. **First install / partition migration:** Download the matching `factory-full.bin` asset and flash once over USB.
+          2. **Web OTA after factory install:** Download the matching `app.bin` or `littlefs.bin` asset from this release, then upload it from the scale's local Updates page.
+          3. **Manual:** Download binaries and flash with esptool or PlatformIO.
           
           ### 📋 Requirements
           - ESP32-S3 Supermini, XIAO ESP32S3, or Unexpected Maker TinyS3[D] board
