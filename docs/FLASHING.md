@@ -30,6 +30,18 @@ The release provides four primary XIAO firmware artifacts:
 
 Scale, BLE, USB serial, display, battery, and sleep features are firmware features and do not require a web UI filesystem update. The web dashboard, OTA pages, and StopMyBru browser UI do require LittleFS assets.
 
+## OTA terminology
+
+WMB+ `0.2.0-beta.4` supports manual browser-upload OTA:
+
+1. Download the matching release asset yourself.
+2. Open the scale's local Updates page.
+3. Upload the matching `-app.bin` for firmware, or `-littlefs.bin` for web UI files.
+
+This is OTA because the update is sent over WiFi/local network instead of USB serial. It is not GitHub self-update: the scale does not yet contact GitHub, select an asset, download it, verify it, and install it automatically.
+
+The first `factory-full.bin` USB flash is what installs the dual-OTA partition table. After that, app-only updates can use the local Updates page.
+
 ## App-only upgrade
 
 Use this only if the device already has a compatible ESP32-S3 bootloader and partition table.

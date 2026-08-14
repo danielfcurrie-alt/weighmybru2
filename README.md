@@ -89,6 +89,18 @@ Calibration should be preserved. The XIAO factory-full image writes the bootload
 
 Important: the originally published `0.2.0-beta.1` XIAO fallback assets used LittleFS at `0x310000` and appeared to use a legacy/single-app partition layout. `0.2.0-beta.4` is the corrected dual-OTA release.
 
+## OTA status in this beta
+
+WMB+ `0.2.0-beta.4` supports browser-upload OTA, not one-click GitHub self-update.
+
+- **First install / partition migration:** flash the matching `factory-full.bin` once over USB at `0x0`. This installs the bootloader, dual-OTA partition table, app firmware, and LittleFS web UI.
+- **After factory-full is installed:** the Updates page should show `Firmware OTA: Ready` and a `Next OTA partition` such as `app1`.
+- **Future app updates:** download the matching `-app.bin` release asset yourself, then upload it from the scale's Updates page.
+- **Future web UI updates:** download the matching `-littlefs.bin` release asset yourself, then upload it from the scale's Updates page.
+- **Not implemented yet:** the scale does not yet contact GitHub, choose the correct asset, download it, verify it, and install it by itself.
+
+Manual browser-upload OTA still updates over WiFi/local network instead of USB serial. The planned future feature is GitHub self-update.
+
 ## What WMB+ adds
 
 - BLE advertises as `WeighMyBru+`.
@@ -231,6 +243,9 @@ Download the matching factory-full asset and wmb-plus-0.2.0-beta.4-sha256.txt. V
 - XIAO factory-full must be 8,388,608 bytes.
 - SuperMini factory-full must be 4,194,304 bytes.
 
+Use factory-full for first install or partition migration. This creates the dual-OTA partition layout required for later browser-upload OTA.
+Do not use the app-only asset for first install from stock/unknown partition layouts.
+
 Detect the ESP32-S3 serial port and flash size with esptool flash_id.
 
 Safety rules:
@@ -239,7 +254,12 @@ Safety rules:
 - Do not use assets for the other board.
 - Stop and ask before write_flash.
 
-After I confirm, flash the matching factory-full image at 0x0. Then open serial at 115200 and report firmware version, BLE name, LittleFS/web status, HX711 rate, battery, and calibration factor.
+After I confirm, flash the matching factory-full image at 0x0. Then open serial at 115200 and report firmware version, BLE name, LittleFS/web status, running partition, next OTA partition, Firmware OTA readiness, HX711 rate, battery, and calibration factor.
+
+Clarify OTA status in your report:
+- This beta supports manual browser-upload OTA from the local Updates page.
+- Future updates should use the matching -app.bin asset through the Updates page once factory-full has installed the dual-OTA layout.
+- The scale does not yet perform one-click GitHub self-update.
 ```
 
 Verify over serial at `115200` by sending:

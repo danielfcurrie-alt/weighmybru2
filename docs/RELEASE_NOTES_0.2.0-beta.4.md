@@ -4,11 +4,21 @@ Beta 4 is a release-readiness update for testers moving from beta 3.
 
 ## What changed from beta 3
 
-- Clarified the Updates page: WMB+ can remain its own access point for setup and manual OTA uploads, but checking GitHub releases requires joining an internet-connected WiFi network from Settings.
+- Clarified the Updates page: WMB+ can remain its own access point for setup and manual OTA uploads; GitHub self-update is not implemented in this beta.
 - Updated the firmware version string to `0.2.0-beta.4`.
 - Updated release documentation and quick-flash examples to beta 4 asset names.
 - Updated ESP32 Web Tools manifests to avoid prompting testers to erase flash by default.
 - Updated GitHub release metadata so release links point at the tagged README instead of a moving default branch.
+
+## OTA status
+
+Beta 4 supports manual browser-upload OTA after the dual-OTA partition table is installed.
+
+- First install or partition migration still uses `factory-full.bin` over USB at `0x0`.
+- That factory-full image creates the dual-OTA layout.
+- Later firmware updates can use the local Updates page with the matching `-app.bin` file.
+- Later web UI updates can use the local Updates page with the matching `-littlefs.bin` file.
+- GitHub self-update from the scale is not implemented in beta 4.
 
 ## Firmware behavior
 
