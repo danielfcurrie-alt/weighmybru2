@@ -13,6 +13,8 @@
 #include "Calibration.h"
 #include "BluetoothScale.h"
 #include "Version.h"
+#include "DiagnosticEventLog.h"
+#include "BoardHardware.h"
 
 Preferences preferences;
 
@@ -305,7 +307,7 @@ AsyncWebServer server(80);
  * Response: {"weight":45.23,"flowrate":2.15}
  */
 
-void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothScale, Display &display, BatteryMonitor &battery, SmbComms &smb, PowerManager &powerManager) {
+void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothScale, Display &display, BatteryMonitor &battery, SmbComms &smb, PowerManager &powerManager, DiagnosticEventLog &diagnosticEvents, BoardHardware &boardHardware) {
   if (!LittleFS.begin()) {
     Serial.println();
     Serial.println("=====================================");
@@ -335,7 +337,7 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
   getStoredSSID();            // This will cache WiFi credentials
 
   // Register API route first
-  server.on("/api/dashboard", HTTP_GET, [&scale, &flowRate, &display, &battery, &bluetoothScale](AsyncWebServerRequest *request) {
+  server.on("/api/dashboard", HTTP_GET, [&scale, &flowRate, &display, &battery, &bluetoothScale, &diagnosticEvents, &boardHardware](AsyncWebServerRequest *request) {
     String json = "{";
     json += "\"weight\":" + String(scale.getCurrentWeight(), 2) + ",";
     json += "\"flowrate\":" + String(flowRate.getFlowRate(), 1) + ",";
@@ -432,6 +434,13 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
     json += ",\"battery_learned_discharge_observations\":" + String(battery.getLearnedDischargeObservations());
     json += ",\"battery_learned_charge_observations\":" + String(battery.getLearnedChargeObservations());
     json += ",\"battery_learning_confidence\":\"" + battery.getBatteryLearningConfidence() + "\"";
+    json += ",\"diagnostic_event_count\":" + String(diagnosticEvents.count());
+    json += ",\"diagnostic_event_capacity\":" + String(diagnosticEvents.capacity());
+    json += ",\"diagnostic_event_log_psram\":" + String(diagnosticEvents.isPsramBacked() ? "true" : "false");
+    json += ",\"board_rgb_status_led_available\":" + String(boardHardware.hasRgbStatusLed() ? "true" : "false");
+    json += ",\"board_rgb_status_led_enabled\":" + String(boardHardware.isRgbStatusLedEnabled() ? "true" : "false");
+    json += ",\"board_antenna_switch_available\":" + String(boardHardware.hasAntennaSwitch() ? "true" : "false");
+    json += ",\"board_external_antenna_selected\":" + String(boardHardware.isExternalAntennaSelected() ? "true" : "false");
     
     // Add signal strength information
     json += ",\"wifi_signal_strength\":" + String(getWiFiSignalStrength());
@@ -835,6 +844,86 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
     json += "\"sdk_version\":\"" + String(ESP.getSdkVersion()) + "\"";
     json += "}";
     request->send(200, "application/json", json);
+  });
+
+  server.on("/api/diagnostics/self-test", HTTP_GET, [&scale, &display, &battery, &bluetoothScale, &diagnosticEvents, &boardHardware](AsyncWebServerRequest *request) {
+    String json = "{";
+    json += "\"firmware\":\"" + String(WMB_PLUS_FIRMWARE_NAME) + "\",";
+    json += "\"version\":\"" + String(WEIGHMYBRU_VERSION_STRING) + "\",";
+    json += "\"full_version\":\"" + String(WEIGHMYBRU_FULL_VERSION) + "\",";
+    json += "\"board\":\"" + String(WEIGHMYBRU_BOARD_NAME) + "\",";
+    json += "\"chip_model\":\"" + String(ESP.getChipModel()) + "\",";
+    json += "\"cpu_frequency_mhz\":" + String(ESP.getCpuFreqMHz()) + ",";
+    json += "\"free_heap\":" + String(ESP.getFreeHeap()) + ",";
+    json += "\"heap_size\":" + String(ESP.getHeapSize()) + ",";
+    json += "\"free_psram\":" + String(ESP.getFreePsram()) + ",";
+    json += "\"psram_size\":" + String(ESP.getPsramSize()) + ",";
+    json += "\"scale_connected\":" + String(scale.isHX711Connected() ? "true" : "false") + ",";
+    json += "\"display_connected\":" + String(display.isConnected() ? "true" : "false") + ",";
+    json += "\"ble_connected\":" + String(bluetoothScale.isConnected() ? "true" : "false") + ",";
+    json += "\"battery_valid\":" + String(battery.hasValidReading() ? "true" : "false") + ",";
+    json += "\"battery_backend\":\"" + battery.getBatteryBackend() + "\",";
+    json += "\"battery_percentage\":" + String(battery.getBatteryPercentage()) + ",";
+    json += "\"battery_voltage\":" + String(battery.getBatteryVoltage(), 3) + ",";
+    json += "\"fuel_gauge\":" + String(battery.hasFuelGauge() ? "true" : "false") + ",";
+    json += "\"usb_power_present\":" + String(battery.isUsbPowerPresent() ? "true" : "false") + ",";
+    json += "\"hx711_rate_hz\":" + String(scale.getDetectedSampleRateHz(), 2) + ",";
+    json += "\"hx711_rate_mode\":\"" + scale.getDetectedHx711RateMode() + "\",";
+    json += "\"scale_quality\":" + String(scale.getScaleQualityScore()) + ",";
+    json += "\"lifetime_quality\":" + String(scale.getLifetimeQualityScore()) + ",";
+    json += "\"diagnostic_events\":" + diagnosticEvents.toJson(8) + ",";
+    json += "\"board_hardware\":" + boardHardware.toJson();
+    json += "}";
+    request->send(200, "application/json", json);
+  });
+
+  server.on("/api/diagnostics/events", HTTP_GET, [&diagnosticEvents](AsyncWebServerRequest *request) {
+    size_t limit = 64;
+    if (request->hasParam("limit")) {
+      limit = static_cast<size_t>(request->getParam("limit")->value().toInt());
+      if (limit == 0) {
+        limit = 64;
+      }
+      if (limit > 256) {
+        limit = 256;
+      }
+    }
+    request->send(200, "application/json", diagnosticEvents.toJson(limit));
+  });
+
+  server.on("/api/diagnostics/events/clear", HTTP_POST, [&diagnosticEvents](AsyncWebServerRequest *request) {
+    diagnosticEvents.clear();
+    request->send(200, "application/json", "{\"status\":\"success\",\"message\":\"Diagnostic event log cleared\"}");
+  });
+
+  server.on("/api/board/hardware", HTTP_GET, [&boardHardware](AsyncWebServerRequest *request) {
+    request->send(200, "application/json", boardHardware.toJson());
+  });
+
+  server.on("/api/board/status-led", HTTP_POST, [&boardHardware](AsyncWebServerRequest *request) {
+    if (!request->hasParam("enabled", true)) {
+      request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"Missing enabled parameter\"}");
+      return;
+    }
+    const String enabledValue = request->getParam("enabled", true)->value();
+    const bool enabled = enabledValue == "1" || enabledValue == "true" || enabledValue == "on";
+    boardHardware.setRgbStatusLedEnabled(enabled);
+    request->send(200, "application/json", boardHardware.toJson());
+  });
+
+  server.on("/api/board/antenna", HTTP_POST, [&boardHardware](AsyncWebServerRequest *request) {
+    if (!boardHardware.hasAntennaSwitch()) {
+      request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"Antenna switch is not available on this board\"}");
+      return;
+    }
+    if (!request->hasParam("external", true)) {
+      request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"Missing external parameter\"}");
+      return;
+    }
+    const String externalValue = request->getParam("external", true)->value();
+    const bool external = externalValue == "1" || externalValue == "true" || externalValue == "on";
+    boardHardware.setExternalAntenna(external);
+    request->send(200, "application/json", boardHardware.toJson());
   });
 
   // Web OTA status and upload endpoints

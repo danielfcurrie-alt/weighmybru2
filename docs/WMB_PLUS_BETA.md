@@ -24,6 +24,10 @@ The headline improvement is real 80 SPS operation. On the reference 80 SPS HX711
 - Extended timestamp, sequence, flow, battery, status, quality, cadence, and diagnostic fields.
 - Standard BLE Battery Service `180F / 2A19`.
 - Learned voltage-based battery runtime and charge estimates persisted across reboots.
+- MAX17048 fuel-gauge battery backend and USB-power detection on TinyS3[D] development builds.
+- Diagnostic event log for exceptions only, not raw sample buffering. The log uses PSRAM when available.
+- TinyS3[D] RF antenna switch support.
+- Optional TinyS3[D] RGB status LED, defaulting off for battery testing.
 - Optional WMB+ capabilities characteristic.
 - 80 SPS HX711 cadence diagnostics.
 - Physical-parity BLE tare path.
@@ -49,8 +53,8 @@ The compatibility lanes stay conservative:
 
 ## Known limitations
 
-- Battery percentage is voltage-estimated. It is useful but not a fuel-gauge-grade measurement.
-- Charging/time-remaining estimates are experimental. WMB+ learns observed charge/discharge rates over time, but without a charger status pin or fuel gauge this remains an estimate.
+- Battery percentage is voltage-estimated on XIAO/SuperMini. TinyS3[D] development builds use the MAX17048 fuel gauge when present.
+- Charging/time-remaining estimates are experimental. WMB+ learns observed charge/discharge rates over time; TinyS3[D] fuel-gauge data should improve this once validated on real hardware.
 - XIAO ESP32S3 is the only board treated as beta-supported in this release.
 - The originally published `0.2.0-beta.1` XIAO fallback asset used LittleFS at `0x310000` and appeared to use a legacy/single-app layout.
 - `0.2.0-beta.2` XIAO factory-full uses the dual-OTA layout with LittleFS at `0x610000`.

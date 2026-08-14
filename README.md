@@ -17,6 +17,8 @@ Main reasons to try it:
 - **Compatibility stays on:** Bean Conqueror has been hardware-tested through the Float32 Bluetooth path. WeighMyBru/GaggiMate/Gaggiuino-style clients should continue to work through their existing 20-byte Bluetooth path.
 - **Standard BLE battery:** exposes battery through the standard `180F / 2A19` Battery Service instead of hiding it in a web-only path.
 - **Better battery backends:** ADC-backed boards expose voltage-estimated battery; TinyS3[D] development builds use the onboard MAX17048 fuel gauge for real state-of-charge plus USB-power detection.
+- **TinyS3[D] hardware support:** development builds can use the board’s MAX17048 fuel gauge, USB power sense, software RF antenna switch, and optional RGB status LED. The LED defaults off for battery testing.
+- **Diagnostics without raw buffering:** the firmware keeps a compact ring of errors/events such as bump, glitch, low battery, sleep/wake, USB-power changes, and hardware faults. It uses PSRAM when available and does not store raw sample history in PSRAM.
 - **Web OTA updates:** after one USB install with the dual-OTA partition table, future app firmware and web UI/LittleFS images can be uploaded from the scale’s Updates page.
 - **Cleaner app tare behavior:** app-triggered tare goes through the same delayed/settled path as the physical tare button.
 - **Atomic tare/start:** WMB+-aware apps can issue one command to tare and start a shot timer together.
@@ -91,6 +93,9 @@ Important: the originally published `0.2.0-beta.1` XIAO fallback assets used Lit
 - ADC-backed battery estimate on XIAO/SuperMini builds.
 - MAX17048 fuel-gauge battery backend and USB-power detection on TinyS3[D] development builds.
 - Learned battery runtime/charge estimates persisted across reboots where the active battery backend supports enough observation data.
+- Diagnostic event log for exceptions only: bump, glitch, low/critical battery, invalid battery, USB power changes, sleep/wake, missing HX711, missing display, missing TinyS3[D] fuel gauge, BLE/WiFi faults. The log uses PSRAM when available.
+- TinyS3[D] RF antenna switch setting, defaulting to onboard/internal antenna.
+- Optional TinyS3[D] RGB status LED, defaulting off to avoid corrupting battery tests.
 - WMB+ capabilities characteristic.
 - WMB+ extended telemetry packet.
 - Fresh-sample notification cadence and HX711 cadence diagnostics for capable clients.
@@ -248,6 +253,8 @@ Useful commands:
 
 ```text
 b  toggle battery benchmark logging
+e  print diagnostic event log
+E  clear diagnostic event log
 W  print one weight sample
 w  start/stop continuous weight stream
 z  diagnostics
@@ -293,10 +300,11 @@ Compatibility paths stay conservative:
 - `6E400004` remains exactly a 4-byte little-endian Float32 weight.
 - Existing apps should not need WMB+ metadata to read weight.
 - Optional metadata is exposed through WMB+ capabilities, the extended packet, USB serial, and diagnostics.
+- PSRAM is reserved for compact diagnostic/error events, not raw sample buffering.
 
 ## Known limitations
 
-- Battery percentage is voltage-estimated, not fuel-gauge-grade.
+- Battery percentage is voltage-estimated on XIAO/SuperMini builds. TinyS3[D] development builds use the MAX17048 fuel gauge when present.
 - Charging/runtime estimates are experimental; WMB+ learns charge/discharge rates over time, but this is still voltage-based intelligence, not a dedicated fuel gauge.
 - XIAO ESP32S3 is the only primary beta-supported target in `0.2.0-beta.2`.
 - App firmware OTA requires the new dual-OTA partition table. Existing devices on a legacy/single-app layout need the `0.2.0-beta.2` full factory flash before relying on app OTA.

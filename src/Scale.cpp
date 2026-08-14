@@ -2,6 +2,7 @@
 #include "WebServer.h"
 #include "Calibration.h"
 #include "FlowRate.h"
+#include "DiagnosticEventLog.h"
 #include <math.h>
 
 namespace {
@@ -368,6 +369,9 @@ void Scale::recordMeasurementQuality(unsigned long sampleMillis, float rawReadin
             lifetimeBumpCount++;
             lastBumpMillis = sampleMillis;
             lastBumpMagnitudeGrams = rawDelta;
+            if (diagnosticEventLog != nullptr) {
+                diagnosticEventLog->record(DiagnosticEventType::Bump, rawDelta, "accepted raw step", sampleSequence);
+            }
         }
     }
 
@@ -439,6 +443,9 @@ void Scale::recordRejectedGlitch(unsigned long sampleMillis, float magnitudeGram
     samplesSinceQualityPersist++;
     lastGlitchMillis = sampleMillis;
     lastGlitchMagnitudeGrams = magnitudeGrams;
+    if (diagnosticEventLog != nullptr) {
+        diagnosticEventLog->record(DiagnosticEventType::Glitch, magnitudeGrams, "plausibility rejected", sampleSequence);
+    }
     persistQualityStatsIfNeeded(false);
 }
 

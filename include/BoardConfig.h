@@ -42,6 +42,9 @@
   #define FUEL_GAUGE_MAX17048_ADDR 0x36
   #define HAS_USB_POWER_SENSE      1
   #define USB_POWER_SENSE_PIN      33
+  #define HAS_BOARD_RGB_STATUS_LED 1
+  #define HAS_RF_ANTENNA_SWITCH    1
+  #define RF_ANTENNA_SWITCH_PIN    38
 #else
   #define BATTERY_PIN              7   // GPIO7 - Battery voltage monitoring (ADC1_CH6)
   #define HAS_ADC_BATTERY          1
@@ -49,6 +52,9 @@
   #define FUEL_GAUGE_MAX17048_ADDR 0x36
   #define HAS_USB_POWER_SENSE      0
   #define USB_POWER_SENSE_PIN      BATTERY_PIN_NONE
+  #define HAS_BOARD_RGB_STATUS_LED 0
+  #define HAS_RF_ANTENNA_SWITCH    0
+  #define RF_ANTENNA_SWITCH_PIN    BATTERY_PIN_NONE
 #endif
 
 // Board-specific configurations

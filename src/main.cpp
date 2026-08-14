@@ -20,6 +20,8 @@
 #include "BoardConfig.h"
 #include "Version.h"
 #include "SmbComms.h"
+#include "DiagnosticEventLog.h"
+#include "BoardHardware.h"
 
 // Board-specific pin configuration
 uint8_t dataPin = HX711_DATA_PIN;     // HX711 Data pin
@@ -38,11 +40,25 @@ Display oledDisplay(sdaPin, sclPin, &scale, &flowRate);
 PowerManager powerManager(sleepTouchPin, &oledDisplay);
 BatteryMonitor batteryMonitor(batteryPin);
 SmbComms smbComms;
+DiagnosticEventLog diagnosticEventLog;
+BoardHardware boardHardware;
 
 static constexpr uint32_t BATTERY_BENCH_LOG_INTERVAL_MS = 30000;
 static bool batteryBenchLoggingEnabled = true;
 static bool usbWeightStreamEnabled = false;
 static uint32_t usbWeightDroppedFrames = 0;
+
+struct SleepSnapshot {
+  uint32_t magic;
+  uint32_t sleepCount;
+  float batteryVoltage;
+  int batteryPercent;
+  bool usbPowerPresent;
+  uint32_t enterMillis;
+};
+
+RTC_DATA_ATTR SleepSnapshot rtcSleepSnapshot = {};
+static constexpr uint32_t SLEEP_SNAPSHOT_MAGIC = 0x574D4250; // WMBP
 
 enum UsbWeightStatusFlags : uint16_t {
   USB_WEIGHT_STATUS_HX711_CONNECTED = 1U << 0,
@@ -58,6 +74,114 @@ enum UsbWeightStatusFlags : uint16_t {
 
 static const char* boolText(bool value) {
   return value ? "true" : "false";
+}
+
+static const char* wakeCauseName(esp_sleep_wakeup_cause_t cause) {
+  switch (cause) {
+    case ESP_SLEEP_WAKEUP_EXT0: return "ext0";
+    case ESP_SLEEP_WAKEUP_EXT1: return "ext1";
+    case ESP_SLEEP_WAKEUP_TIMER: return "timer";
+    case ESP_SLEEP_WAKEUP_TOUCHPAD: return "touchpad";
+    case ESP_SLEEP_WAKEUP_ULP: return "ulp";
+    case ESP_SLEEP_WAKEUP_GPIO: return "gpio";
+    case ESP_SLEEP_WAKEUP_UART: return "uart";
+    default: return "cold_boot";
+  }
+}
+
+static void captureSleepSnapshot() {
+  rtcSleepSnapshot.magic = SLEEP_SNAPSHOT_MAGIC;
+  rtcSleepSnapshot.sleepCount++;
+  rtcSleepSnapshot.batteryVoltage = batteryMonitor.getBatteryVoltage();
+  rtcSleepSnapshot.batteryPercent = batteryMonitor.getBatteryPercentage();
+  rtcSleepSnapshot.usbPowerPresent = batteryMonitor.isUsbPowerPresent();
+  rtcSleepSnapshot.enterMillis = millis();
+}
+
+static void recordWakeSnapshot(esp_sleep_wakeup_cause_t wakeupReason) {
+  String detail = "cause=" + String(wakeCauseName(wakeupReason));
+  if (rtcSleepSnapshot.magic == SLEEP_SNAPSHOT_MAGIC && rtcSleepSnapshot.sleepCount > 0) {
+    const int currentPercent = batteryMonitor.getBatteryPercentage();
+    const int deltaPercent = currentPercent - rtcSleepSnapshot.batteryPercent;
+    detail += " prev=" + String(rtcSleepSnapshot.batteryPercent) + "%";
+    detail += " delta=" + String(deltaPercent) + "%";
+    detail += " usbWas=" + String(rtcSleepSnapshot.usbPowerPresent ? "1" : "0");
+    diagnosticEventLog.record(DiagnosticEventType::Wake, static_cast<float>(deltaPercent), detail.c_str());
+    Serial.printf("Last sleep snapshot: count=%lu previous=%d%% now=%d%% delta=%+d%% usbWas=%s usbNow=%s\n",
+                  static_cast<unsigned long>(rtcSleepSnapshot.sleepCount),
+                  rtcSleepSnapshot.batteryPercent,
+                  currentPercent,
+                  deltaPercent,
+                  boolText(rtcSleepSnapshot.usbPowerPresent),
+                  boolText(batteryMonitor.isUsbPowerPresent()));
+  } else {
+    diagnosticEventLog.record(DiagnosticEventType::Wake, static_cast<float>(wakeupReason), detail.c_str());
+  }
+}
+
+static BoardHardwareStatus currentBoardStatus() {
+  if (batteryMonitor.isCriticalBattery()) {
+    return BoardHardwareStatus::CriticalBattery;
+  }
+  if (batteryMonitor.isLowBattery()) {
+    return BoardHardwareStatus::LowBattery;
+  }
+  if (batteryMonitor.isCharging()) {
+    return BoardHardwareStatus::Charging;
+  }
+  if (bluetoothScale.isConnected()) {
+    return BoardHardwareStatus::Connected;
+  }
+  return BoardHardwareStatus::Idle;
+}
+
+static void recordRuntimeDiagnosticEvents() {
+  static bool initialized = false;
+  static bool lastUsbPowerPresent = false;
+  static bool lowBatteryReported = false;
+  static bool criticalBatteryReported = false;
+  static bool invalidBatteryReported = false;
+
+  const bool usbPowerPresent = batteryMonitor.isUsbPowerPresent();
+  const bool lowBattery = batteryMonitor.isLowBattery();
+  const bool criticalBattery = batteryMonitor.isCriticalBattery();
+  const bool validBattery = batteryMonitor.hasValidReading();
+
+  if (!initialized) {
+    lastUsbPowerPresent = usbPowerPresent;
+    initialized = true;
+  } else if (usbPowerPresent != lastUsbPowerPresent) {
+    diagnosticEventLog.record(DiagnosticEventType::UsbPowerChanged,
+                              usbPowerPresent ? 1.0f : 0.0f,
+                              usbPowerPresent ? "usb power present" : "usb power removed");
+    lastUsbPowerPresent = usbPowerPresent;
+  }
+
+  if (!validBattery && !invalidBatteryReported) {
+    diagnosticEventLog.record(DiagnosticEventType::BatteryInvalid, 0.0f, "battery reading invalid");
+    invalidBatteryReported = true;
+  } else if (validBattery) {
+    invalidBatteryReported = false;
+  }
+
+  if (criticalBattery && !criticalBatteryReported) {
+    diagnosticEventLog.record(DiagnosticEventType::CriticalBattery,
+                              batteryMonitor.getBatteryVoltage(),
+                              "critical battery");
+    criticalBatteryReported = true;
+    lowBatteryReported = true;
+  } else if (!criticalBattery) {
+    criticalBatteryReported = false;
+  }
+
+  if (lowBattery && !lowBatteryReported) {
+    diagnosticEventLog.record(DiagnosticEventType::LowBattery,
+                              batteryMonitor.getBatteryVoltage(),
+                              "low battery");
+    lowBatteryReported = true;
+  } else if (!lowBattery) {
+    lowBatteryReported = false;
+  }
 }
 
 static const char* wifiModeName(wifi_mode_t mode) {
@@ -321,7 +445,9 @@ static void printConfigDiagnostics() {
   Serial.printf("USB weight stream: enabled=%s dropped=%lu format=WMBP_WEIGHT_V1\n",
                 boolText(usbWeightStreamEnabled),
                 static_cast<unsigned long>(usbWeightDroppedFrames));
-  Serial.println("Commands: z=config diagnostics, b=toggle battery benchmark log, B=print battery benchmark now, w=toggle USB weight stream, W=print one USB weight sample");
+  Serial.println("Board hardware: " + boardHardware.toJson());
+  diagnosticEventLog.printTo(Serial, 12);
+  Serial.println("Commands: z=config diagnostics, e=print diagnostic events, E=clear diagnostic events, b=toggle battery benchmark log, B=print battery benchmark now, w=toggle USB weight stream, W=print one USB weight sample");
   Serial.println("============================================");
 }
 
@@ -330,6 +456,11 @@ static void handleSerialCommands() {
     const char command = static_cast<char>(Serial.read());
     if (command == 'z' || command == 'Z') {
       printConfigDiagnostics();
+    } else if (command == 'e') {
+      diagnosticEventLog.printTo(Serial, 64);
+    } else if (command == 'E') {
+      diagnosticEventLog.clear();
+      Serial.println("Diagnostic event log cleared");
     } else if (command == 'b') {
       batteryBenchLoggingEnabled = !batteryBenchLoggingEnabled;
       Serial.printf("Battery benchmark serial log %s\n", batteryBenchLoggingEnabled ? "enabled" : "disabled");
@@ -364,9 +495,15 @@ void setup() {
   Serial.printf("Flash Size: %dMB\n", FLASH_SIZE_MB);
   Serial.printf("CPU Frequency: %dMHz (Power Optimized)\n", getCpuFrequencyMhz());
   Serial.println("=================================");
+
+  diagnosticEventLog.begin();
+  diagnosticEventLog.record(DiagnosticEventType::Boot, 0.0f, "firmware boot");
+  boardHardware.begin();
+  boardHardware.updateStatus(BoardHardwareStatus::Booting);
   
   // Link scale and flow rate for tare operation coordination
   scale.setFlowRatePtr(&flowRate);
+  scale.setDiagnosticEventLog(&diagnosticEventLog);
   bluetoothScale.setTouchSensor(&touchSensor);
   bluetoothScale.setFlowRate(&flowRate);
   
@@ -381,6 +518,12 @@ void setup() {
   // Initialize battery before BLE so the standard Battery Service can publish
   // a real value instead of a fake default.
   batteryMonitor.begin();
+  recordWakeSnapshot(esp_sleep_get_wakeup_cause());
+#if HAS_I2C_FUEL_GAUGE
+  if (!batteryMonitor.hasFuelGauge()) {
+    diagnosticEventLog.record(DiagnosticEventType::FuelGaugeMissing, 0.0f, "MAX17048 missing");
+  }
+#endif
   bluetoothScale.setBatteryMonitor(&batteryMonitor);
   
   // CRITICAL: Initialize BLE FIRST before WiFi to prevent radio conflicts
@@ -395,6 +538,7 @@ void setup() {
     Serial.printf("Free PSRAM after BLE init: %u bytes\n", ESP.getFreePsram());
   } catch (...) {
     Serial.println("BLE initialization failed - continuing without Bluetooth");
+    diagnosticEventLog.record(DiagnosticEventType::BleError, 0.0f, "BLE initialization failed");
     Serial.printf("Free heap after BLE fail: %u bytes\n", ESP.getFreeHeap());
   }
   
@@ -406,6 +550,7 @@ void setup() {
     Serial.println("WARNING: Display initialization failed!");
     Serial.println("System will continue in headless mode without display.");
     Serial.println("All functionality remains available via web interface.");
+    diagnosticEventLog.record(DiagnosticEventType::DisplayMissing, 0.0f, "display init failed");
   } else {
     Serial.println("Display initialized - ready for visual feedback");
     // Set reduced brightness for power optimization
@@ -469,6 +614,7 @@ void setup() {
     Serial.println("WARNING: Scale (HX711) initialization failed!");
     Serial.println("Web server will continue to run, but scale readings will not be available.");
     Serial.println("Check HX711 wiring and connections.");
+    diagnosticEventLog.record(DiagnosticEventType::Hx711Missing, 0.0f, "HX711 init failed");
   } else {
     Serial.println("Scale initialized successfully");
     // Now that scale is ready, set the reference in BluetoothScale
@@ -504,6 +650,11 @@ void setup() {
   powerManager.loadAutoSleepSettings();
   powerManager.setBeforeSleepCallback([]() {
     Serial.println("Preparing peripherals for deep sleep...");
+    captureSleepSnapshot();
+    diagnosticEventLog.record(DiagnosticEventType::SleepEnter,
+                              batteryMonitor.getBatteryVoltage(),
+                              "deep sleep");
+    boardHardware.prepareForSleep();
 
     if (scale.isHX711Connected()) {
       scale.powerDown();
@@ -523,6 +674,7 @@ void setup() {
   float batteryVoltage = batteryMonitor.getBatteryVoltage();
   if (batteryVoltage < 3.2f && batteryVoltage > 0.1f) { // > 0.1f to avoid false readings
     Serial.printf("CRITICAL: Battery voltage too low (%.2fV) - entering sleep\n", batteryVoltage);
+    diagnosticEventLog.record(DiagnosticEventType::CriticalBattery, batteryVoltage, "boot guard sleep");
     
     // Show battery low message on display with large, centered formatting
     if (oledDisplay.isConnected()) {
@@ -537,6 +689,8 @@ void setup() {
     }
     
     Serial.println("Forcing deep sleep now...");
+    captureSleepSnapshot();
+    boardHardware.prepareForSleep();
     esp_deep_sleep_start();
   }
   
@@ -563,7 +717,7 @@ void setup() {
   powerManager.setRelayOnCallback( [](){ smbComms.sendRelayOn();  });
   powerManager.setRelayOffCallback([](){ smbComms.sendRelayOff(); });
 
-  setupWebServer(scale, flowRate, bluetoothScale, oledDisplay, batteryMonitor, smbComms, powerManager);
+  setupWebServer(scale, flowRate, bluetoothScale, oledDisplay, batteryMonitor, smbComms, powerManager, diagnosticEventLog, boardHardware);
   
   // CRITICAL: After full initialization, check if WiFi should be disabled
   // This exactly replicates the tare button scenario: WiFi started, then disabled
@@ -631,6 +785,8 @@ void loop() {
   
   // Update battery monitor
   batteryMonitor.update();
+  recordRuntimeDiagnosticEvents();
+  boardHardware.updateStatus(currentBoardStatus());
 
   // Emit lightweight battery/runtime benchmark telemetry for old-vs-new
   // drain comparisons. This is serial-only and does not write persistent state.

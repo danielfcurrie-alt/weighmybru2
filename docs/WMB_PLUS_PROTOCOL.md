@@ -46,13 +46,19 @@ byte 14  reserved
 byte 15  checksum
 ```
 
-Current beta example payload:
+Current XIAO/SuperMini development-build example payload:
 
 ```text
-03 0C 01 10 01 00 FF FF 07 00 07 00 01 14 00 0A
+03 0C 01 10 01 00 FF FF 17 00 07 00 01 14 00 1A
 ```
 
-This advertises the supported feature bits, preferred atomic command `0x07`, extension packet version `1`, and extension packet length `20`.
+Current TinyS3[D] development-build example payload:
+
+```text
+03 0C 01 10 01 00 FF FF FF 00 07 00 01 14 00 F2
+```
+
+These advertise the supported feature bits, preferred atomic command `0x07`, extension packet version `1`, and extension packet length `20`.
 
 ## Feature mask
 
@@ -77,7 +83,13 @@ bit 16  glitch rejection
 bit 17  battery charge/runtime estimate, including learned voltage-based rate profile when available
 bit 18  legacy Float32 20 Hz pacing
 bit 19  fuel-gauge battery backend, currently MAX17048 on TinyS3[D]
+bit 20  diagnostic event log for exception/error events only; endpoint reports whether it is PSRAM-backed
+bit 21  USB power sense
+bit 22  software RF antenna switch
+bit 23  RGB status LED
 ```
+
+The diagnostic event log is intentionally not a sample buffer. It records exceptional firmware events such as accepted bump, rejected glitch, low/critical battery, invalid battery, USB power transition, sleep/wake, missing HX711, missing display, missing fuel gauge, and BLE/WiFi faults. It uses PSRAM when available; `/api/diagnostics/events` reports the actual backend.
 
 ## 20-byte WMB+ extension packet v1
 
@@ -204,3 +216,18 @@ little-endian Float32 weight_g
 ```
 
 Do not add metadata to the Float32 characteristic. Apps that want metadata should use the WMB+ capabilities and extended packet or USB serial stream.
+
+## Diagnostic web endpoints
+
+When the web UI is enabled, WMB+ exposes diagnostic endpoints for bench testing and firmware validation:
+
+```text
+GET  /api/diagnostics/self-test
+GET  /api/diagnostics/events?limit=64
+POST /api/diagnostics/events/clear
+GET  /api/board/hardware
+POST /api/board/status-led   enabled=true|false
+POST /api/board/antenna      external=true|false
+```
+
+Board hardware controls are no-ops or return an error on boards that do not expose the relevant hardware. TinyS3[D] supports the RF antenna switch and optional RGB status LED; the LED defaults off for power testing.
