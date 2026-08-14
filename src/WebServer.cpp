@@ -5,6 +5,7 @@
 #include <Ticker.h>
 #include <esp_ota_ops.h>
 #include <esp_partition.h>
+#include <math.h>
 #include "WebServer.h"
 #include "Scale.h"
 #include "WiFiManager.h"
@@ -15,6 +16,7 @@
 #include "Version.h"
 #include "DiagnosticEventLog.h"
 #include "BoardHardware.h"
+#include "BatteryDrainSession.h"
 
 Preferences preferences;
 
@@ -35,6 +37,7 @@ static String otaLastMessage = "idle";
 static String otaLastFilename;
 
 static String jsonEscape(const String& input);
+static String jsonNumberOrNull(float value, unsigned int decimals = 3);
 
 static void restartAfterOta() {
     ESP.restart();
@@ -215,6 +218,13 @@ static String jsonEscape(const String& input) {
     return escaped;
 }
 
+static String jsonNumberOrNull(float value, unsigned int decimals) {
+    if (!isfinite(value)) {
+        return "null";
+    }
+    return String(value, decimals);
+}
+
 int getCachedDecimals() {
     // Fast path - return immediately if already cached and recent
     if (cachedDecimals != -1 && (millis() - lastDecimalCacheTime < DECIMAL_CACHE_TIMEOUT)) {
@@ -307,7 +317,7 @@ AsyncWebServer server(80);
  * Response: {"weight":45.23,"flowrate":2.15}
  */
 
-void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothScale, Display &display, BatteryMonitor &battery, SmbComms &smb, PowerManager &powerManager, DiagnosticEventLog &diagnosticEvents, BoardHardware &boardHardware) {
+void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothScale, Display &display, BatteryMonitor &battery, SmbComms &smb, PowerManager &powerManager, DiagnosticEventLog &diagnosticEvents, BoardHardware &boardHardware, BatteryDrainSession &batteryDrainSession) {
   if (!LittleFS.begin()) {
     Serial.println();
     Serial.println("=====================================");
@@ -337,7 +347,7 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
   getStoredSSID();            // This will cache WiFi credentials
 
   // Register API route first
-  server.on("/api/dashboard", HTTP_GET, [&scale, &flowRate, &display, &battery, &bluetoothScale, &diagnosticEvents, &boardHardware](AsyncWebServerRequest *request) {
+  server.on("/api/dashboard", HTTP_GET, [&scale, &flowRate, &display, &battery, &bluetoothScale, &diagnosticEvents, &boardHardware, &batteryDrainSession](AsyncWebServerRequest *request) {
     String json = "{";
     json += "\"weight\":" + String(scale.getCurrentWeight(), 2) + ",";
     json += "\"flowrate\":" + String(flowRate.getFlowRate(), 1) + ",";
@@ -434,6 +444,14 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
     json += ",\"battery_learned_discharge_observations\":" + String(battery.getLearnedDischargeObservations());
     json += ",\"battery_learned_charge_observations\":" + String(battery.getLearnedChargeObservations());
     json += ",\"battery_learning_confidence\":\"" + battery.getBatteryLearningConfidence() + "\"";
+    json += ",\"battery_drain_session\":\"" + String(batteryDrainSession.getLabel()) + "\"";
+    json += ",\"battery_drain_session_minutes\":" + String(batteryDrainSession.getElapsedMinutes(), 1);
+    json += ",\"battery_drain_delta_voltage\":" + jsonNumberOrNull(batteryDrainSession.getDeltaVoltage(), 3);
+    json += ",\"battery_drain_delta_raw_percentage\":" + String(batteryDrainSession.getDeltaRawPercent());
+    json += ",\"battery_drain_voltage_mv_per_hour\":" + jsonNumberOrNull(batteryDrainSession.getVoltageMillivoltsPerHour(), 2);
+    json += ",\"battery_drain_raw_percent_per_hour\":" + String(batteryDrainSession.getRawPercentPerHour(), 3);
+    json += ",\"battery_drain_trend\":\"" + String(batteryDrainSession.getTrend()) + "\"";
+    json += ",\"battery_drain_confidence\":\"" + String(batteryDrainSession.getConfidence()) + "\"";
     json += ",\"diagnostic_event_count\":" + String(diagnosticEvents.count());
     json += ",\"diagnostic_event_capacity\":" + String(diagnosticEvents.capacity());
     json += ",\"diagnostic_event_log_psram\":" + String(diagnosticEvents.isPsramBacked() ? "true" : "false");
@@ -602,6 +620,81 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
     json += ",\"calibration_offset\":" + String(battery.getCalibrationOffset(), 3);
     json += "}";
     request->send(200, "application/json", json);
+  });
+
+  server.on("/api/battery/benchmark", HTTP_GET, [&battery, &batteryDrainSession, &scale, &display, &bluetoothScale](AsyncWebServerRequest *request) {
+    String json = "{";
+    json += "\"label\":\"" + String(batteryDrainSession.getLabel()) + "\"";
+    json += ",\"elapsed_minutes\":" + String(batteryDrainSession.getElapsedMinutes(), 3);
+    json += ",\"samples\":" + String(batteryDrainSession.getSamples());
+    json += ",\"invalid_samples\":" + String(batteryDrainSession.getInvalidSamples());
+    json += ",\"start_millis\":" + String(batteryDrainSession.getStartMillis());
+    json += ",\"last_millis\":" + String(batteryDrainSession.getLastMillis());
+    json += ",\"start_voltage\":" + jsonNumberOrNull(batteryDrainSession.getStartVoltage(), 3);
+    json += ",\"last_voltage\":" + jsonNumberOrNull(batteryDrainSession.getLastVoltage(), 3);
+    json += ",\"start_percent\":" + String(batteryDrainSession.getStartPercent());
+    json += ",\"last_percent\":" + String(batteryDrainSession.getLastPercent());
+    json += ",\"start_raw_percent\":" + String(batteryDrainSession.getStartRawPercent());
+    json += ",\"last_raw_percent\":" + String(batteryDrainSession.getLastRawPercent());
+    json += ",\"delta_voltage\":" + jsonNumberOrNull(batteryDrainSession.getDeltaVoltage(), 3);
+    json += ",\"delta_percent\":" + String(batteryDrainSession.getDeltaPercent());
+    json += ",\"delta_raw_percent\":" + String(batteryDrainSession.getDeltaRawPercent());
+    json += ",\"voltage_mv_per_hour\":" + jsonNumberOrNull(batteryDrainSession.getVoltageMillivoltsPerHour(), 2);
+    json += ",\"raw_percent_per_hour\":" + String(batteryDrainSession.getRawPercentPerHour(), 3);
+    json += ",\"trend\":\"" + String(batteryDrainSession.getTrend()) + "\"";
+    json += ",\"confidence\":\"" + String(batteryDrainSession.getConfidence()) + "\"";
+    json += ",\"battery_backend\":\"" + battery.getBatteryBackend() + "\"";
+    json += ",\"battery_valid\":" + String(battery.hasValidReading() ? "true" : "false");
+    json += ",\"current_voltage\":" + String(battery.getBatteryVoltage(), 3);
+    json += ",\"current_percent\":" + String(battery.getBatteryPercentage());
+    json += ",\"current_raw_percent\":" + String(battery.getRawBatteryPercentage());
+    json += ",\"usb_power_present\":" + String(battery.isUsbPowerPresent() ? "true" : "false");
+    json += ",\"charging\":" + String(battery.isCharging() ? "true" : "false");
+    json += ",\"charging_state\":\"" + battery.getChargingState() + "\"";
+    json += ",\"runtime_minutes_remaining\":";
+    int runtimeMinutes = battery.getEstimatedRuntimeMinutesRemaining();
+    json += runtimeMinutes >= 0 ? String(runtimeMinutes) : "null";
+    json += ",\"minutes_to_80\":";
+    int minutesTo80 = battery.getEstimatedMinutesTo80();
+    json += minutesTo80 >= 0 ? String(minutesTo80) : "null";
+    json += ",\"minutes_to_100\":";
+    int minutesTo100 = battery.getEstimatedMinutesTo100();
+    json += minutesTo100 >= 0 ? String(minutesTo100) : "null";
+    json += ",\"runtime_confidence\":\"" + battery.getRuntimeEstimateConfidence() + "\"";
+    json += ",\"charge_confidence\":\"" + battery.getChargeEstimateConfidence() + "\"";
+    json += ",\"learned_discharge_rate_percent_per_hour\":" + String(battery.getLearnedDischargeRatePercentPerHour(), 3);
+    json += ",\"learned_charge_rate_percent_per_hour\":" + String(battery.getLearnedChargeRatePercentPerHour(), 3);
+    json += ",\"learning_confidence\":\"" + battery.getBatteryLearningConfidence() + "\"";
+    json += ",\"cpu_mhz\":" + String(ESP.getCpuFreqMHz());
+    json += ",\"wifi_mode\":" + String(static_cast<int>(WiFi.getMode()));
+    json += ",\"wifi_radio_on\":" + String(WiFi.getMode() != WIFI_OFF ? "true" : "false");
+    json += ",\"wifi_sleep\":" + String(WiFi.getSleep() ? "true" : "false");
+    json += ",\"ble_connected\":" + String(bluetoothScale.isConnected() ? "true" : "false");
+    json += ",\"display_connected\":" + String(display.isConnected() ? "true" : "false");
+    json += ",\"hx711_connected\":" + String(scale.isHX711Connected() ? "true" : "false");
+    json += ",\"hx711_rate_hz\":" + String(scale.getDetectedSampleRateHz(), 2);
+    json += ",\"hx711_rate_mode\":\"" + scale.getDetectedHx711RateMode() + "\"";
+    json += "}";
+    request->send(200, "application/json", json);
+  });
+
+  server.on("/api/battery/benchmark/reset", HTTP_POST, [&battery, &batteryDrainSession](AsyncWebServerRequest *request) {
+    String label = "web";
+    if (request->hasParam("label", true)) {
+      label = request->getParam("label", true)->value();
+    } else if (request->hasParam("label")) {
+      label = request->getParam("label")->value();
+    }
+    if (label.length() == 0) {
+      label = "web";
+    }
+    batteryDrainSession.reset(millis(),
+                              battery.getBatteryVoltage(),
+                              battery.getBatteryPercentage(),
+                              battery.getRawBatteryPercentage(),
+                              battery.hasValidReading(),
+                              label.c_str());
+    request->send(200, "application/json", "{\"status\":\"success\",\"message\":\"Battery benchmark session reset\"}");
   });
 
   // Battery debug endpoint for troubleshooting

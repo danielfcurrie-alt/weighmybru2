@@ -10,10 +10,11 @@
 #include "PowerManager.h"
 #include "DiagnosticEventLog.h"
 #include "BoardHardware.h"
+#include "BatteryDrainSession.h"
 
 extern float calibrationFactor;
 
-void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothScale, Display &display, BatteryMonitor &battery, SmbComms &smb, PowerManager &powerManager, DiagnosticEventLog &diagnosticEvents, BoardHardware &boardHardware);
+void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothScale, Display &display, BatteryMonitor &battery, SmbComms &smb, PowerManager &powerManager, DiagnosticEventLog &diagnosticEvents, BoardHardware &boardHardware, BatteryDrainSession &batteryDrainSession);
 void startWebServer();
 void stopWebServer();
 

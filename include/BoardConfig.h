@@ -90,6 +90,10 @@
 #define ADC_RESOLUTION      12    // 12-bit ADC
 #define PWM_RESOLUTION      8     // 8-bit PWM
 
+#ifndef WMBP_SIMULATION_MODE
+  #define WMBP_SIMULATION_MODE 0
+#endif
+
 // Diagnostic event log policy. This stores exception/error events only, not raw
 // samples. XIAO and TinyS3[D] should use PSRAM when the runtime reports it is
 // present and enough free PSRAM is available.

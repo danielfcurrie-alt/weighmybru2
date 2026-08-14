@@ -39,6 +39,28 @@ float clampFloat(float value, float minValue, float maxValue) {
 }
 }
 
+#if WMBP_SIMULATION_MODE
+float Scale::simulatedRawWeight(unsigned long sampleMillis) const {
+    const float t = static_cast<float>(sampleMillis - simulationStartMillis) / 1000.0f;
+    float grams = 0.0f;
+
+    if (t < 3.0f) {
+        grams = 0.0f;
+    } else if (t < 21.0f) {
+        grams = (t - 3.0f) * 2.1f;
+    } else if (t < 26.0f) {
+        grams = 37.8f;
+    } else {
+        grams = 37.8f - fminf(3.0f, (t - 26.0f) * 0.15f);
+    }
+
+    // Deterministic low-amplitude mechanical/electrical texture so downstream
+    // tooling sees realistic decimal movement without requiring HX711 hardware.
+    const float ripple = 0.025f * sinf(t * 7.0f) + 0.010f * sinf(t * 19.0f);
+    return grams + ripple;
+}
+#endif
+
 Scale::Scale(uint8_t dataPin, uint8_t clockPin, float calibrationFactor)
     : dataPin(dataPin), clockPin(clockPin), calibrationFactor(calibrationFactor), currentWeight(0.0f),
       readingIndex(0), samplesInitialized(false), previousFilteredWeight(0), medianSamples(3), averageSamples(2),
@@ -78,6 +100,20 @@ bool Scale::begin() {
     }
     
     preferences.end();
+
+#if WMBP_SIMULATION_MODE
+    Serial.println("WMB+ SIMULATION MODE: HX711 hardware is bypassed; synthetic 80 SPS shot stream is active");
+    simulationStartMillis = millis();
+    simulationLastSampleMillis = 0;
+    simulationTareOffset = simulatedRawWeight(simulationStartMillis);
+    isConnected = true;
+    currentWeight = 0.0f;
+    lastTareMillis = millis();
+    resetPlausibilityGate();
+    resetZeroQualification();
+    initializeSamples(0.0f);
+    return true;
+#endif
     
     // Initialize HX711 with error handling
     Serial.println("Initializing HX711...");
@@ -140,6 +176,37 @@ void Scale::tare(uint8_t times) {
         Serial.println("Cannot tare: HX711 not connected");
         return;
     }
+
+#if WMBP_SIMULATION_MODE
+    (void)times;
+    if (flowRatePtr != nullptr) {
+        flowRatePtr->pauseCalculation();
+    }
+
+    Serial.println("Taring simulated scale...");
+    simulationTareOffset = simulatedRawWeight(millis());
+    Serial.println("Simulated tare complete");
+
+    currentFilterState = STABLE;
+    lastBrewingActivity = 0;
+    currentWeight = 0.0f;
+    lastStableWeight = 0.0f;
+    sampleSequence++;
+    lastSampleMillis = millis();
+    lastSampleMicros = 0;
+    hasLastRawSampleWeight = false;
+    lastTareMillis = lastSampleMillis;
+    resetPlausibilityGate();
+    resetZeroQualification();
+    persistQualityStatsIfNeeded(true);
+    samplesInitialized = false;
+
+    if (flowRatePtr != nullptr) {
+        delay(100);
+        flowRatePtr->resumeCalculation();
+    }
+    return;
+#endif
     
     // Pause flow rate calculation to prevent tare operation from affecting flow rate
     if (flowRatePtr != nullptr) {
@@ -204,12 +271,21 @@ float Scale::getWeight() {
     
     unsigned long currentTime = millis();
 
+#if WMBP_SIMULATION_MODE
+    if (simulationLastSampleMillis != 0 &&
+        currentTime - simulationLastSampleMillis < 12UL) {
+        return currentWeight;
+    }
+    simulationLastSampleMillis = currentTime;
+    float rawReading = simulatedRawWeight(currentTime) - simulationTareOffset;
+#else
     // Check if HX711 is ready before attempting to read
     if (!hx711.is_ready()) {
         return currentWeight;  // Return last known value if not ready
     }
     
     float rawReading = hx711.get_units(1);
+#endif
     
     // Handle NaN or invalid readings
     if (isnan(rawReading)) {
@@ -700,7 +776,11 @@ long Scale::getRawValue() {
     if (!isConnected) {
         return 0;  // Return 0 if HX711 not connected
     }
+#if WMBP_SIMULATION_MODE
+    return static_cast<long>((simulatedRawWeight(millis()) - simulationTareOffset) * 1000.0f);
+#else
     return hx711.get_value(1); // Get raw value from HX711
+#endif
 }
 
 void Scale::powerDown() {
@@ -708,8 +788,12 @@ void Scale::powerDown() {
         return;
     }
 
+#if WMBP_SIMULATION_MODE
+    Serial.println("HX711 power down skipped in WMB+ simulation mode");
+#else
     hx711.power_down();
     Serial.println("HX711 powered down for deep sleep");
+#endif
 }
 
 void Scale::initializeSamples(float initialValue) {

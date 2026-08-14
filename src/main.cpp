@@ -22,6 +22,7 @@
 #include "SmbComms.h"
 #include "DiagnosticEventLog.h"
 #include "BoardHardware.h"
+#include "BatteryDrainSession.h"
 
 // Board-specific pin configuration
 uint8_t dataPin = HX711_DATA_PIN;     // HX711 Data pin
@@ -42,6 +43,7 @@ BatteryMonitor batteryMonitor(batteryPin);
 SmbComms smbComms;
 DiagnosticEventLog diagnosticEventLog;
 BoardHardware boardHardware;
+BatteryDrainSession batteryDrainSession;
 
 static constexpr uint32_t BATTERY_BENCH_LOG_INTERVAL_MS = 30000;
 static bool batteryBenchLoggingEnabled = true;
@@ -194,6 +196,23 @@ static const char* wifiModeName(wifi_mode_t mode) {
   }
 }
 
+static void updateBatteryDrainSession() {
+  batteryDrainSession.update(millis(),
+                             batteryMonitor.getBatteryVoltage(),
+                             batteryMonitor.getBatteryPercentage(),
+                             batteryMonitor.getRawBatteryPercentage(),
+                             batteryMonitor.hasValidReading());
+}
+
+static void resetBatteryDrainSession(const char* label) {
+  batteryDrainSession.reset(millis(),
+                            batteryMonitor.getBatteryVoltage(),
+                            batteryMonitor.getBatteryPercentage(),
+                            batteryMonitor.getRawBatteryPercentage(),
+                            batteryMonitor.hasValidReading(),
+                            label);
+}
+
 static void printBatteryBenchmarkLog(bool force = false) {
   static uint32_t lastLogMillis = 0;
   static uint32_t lastScaleSequence = 0;
@@ -239,10 +258,14 @@ static void printBatteryBenchmarkLog(bool force = false) {
   Serial.printf(
       "BATTERY_BENCH ms=%lu uptimeMin=%.1f backend=%s voltage=%.3f percent=%d rawPercent=%d valid=%s "
       "fuelGauge=%s usbPower=%s soc=%.2f chargingState=%s charging=%s "
+      "session=%s sessionMin=%.1f sessionSamples=%lu sessionInvalid=%lu "
+      "sessionStartV=%.3f sessionStartPercent=%d sessionStartRawPercent=%d "
+      "sessionDeltaV=%.3f sessionDeltaRawPercent=%d voltageMvPerHour=%.2f rawPercentPerHour=%.3f "
+      "sessionTrend=%s sessionConfidence=%s "
       "runtimeMin=%d runtimeConfidence=%s observationMin=%d dischargePctPerHour=%.3f "
       "chargeTo80Min=%d chargeTo100Min=%d chargeConfidence=%s chargeObservationMin=%d chargePctPerHour=%.3f "
       "learnedDischargePctPerHour=%.3f learnedChargePctPerHour=%.3f learnedDischargeObs=%u learnedChargeObs=%u learningConfidence=%s "
-      "wifiEnabled=%s wifiMode=%s wifiSleep=%s bleConnected=%s display=%s hx711=%s hx711Hz=%.2f hx711Mode=%s "
+      "cpuMHz=%u wifiEnabled=%s wifiMode=%s wifiSleep=%s bleConnected=%s display=%s hx711=%s hx711Hz=%.2f hx711Mode=%s usbWeightStream=%s "
       "scaleHz=%.2f extendedNotifyHz=%.2f float32NotifyHz=%.2f batteryNotifyHz=%.2f "
       "sampleSequence=%lu extendedNotifies=%lu float32Notifies=%lu batteryNotifies=%lu heap=%lu psram=%lu\n",
       static_cast<unsigned long>(now),
@@ -257,6 +280,19 @@ static void printBatteryBenchmarkLog(bool force = false) {
       batteryMonitor.getFuelGaugeStateOfCharge(),
       chargingState.c_str(),
       boolText(batteryMonitor.isCharging()),
+      batteryDrainSession.getLabel(),
+      batteryDrainSession.getElapsedMinutes(),
+      static_cast<unsigned long>(batteryDrainSession.getSamples()),
+      static_cast<unsigned long>(batteryDrainSession.getInvalidSamples()),
+      batteryDrainSession.getStartVoltage(),
+      batteryDrainSession.getStartPercent(),
+      batteryDrainSession.getStartRawPercent(),
+      batteryDrainSession.getDeltaVoltage(),
+      batteryDrainSession.getDeltaRawPercent(),
+      batteryDrainSession.getVoltageMillivoltsPerHour(),
+      batteryDrainSession.getRawPercentPerHour(),
+      batteryDrainSession.getTrend(),
+      batteryDrainSession.getConfidence(),
       batteryMonitor.getEstimatedRuntimeMinutesRemaining(),
       runtimeConfidence.c_str(),
       batteryMonitor.getRuntimeObservationMinutes(),
@@ -271,6 +307,7 @@ static void printBatteryBenchmarkLog(bool force = false) {
       batteryMonitor.getLearnedDischargeObservations(),
       batteryMonitor.getLearnedChargeObservations(),
       batteryMonitor.getBatteryLearningConfidence().c_str(),
+      static_cast<unsigned>(getCpuFrequencyMhz()),
       boolText(wifiEnabled),
       wifiModeName(wifiMode),
       boolText(WiFi.getSleep()),
@@ -279,6 +316,7 @@ static void printBatteryBenchmarkLog(bool force = false) {
       boolText(scale.isHX711Connected()),
       scale.getDetectedSampleRateHz(),
       hx711Mode.c_str(),
+      boolText(usbWeightStreamEnabled),
       scaleHz,
       extendedNotifyHz,
       float32NotifyHz,
@@ -442,12 +480,29 @@ static void printConfigDiagnostics() {
   Serial.printf("Battery benchmark serial log: enabled=%s interval=%lus\n",
                 boolText(batteryBenchLoggingEnabled),
                 static_cast<unsigned long>(BATTERY_BENCH_LOG_INTERVAL_MS / 1000));
+  Serial.printf("Battery drain session: label=%s elapsed=%.1fmin start=%.3fV/%d%% raw=%d%% now=%.3fV/%d%% raw=%d%% delta=%.3fV/%+draw%% slope=%.2fmV/h %.3fraw%%/h trend=%s confidence=%s samples=%lu invalid=%lu\n",
+                batteryDrainSession.getLabel(),
+                batteryDrainSession.getElapsedMinutes(),
+                batteryDrainSession.getStartVoltage(),
+                batteryDrainSession.getStartPercent(),
+                batteryDrainSession.getStartRawPercent(),
+                batteryDrainSession.getLastVoltage(),
+                batteryDrainSession.getLastPercent(),
+                batteryDrainSession.getLastRawPercent(),
+                batteryDrainSession.getDeltaVoltage(),
+                batteryDrainSession.getDeltaRawPercent(),
+                batteryDrainSession.getVoltageMillivoltsPerHour(),
+                batteryDrainSession.getRawPercentPerHour(),
+                batteryDrainSession.getTrend(),
+                batteryDrainSession.getConfidence(),
+                static_cast<unsigned long>(batteryDrainSession.getSamples()),
+                static_cast<unsigned long>(batteryDrainSession.getInvalidSamples()));
   Serial.printf("USB weight stream: enabled=%s dropped=%lu format=WMBP_WEIGHT_V1\n",
                 boolText(usbWeightStreamEnabled),
                 static_cast<unsigned long>(usbWeightDroppedFrames));
   Serial.println("Board hardware: " + boardHardware.toJson());
   diagnosticEventLog.printTo(Serial, 12);
-  Serial.println("Commands: z=config diagnostics, e=print diagnostic events, E=clear diagnostic events, b=toggle battery benchmark log, B=print battery benchmark now, w=toggle USB weight stream, W=print one USB weight sample");
+  Serial.println("Commands: z=config diagnostics, e=print diagnostic events, E=clear diagnostic events, b=toggle battery benchmark log, B=print battery benchmark now, d=reset battery drain session, w=toggle USB weight stream, W=print one USB weight sample");
   Serial.println("============================================");
 }
 
@@ -465,6 +520,10 @@ static void handleSerialCommands() {
       batteryBenchLoggingEnabled = !batteryBenchLoggingEnabled;
       Serial.printf("Battery benchmark serial log %s\n", batteryBenchLoggingEnabled ? "enabled" : "disabled");
     } else if (command == 'B') {
+      printBatteryBenchmarkLog(true);
+    } else if (command == 'd') {
+      resetBatteryDrainSession("serial");
+      Serial.println("Battery drain session reset");
       printBatteryBenchmarkLog(true);
     } else if (command == 'w') {
       usbWeightStreamEnabled = !usbWeightStreamEnabled;
@@ -519,6 +578,7 @@ void setup() {
   // Initialize battery before BLE so the standard Battery Service can publish
   // a real value instead of a fake default.
   batteryMonitor.begin();
+  resetBatteryDrainSession("boot");
   recordWakeSnapshot(esp_sleep_get_wakeup_cause());
 #if HAS_I2C_FUEL_GAUGE
   if (!batteryMonitor.hasFuelGauge()) {
@@ -718,7 +778,7 @@ void setup() {
   powerManager.setRelayOnCallback( [](){ smbComms.sendRelayOn();  });
   powerManager.setRelayOffCallback([](){ smbComms.sendRelayOff(); });
 
-  setupWebServer(scale, flowRate, bluetoothScale, oledDisplay, batteryMonitor, smbComms, powerManager, diagnosticEventLog, boardHardware);
+  setupWebServer(scale, flowRate, bluetoothScale, oledDisplay, batteryMonitor, smbComms, powerManager, diagnosticEventLog, boardHardware, batteryDrainSession);
   
   // CRITICAL: After full initialization, check if WiFi should be disabled
   // This exactly replicates the tare button scenario: WiFi started, then disabled
@@ -786,6 +846,7 @@ void loop() {
   
   // Update battery monitor
   batteryMonitor.update();
+  updateBatteryDrainSession();
   recordRuntimeDiagnosticEvents();
   boardHardware.updateStatus(currentBoardStatus());
 

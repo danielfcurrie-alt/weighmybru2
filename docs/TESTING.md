@@ -91,8 +91,42 @@ Record:
 - Whether firmware reports charging.
 - Approximate elapsed time.
 - Runtime estimate, charge estimate, learning confidence, and learned charge/discharge rates from the battery page or `/api/battery`.
+- Battery benchmark session output from serial `BATTERY_BENCH` or `/api/battery/benchmark`.
 
 Battery percent is voltage-estimated. If possible, compare against a multimeter or USB power meter.
+
+Drain/charge benchmark test:
+
+1. Start from a reasonably stable battery level, ideally below 95% for charge tests and above 30% for drain tests.
+2. Reset the benchmark baseline:
+   - serial: send `d`
+   - web: `POST /api/battery/benchmark/reset` with optional `label`
+3. Let the scale run for at least 30 minutes per mode. 90+ minutes is better.
+4. Save the starting and ending `/api/battery/benchmark` JSON or serial `BATTERY_BENCH` rows.
+5. Compare `voltage_mv_per_hour`, `raw_percent_per_hour`, `trend`, and `confidence`.
+
+Recommended mode labels:
+
+- `xiao-wifi-off`
+- `xiao-wifi-ap`
+- `xiao-ble-connected`
+- `xiao-usb-stream`
+- `xiao-oled-on`
+- `supermini-wifi-off`
+- `supermini-wifi-ap`
+- `tiny-fuelgauge-wifi-off`
+- `tiny-fuelgauge-charging`
+
+Minimum comparison matrix:
+
+| Board | Mode | Minimum time | What it tells us |
+| --- | --- | ---: | --- |
+| XIAO ESP32S3 | WiFi off, BLE advertising, OLED on | 30 min | baseline ADC-board drain |
+| XIAO ESP32S3 | WiFi AP on | 30 min | WiFi/AP penalty |
+| XIAO ESP32S3 | BLE connected + active capture | 30 min | app-connected penalty |
+| XIAO ESP32S3 | USB connected / charging | 30 min | charge trend and charge-rate estimate |
+| SuperMini | same as XIAO baseline | 30 min | board-to-board current difference |
+| TinyS3[D] | WiFi off + fuel gauge | 30 min | fuel-gauge accuracy and USB-power detection |
 
 Learning test:
 

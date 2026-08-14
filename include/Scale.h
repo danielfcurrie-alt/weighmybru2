@@ -3,6 +3,7 @@
 
 #include <HX711.h>
 #include <Preferences.h>
+#include "BoardConfig.h"
 
 class DiagnosticEventLog;
 
@@ -155,6 +156,13 @@ private:
     void loadQualityStats();
     void persistQualityStatsIfNeeded(bool force = false);
     static uint8_t scoreFromRates(uint32_t sampleCount, uint32_t longGapCount, uint32_t bumpCount, uint32_t glitchCount);
+
+#if WMBP_SIMULATION_MODE
+    unsigned long simulationStartMillis = 0;
+    unsigned long simulationLastSampleMillis = 0;
+    float simulationTareOffset = 0.0f;
+    float simulatedRawWeight(unsigned long sampleMillis) const;
+#endif
 };
 
 #endif

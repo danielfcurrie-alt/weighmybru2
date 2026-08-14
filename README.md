@@ -17,6 +17,7 @@ Main reasons to try it:
 - **Compatibility stays on:** Bean Conqueror has been hardware-tested through the Float32 Bluetooth path. WeighMyBru/GaggiMate/Gaggiuino-style clients should continue to work through their existing 20-byte Bluetooth path.
 - **Standard BLE battery:** exposes battery through the standard `180F / 2A19` Battery Service instead of hiding it in a web-only path.
 - **Better battery backends:** ADC-backed boards expose voltage-estimated battery; TinyS3[D] development builds use the onboard MAX17048 fuel gauge for real state-of-charge plus USB-power detection.
+- **Battery drain/charge diagnostics:** serial and web benchmark outputs track voltage slope, raw-percent slope, charge/drain trend, confidence, and active feature state so testers can compare WiFi/display/BLE settings across XIAO, SuperMini, and TinyS3[D].
 - **TinyS3[D] hardware support:** development builds can use the board’s MAX17048 fuel gauge, USB power sense, software RF antenna switch, and optional RGB status LED. The LED defaults off for battery testing.
 - **Diagnostics without raw buffering:** the firmware keeps a compact ring of errors/events such as bump, glitch, low battery, sleep/wake, USB-power changes, and hardware faults. It uses PSRAM when available and does not store raw sample history in PSRAM.
 - **Web OTA updates:** after one USB install with the dual-OTA partition table, future app firmware and web UI/LittleFS images can be uploaded from the scale’s Updates page.
@@ -93,6 +94,7 @@ Important: the originally published `0.2.0-beta.1` XIAO fallback assets used Lit
 - ADC-backed battery estimate on XIAO/SuperMini builds.
 - MAX17048 fuel-gauge battery backend and USB-power detection on TinyS3[D] development builds.
 - Learned battery runtime/charge estimates persisted across reboots where the active battery backend supports enough observation data.
+- Resettable battery benchmark session exposed through serial `BATTERY_BENCH` rows, `/api/battery/benchmark`, and `/api/battery/benchmark/reset`.
 - Diagnostic event log for exceptions only: bump, glitch, low/critical battery, invalid battery, USB power changes, sleep/wake, missing HX711, missing display, missing TinyS3[D] fuel gauge, BLE/WiFi faults. XIAO and TinyS3[D] builds target a 512-event PSRAM-backed log when PSRAM is available, with a small heap fallback.
 - TinyS3[D] RF antenna switch setting, defaulting to onboard/internal antenna.
 - Optional TinyS3[D] RGB status LED, defaulting off to avoid corrupting battery tests.
@@ -253,6 +255,8 @@ Useful commands:
 
 ```text
 b  toggle battery benchmark logging
+B  print one battery benchmark row
+d  reset battery drain/charge benchmark session
 e  print diagnostic event log
 E  clear diagnostic event log
 W  print one weight sample
@@ -267,6 +271,24 @@ WMBP_WEIGHT_V1,123456,9821,18.423,1.731,0x0041,98,75,79.82,0
 ```
 
 See [USB serial protocol](docs/USB_SERIAL.md) for field definitions.
+
+Battery benchmark data is also available at `/api/battery/benchmark`. Reset the comparison baseline with `POST /api/battery/benchmark/reset`; optional form/query parameter `label` can identify the active test, e.g. `wifi-off`, `wifi-ap`, `oled-on`, `ble-connected`, or `charging`.
+
+## Development checks
+
+Host-side tests for firmware math:
+
+```bash
+tools/run-host-tests.sh
+```
+
+Firmware simulation build:
+
+```bash
+pio run -e esp32s3-xiao-sim
+```
+
+The simulation build is for parser/cadence/UI development only. It bypasses HX711 hardware and emits a deterministic synthetic 80 SPS shot stream through the normal firmware paths. Do not publish or flash it as tester firmware unless the goal is explicitly simulation.
 
 ## Apple Silicon LittleFS builds
 

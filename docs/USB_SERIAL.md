@@ -38,6 +38,12 @@ B
 Print one battery benchmark line.
 
 ```text
+d
+```
+
+Reset the battery drain/charge benchmark baseline to the current battery reading and print a fresh benchmark line.
+
+```text
 z
 ```
 
@@ -101,3 +107,40 @@ type,ms,seq,weight_g,flow_gps,status,quality,battery_pct,hx711_hz,dropped
 - Preserve both device timestamp and host receive timestamp.
 - Treat an increase in `dropped` as USB transport/backpressure loss.
 - Treat bump/glitch bits as diagnostics attached to samples, not as automatic sample rejection.
+
+## Battery benchmark rows
+
+When battery benchmark logging is enabled, the firmware periodically prints lines beginning with:
+
+```text
+BATTERY_BENCH
+```
+
+These are diagnostics, not weight samples. Weight parsers should ignore them unless they explicitly support battery benchmarking.
+
+Important fields include:
+
+| Field | Meaning |
+| --- | --- |
+| `session` | current benchmark label, e.g. `boot`, `serial`, `wifi-off`, `wifi-ap`, `oled-on` |
+| `sessionMin` | elapsed minutes since the current benchmark baseline |
+| `sessionDeltaV` | voltage change since baseline |
+| `sessionDeltaRawPercent` | raw unquantized percent change since baseline |
+| `voltageMvPerHour` | voltage slope, useful for comparing board/power modes |
+| `rawPercentPerHour` | raw percent slope, useful once voltage-to-percent mapping is calibrated |
+| `sessionTrend` | `learning`, `charging`, `draining`, `flat`, or `unknown` |
+| `sessionConfidence` | `none`, `learning`, `low`, `medium`, or `high` |
+| `wifiEnabled`, `wifiMode`, `wifiSleep` | WiFi state during the sample |
+| `bleConnected` | whether a BLE central is connected |
+| `display` | whether the OLED/display path is available |
+| `hx711Hz`, `hx711Mode` | detected load-cell ADC cadence |
+| `usbWeightStream` | whether continuous USB weight streaming is enabled |
+
+The same benchmark snapshot is available over WiFi at:
+
+```text
+GET  /api/battery/benchmark
+POST /api/battery/benchmark/reset
+```
+
+`/api/battery/benchmark/reset` accepts an optional `label` parameter so a test runner can mark the mode under test.
