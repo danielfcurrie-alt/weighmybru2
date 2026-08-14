@@ -113,8 +113,9 @@ static void printBatteryBenchmarkLog(bool force = false) {
   const wifi_mode_t wifiMode = WiFi.getMode();
 
   Serial.printf(
-      "BATTERY_BENCH ms=%lu uptimeMin=%.1f voltage=%.3f percent=%d rawPercent=%d valid=%s "
-      "chargingState=%s charging=%s runtimeMin=%d runtimeConfidence=%s observationMin=%d dischargePctPerHour=%.3f "
+      "BATTERY_BENCH ms=%lu uptimeMin=%.1f backend=%s voltage=%.3f percent=%d rawPercent=%d valid=%s "
+      "fuelGauge=%s usbPower=%s soc=%.2f chargingState=%s charging=%s "
+      "runtimeMin=%d runtimeConfidence=%s observationMin=%d dischargePctPerHour=%.3f "
       "chargeTo80Min=%d chargeTo100Min=%d chargeConfidence=%s chargeObservationMin=%d chargePctPerHour=%.3f "
       "learnedDischargePctPerHour=%.3f learnedChargePctPerHour=%.3f learnedDischargeObs=%u learnedChargeObs=%u learningConfidence=%s "
       "wifiEnabled=%s wifiMode=%s wifiSleep=%s bleConnected=%s display=%s hx711=%s hx711Hz=%.2f hx711Mode=%s "
@@ -122,10 +123,14 @@ static void printBatteryBenchmarkLog(bool force = false) {
       "sampleSequence=%lu extendedNotifies=%lu float32Notifies=%lu batteryNotifies=%lu heap=%lu psram=%lu\n",
       static_cast<unsigned long>(now),
       now / 60000.0f,
+      batteryMonitor.getBatteryBackend().c_str(),
       batteryMonitor.getBatteryVoltage(),
       batteryMonitor.getBatteryPercentage(),
       batteryMonitor.getRawBatteryPercentage(),
       boolText(batteryMonitor.hasValidReading()),
+      boolText(batteryMonitor.hasFuelGauge()),
+      boolText(batteryMonitor.isUsbPowerPresent()),
+      batteryMonitor.getFuelGaugeStateOfCharge(),
       chargingState.c_str(),
       boolText(batteryMonitor.isCharging()),
       batteryMonitor.getEstimatedRuntimeMinutesRemaining(),
@@ -246,12 +251,16 @@ static void printConfigDiagnostics() {
   Serial.printf("Flash Size: %dMB\n", FLASH_SIZE_MB);
   Serial.printf("HX711 DOUT GPIO%u, SCK GPIO%u\n", dataPin, clockPin);
   Serial.printf("Touch tare GPIO%u, sleep GPIO%u\n", touchPin, sleepTouchPin);
-  Serial.printf("Battery ADC GPIO%u voltage=%.3fV percent=%d rawPercent=%d valid=%s\n",
+  Serial.printf("Battery backend=%s ADC GPIO%u voltage=%.3fV percent=%d rawPercent=%d valid=%s fuelGauge=%s usbPower=%s soc=%.2f%%\n",
+                batteryMonitor.getBatteryBackend().c_str(),
                 batteryPin,
                 batteryMonitor.getBatteryVoltage(),
                 batteryMonitor.getBatteryPercentage(),
                 batteryMonitor.getRawBatteryPercentage(),
-                batteryMonitor.hasValidReading() ? "true" : "false");
+                batteryMonitor.hasValidReading() ? "true" : "false",
+                batteryMonitor.hasFuelGauge() ? "true" : "false",
+                batteryMonitor.isUsbPowerPresent() ? "true" : "false",
+                batteryMonitor.getFuelGaugeStateOfCharge());
   Serial.printf("Battery runtime estimate: minutes=%d confidence=%s observation=%dmin discharge=%.3f%%/h\n",
                 batteryMonitor.getEstimatedRuntimeMinutesRemaining(),
                 batteryMonitor.getRuntimeEstimateConfidence().c_str(),

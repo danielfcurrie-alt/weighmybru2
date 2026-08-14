@@ -3,6 +3,7 @@
 
 #include <Arduino.h>
 #include <Preferences.h>
+#include "BoardConfig.h"
 
 class BatteryMonitor {
 public:
@@ -29,6 +30,10 @@ public:
     uint16_t getLearnedDischargeObservations() const;
     uint16_t getLearnedChargeObservations() const;
     String getBatteryLearningConfidence() const;
+    String getBatteryBackend() const;
+    bool hasFuelGauge() const { return fuelGaugeAvailable; }
+    bool isUsbPowerPresent() const { return usbPowerPresent; }
+    float getFuelGaugeStateOfCharge() const { return fuelGaugeStateOfCharge; }
     
     // Battery state indicators
     bool isCharging();
@@ -61,7 +66,7 @@ private:
     // Hardware configuration
     static constexpr float VOLTAGE_DIVIDER_RATIO = 2.0f;  // 100k + 100k resistors
     static constexpr float ADC_REFERENCE = 3.3f;          // ESP32-S3 with ADC_11db attenuation (0-3.3V)
-    static constexpr int ADC_RESOLUTION = 4095;
+    static constexpr int ADC_MAX_READING = 4095;
     
     // Calibration and smoothing
     float calibrationOffset = 0.0f;  // Voltage adjustment for accuracy
@@ -85,6 +90,9 @@ private:
     float learnedChargeRatePercentPerHour = 0.0f;
     uint16_t learnedDischargeObservations = 0;
     uint16_t learnedChargeObservations = 0;
+    bool fuelGaugeAvailable = false;
+    bool usbPowerPresent = false;
+    float fuelGaugeStateOfCharge = -1.0f;
     unsigned long lastLearningSaveMillis = 0;
     unsigned long lastUpdate = 0;
     static constexpr unsigned long UPDATE_INTERVAL = 1000; // Update every 1 second
@@ -106,8 +114,14 @@ private:
     static constexpr float LEARNING_MAX_CHARGE_RATE_PERCENT_PER_HOUR = 120.0f;
     
     // Internal methods
+    bool readBatterySnapshot(float& voltage, int& percentage);
     float readRawVoltage();
+    bool beginFuelGauge();
+    bool readFuelGaugeSnapshot(float& voltage, float& stateOfCharge);
+    bool readFuelGaugeRegister16(uint8_t reg, uint16_t& value);
+    bool readUsbPowerPresent();
     int voltageToPercentage(float voltage) const;
+    int stateOfChargeToPercentage(float stateOfCharge) const;
     int quantizePercentage(int percentage) const;
     void updateRuntimeEstimate();
     void updateChargeEstimate();

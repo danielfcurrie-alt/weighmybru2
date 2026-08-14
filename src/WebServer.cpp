@@ -397,6 +397,10 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
     json += ",\"battery_voltage\":" + String(battery.getBatteryVoltage(), 2);
     json += ",\"battery_percentage\":" + String(battery.getBatteryPercentage());
     json += ",\"battery_raw_percentage\":" + String(battery.getRawBatteryPercentage());
+    json += ",\"battery_backend\":\"" + battery.getBatteryBackend() + "\"";
+    json += ",\"battery_fuel_gauge\":" + String(battery.hasFuelGauge() ? "true" : "false");
+    json += ",\"battery_fuel_gauge_soc\":" + String(battery.getFuelGaugeStateOfCharge(), 2);
+    json += ",\"usb_power_present\":" + String(battery.isUsbPowerPresent() ? "true" : "false");
     json += ",\"battery_status\":\"" + battery.getBatteryStatus() + "\"";
     json += ",\"battery_segments\":" + String(battery.getBatterySegments());
     json += ",\"battery_low\":" + String(battery.isLowBattery() ? "true" : "false");
@@ -551,6 +555,10 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
     json += "\"voltage\":" + String(battery.getBatteryVoltage(), 3);
     json += ",\"percentage\":" + String(battery.getBatteryPercentage());
     json += ",\"raw_percentage\":" + String(battery.getRawBatteryPercentage());
+    json += ",\"backend\":\"" + battery.getBatteryBackend() + "\"";
+    json += ",\"fuel_gauge\":" + String(battery.hasFuelGauge() ? "true" : "false");
+    json += ",\"fuel_gauge_soc\":" + String(battery.getFuelGaugeStateOfCharge(), 2);
+    json += ",\"usb_power_present\":" + String(battery.isUsbPowerPresent() ? "true" : "false");
     json += ",\"status\":\"" + battery.getBatteryStatus() + "\"";
     json += ",\"segments\":" + String(battery.getBatterySegments());
     json += ",\"low_battery\":" + String(battery.isLowBattery() ? "true" : "false");
@@ -591,15 +599,19 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
   server.on("/api/battery/debug", HTTP_GET, [&battery](AsyncWebServerRequest *request) {
     // We need to expose the raw ADC reading for debugging
     // Let's create a temporary battery instance to get raw data
-    int rawADC = analogRead(7); // GPIO7 battery pin
-    float rawVoltage = ((float)rawADC / 4095.0f) * 3.3f;
-    float dividedVoltage = rawVoltage * 2.0f; // Apply voltage divider ratio
+    int rawADC = battery.hasFuelGauge() ? -1 : analogRead(7); // GPIO7 battery pin on ADC-backed boards
+    float rawVoltage = battery.hasFuelGauge() ? 0.0f : (((float)rawADC / 4095.0f) * 3.3f);
+    float dividedVoltage = battery.hasFuelGauge() ? 0.0f : (rawVoltage * 2.0f); // Apply voltage divider ratio
     
     String json = "{";
     json += "\"raw_adc\":" + String(rawADC) + ",";
     json += "\"raw_voltage\":" + String(rawVoltage, 3) + ",";
     json += "\"divided_voltage\":" + String(dividedVoltage, 3) + ",";
     json += "\"calibrated_voltage\":" + String(battery.getBatteryVoltage(), 3) + ",";
+    json += "\"backend\":\"" + battery.getBatteryBackend() + "\",";
+    json += "\"fuel_gauge\":" + String(battery.hasFuelGauge() ? "true" : "false") + ",";
+    json += "\"fuel_gauge_soc\":" + String(battery.getFuelGaugeStateOfCharge(), 2) + ",";
+    json += "\"usb_power_present\":" + String(battery.isUsbPowerPresent() ? "true" : "false") + ",";
     json += "\"calibration_offset\":" + String(battery.getCalibrationOffset(), 3) + ",";
     json += "\"percentage\":" + String(battery.getBatteryPercentage()) + ",";
     json += "\"raw_percentage\":" + String(battery.getRawBatteryPercentage()) + ",";

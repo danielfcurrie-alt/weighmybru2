@@ -21,7 +21,7 @@ jobs:
     
     strategy:
       matrix:
-        environment: [esp32s3-supermini, esp32s3-xiao]
+        environment: [esp32s3-supermini, esp32s3-xiao, esp32s3-tinys3d]
         
     steps:
     - name: Checkout repository
@@ -100,6 +100,10 @@ jobs:
           BOARD_SUFFIX="supermini"
           BOARD_NAME="WeighMyBru² - ESP32-S3 Supermini"
           LITTLEFS_OFFSET="0x310000"
+        elif [[ "${{ matrix.environment }}" == "esp32s3-tinys3d" ]]; then
+          BOARD_SUFFIX="tinys3d"
+          BOARD_NAME="WMB+ - TinyS3[D]"
+          LITTLEFS_OFFSET="0x610000"
         else
           BOARD_SUFFIX="xiao"
           BOARD_NAME="WeighMyBru² - XIAO ESP32S3"
@@ -280,6 +284,13 @@ jobs:
           - `wmb-plus-${{ steps.version.outputs.VERSION }}-xiao-factory-minimal.bin` - First-install factory image without web UI
           - `wmb-plus-${{ steps.version.outputs.VERSION }}-xiao-littlefs.bin` - Web interface files
           - `manifest-xiao.json` - ESP32 Web Tools manifest
+
+          **TinyS3[D]:**
+          - `wmb-plus-${{ steps.version.outputs.VERSION }}-tinys3d-app.bin` - App firmware
+          - `wmb-plus-${{ steps.version.outputs.VERSION }}-tinys3d-factory-full.bin` - First-install factory image with web UI
+          - `wmb-plus-${{ steps.version.outputs.VERSION }}-tinys3d-factory-minimal.bin` - First-install factory image without web UI
+          - `wmb-plus-${{ steps.version.outputs.VERSION }}-tinys3d-littlefs.bin` - Web interface files
+          - `manifest-tinys3d.json` - ESP32 Web Tools manifest
           
           ### 🚀 Installation Options
           
@@ -287,7 +298,7 @@ jobs:
           2. **Manual:** Download binaries and flash with esptool or PlatformIO
           
           ### 📋 Requirements
-          - ESP32-S3 Supermini or XIAO ESP32S3 board
+          - ESP32-S3 Supermini, XIAO ESP32S3, or Unexpected Maker TinyS3[D] board
           - Load cell and HX711 amplifier
           - See [README.md](https://github.com/danielfcurrie-alt/weighmybru2/blob/master/README.md) for beta notes and wiring references
           

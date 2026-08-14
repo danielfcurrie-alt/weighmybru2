@@ -3,6 +3,7 @@
 #include "Display.h"
 #include "FlowRate.h"
 #include "TouchSensor.h"
+#include "BoardConfig.h"
 #include "Version.h"
 #include <Arduino.h>
 #include <stdexcept>
@@ -32,6 +33,7 @@ constexpr uint32_t FEATURE_ZERO_STABILITY_CONTROL = 1UL << 15;
 constexpr uint32_t FEATURE_GLITCH_REJECTION = 1UL << 16;
 constexpr uint32_t FEATURE_BATTERY_CHARGE_ESTIMATE = 1UL << 17;
 constexpr uint32_t FEATURE_LEGACY_FLOAT32_20HZ = 1UL << 18;
+constexpr uint32_t FEATURE_FUEL_GAUGE_BATTERY = 1UL << 19;
 
 constexpr uint32_t WMB_PLUS_FEATURE_MASK =
     FEATURE_STANDARD_BATTERY_SERVICE |
@@ -52,7 +54,11 @@ constexpr uint32_t WMB_PLUS_FEATURE_MASK =
     FEATURE_ZERO_STABILITY_CONTROL |
     FEATURE_GLITCH_REJECTION |
     FEATURE_BATTERY_CHARGE_ESTIMATE |
-    FEATURE_LEGACY_FLOAT32_20HZ;
+    FEATURE_LEGACY_FLOAT32_20HZ
+#if HAS_I2C_FUEL_GAUGE
+    | FEATURE_FUEL_GAUGE_BATTERY
+#endif
+    ;
 
 constexpr uint8_t STATUS_TIMER_RUNNING = 1U << 0;
 constexpr uint8_t STATUS_HX711_CONNECTED = 1U << 1;

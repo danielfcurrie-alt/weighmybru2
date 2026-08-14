@@ -16,7 +16,7 @@ Main reasons to try it:
 - **Bump/glitch diagnostics:** the firmware can identify likely bumps, one-frame ADC/load-cell glitches, cadence problems, and scale-quality changes instead of leaving every app to guess.
 - **Compatibility stays on:** Bean Conqueror has been hardware-tested through the Float32 Bluetooth path. WeighMyBru/GaggiMate/Gaggiuino-style clients should continue to work through their existing 20-byte Bluetooth path.
 - **Standard BLE battery:** exposes battery through the standard `180F / 2A19` Battery Service instead of hiding it in a web-only path.
-- **Battery learning:** voltage-only runtime and charge estimates improve over time by learning local charge/discharge rates.
+- **Better battery backends:** ADC-backed boards expose voltage-estimated battery; TinyS3[D] development builds use the onboard MAX17048 fuel gauge for real state-of-charge plus USB-power detection.
 - **Web OTA updates:** after one USB install with the dual-OTA partition table, future app firmware and web UI/LittleFS images can be uploaded from the scale’s Updates page.
 - **Cleaner app tare behavior:** app-triggered tare goes through the same delayed/settled path as the physical tare button.
 - **Atomic tare/start:** WMB+-aware apps can issue one command to tare and start a shot timer together.
@@ -49,6 +49,7 @@ Supported beta boards:
 
 - **Primary tested reference:** Seeed Studio XIAO ESP32S3
 - **Available beta build:** ESP32-S3 SuperMini / SuperMini-style board
+- **In development for next beta:** Unexpected Maker TinyS3[D]. Do not flash XIAO or SuperMini `0.2.0-beta.2` assets onto TinyS3[D].
 
 Release assets:
 
@@ -87,7 +88,9 @@ Important: the originally published `0.2.0-beta.1` XIAO fallback assets used Lit
 - Real 80 SPS acquisition and WMB+ telemetry on 80 SPS HX711 hardware.
 - Clean 20 Hz legacy Float32 stream derived from the high-rate acquisition path.
 - Standard BLE Battery Service `180F / 2A19`.
-- Learned battery runtime/charge estimates persisted across reboots.
+- ADC-backed battery estimate on XIAO/SuperMini builds.
+- MAX17048 fuel-gauge battery backend and USB-power detection on TinyS3[D] development builds.
+- Learned battery runtime/charge estimates persisted across reboots where the active battery backend supports enough observation data.
 - WMB+ capabilities characteristic.
 - WMB+ extended telemetry packet.
 - Fresh-sample notification cadence and HX711 cadence diagnostics for capable clients.
@@ -275,6 +278,13 @@ pio run -e esp32s3-xiao -t buildfs
 ```
 
 The helper builds `mklittlefs` 4.0.0 locally as an arm64 binary and backs up the previous PlatformIO executable.
+
+For TinyS3[D] development builds, use:
+
+```bash
+pio run -e esp32s3-tinys3d
+pio run -e esp32s3-tinys3d -t buildfs
+```
 
 ## Compatibility policy
 

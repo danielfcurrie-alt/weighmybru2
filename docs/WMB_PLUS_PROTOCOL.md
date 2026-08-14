@@ -52,7 +52,7 @@ Current beta example payload:
 03 0C 01 10 01 00 FF FF 07 00 07 00 01 14 00 0A
 ```
 
-This advertises feature bits `0...18`, preferred atomic command `0x07`, extension packet version `1`, and extension packet length `20`.
+This advertises the supported feature bits, preferred atomic command `0x07`, extension packet version `1`, and extension packet length `20`.
 
 ## Feature mask
 
@@ -76,6 +76,7 @@ bit 15  zero stability control
 bit 16  glitch rejection
 bit 17  battery charge/runtime estimate, including learned voltage-based rate profile when available
 bit 18  legacy Float32 20 Hz pacing
+bit 19  fuel-gauge battery backend, currently MAX17048 on TinyS3[D]
 ```
 
 ## 20-byte WMB+ extension packet v1

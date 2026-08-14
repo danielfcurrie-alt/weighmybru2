@@ -1,4 +1,5 @@
 #include "BatteryMonitor.h"
+#include <Wire.h>
 
 BatteryMonitor::BatteryMonitor(uint8_t batteryPin) : batteryPin(batteryPin) {
     lastVoltage = 0.0f;
@@ -21,17 +22,33 @@ BatteryMonitor::BatteryMonitor(uint8_t batteryPin) : batteryPin(batteryPin) {
     learnedChargeRatePercentPerHour = 0.0f;
     learnedDischargeObservations = 0;
     learnedChargeObservations = 0;
+    fuelGaugeAvailable = false;
+    usbPowerPresent = false;
+    fuelGaugeStateOfCharge = -1.0f;
     lastLearningSaveMillis = 0;
     lastUpdate = 0;
 }
 
 void BatteryMonitor::begin() {
     Serial.println("Initializing Battery Monitor...");
-    
+
+#if HAS_ADC_BATTERY
     // Configure ADC pin and settings
-    pinMode(batteryPin, INPUT);
-    analogReadResolution(12);  // Use 12-bit resolution (0-4095)
-    analogSetAttenuation(ADC_11db);  // 0-3.3V range for better accuracy
+    if (batteryPin != BATTERY_PIN_NONE) {
+        pinMode(batteryPin, INPUT);
+        analogReadResolution(12);  // Use 12-bit resolution (0-4095)
+        analogSetAttenuation(ADC_11db);  // 0-3.3V range for better accuracy
+    }
+#endif
+
+#if HAS_USB_POWER_SENSE
+    pinMode(USB_POWER_SENSE_PIN, INPUT);
+    usbPowerPresent = readUsbPowerPresent();
+#endif
+
+#if HAS_I2C_FUEL_GAUGE
+    fuelGaugeAvailable = beginFuelGauge();
+#endif
     
     // Load calibration from preferences
     preferences.begin("battery", false);
@@ -42,7 +59,7 @@ void BatteryMonitor::begin() {
     // Take initial reading
     update();
     
-    Serial.printf("Battery Monitor initialized on GPIO%d\n", batteryPin);
+    Serial.printf("Battery Monitor initialized using %s backend\n", getBatteryBackend().c_str());
     Serial.printf("Initial voltage: %.2fV (%d%%)\n", getBatteryVoltage(), getBatteryPercentage());
 }
 
@@ -54,8 +71,13 @@ void BatteryMonitor::update() {
         return;
     }
     
-    float newVoltage = readRawVoltage();
-    int newRawPercentage = voltageToPercentage(newVoltage);
+    float newVoltage = 0.0f;
+    int newRawPercentage = 0;
+    if (!readBatterySnapshot(newVoltage, newRawPercentage)) {
+        hasReading = false;
+        lastUpdate = currentTime;
+        return;
+    }
     
     // Simple smoothing filter (exponential moving average)
     if (!hasReading) {
@@ -83,7 +105,45 @@ void BatteryMonitor::update() {
     lastUpdate = currentTime;
 }
 
+bool BatteryMonitor::readBatterySnapshot(float& voltage, int& percentage) {
+#if HAS_USB_POWER_SENSE
+    usbPowerPresent = readUsbPowerPresent();
+#endif
+
+#if HAS_I2C_FUEL_GAUGE
+    if (fuelGaugeAvailable) {
+        float stateOfCharge = -1.0f;
+        if (readFuelGaugeSnapshot(voltage, stateOfCharge)) {
+            voltage += calibrationOffset;
+            fuelGaugeStateOfCharge = stateOfCharge;
+            percentage = stateOfChargeToPercentage(stateOfCharge);
+            return true;
+        }
+
+        Serial.println("Battery fuel gauge read failed; marking battery reading invalid");
+        return false;
+    }
+#endif
+
+#if HAS_ADC_BATTERY
+    voltage = readRawVoltage();
+    if (voltage <= 0.1f) {
+        return false;
+    }
+    fuelGaugeStateOfCharge = -1.0f;
+    percentage = voltageToPercentage(voltage);
+    return true;
+#else
+    return false;
+#endif
+}
+
 float BatteryMonitor::readRawVoltage() {
+#if HAS_ADC_BATTERY
+    if (batteryPin == BATTERY_PIN_NONE) {
+        return 0.0f;
+    }
+
     // Take multiple readings for accuracy
     int totalReading = 0;
     const int samples = 10;
@@ -96,12 +156,95 @@ float BatteryMonitor::readRawVoltage() {
     int avgReading = totalReading / samples;
     
     // Convert ADC reading to voltage
-    float voltage = ((float)avgReading / ADC_RESOLUTION) * ADC_REFERENCE * VOLTAGE_DIVIDER_RATIO;
+    float voltage = ((float)avgReading / ADC_MAX_READING) * ADC_REFERENCE * VOLTAGE_DIVIDER_RATIO;
     
     // Apply calibration offset
     voltage += calibrationOffset;
     
     return voltage;
+#else
+    return lastVoltage;
+#endif
+}
+
+bool BatteryMonitor::beginFuelGauge() {
+#if HAS_I2C_FUEL_GAUGE
+    Wire.beginTransmission(FUEL_GAUGE_MAX17048_ADDR);
+    if (Wire.endTransmission() != 0) {
+        Serial.printf("MAX17048 fuel gauge not found at 0x%02X\n", FUEL_GAUGE_MAX17048_ADDR);
+        return false;
+    }
+
+    uint16_t version = 0;
+    if (!readFuelGaugeRegister16(0x08, version)) {
+        Serial.println("MAX17048 fuel gauge detected but version read failed");
+        return false;
+    }
+
+    Serial.printf("MAX17048 fuel gauge detected at 0x%02X version=0x%04X\n",
+                  FUEL_GAUGE_MAX17048_ADDR,
+                  version);
+    return true;
+#else
+    return false;
+#endif
+}
+
+bool BatteryMonitor::readFuelGaugeSnapshot(float& voltage, float& stateOfCharge) {
+#if HAS_I2C_FUEL_GAUGE
+    uint16_t vcell = 0;
+    uint16_t soc = 0;
+
+    if (!readFuelGaugeRegister16(0x02, vcell) ||
+        !readFuelGaugeRegister16(0x04, soc)) {
+        return false;
+    }
+
+    // MAX17048 VCELL is a 12-bit value left-aligned in the 16-bit register.
+    // Each 12-bit count is 1.25 mV, equivalently the raw 16-bit register is
+    // 78.125 uV/LSB because the low nibble is fractional/unused.
+    voltage = static_cast<float>(vcell >> 4) * 0.00125f;
+    const uint8_t socInteger = (soc >> 8) & 0xFF;
+    const uint8_t socFraction = soc & 0xFF;
+    stateOfCharge = static_cast<float>(socInteger) + (static_cast<float>(socFraction) / 256.0f);
+
+    return voltage >= 2.0f && voltage <= 5.0f && stateOfCharge >= 0.0f && stateOfCharge <= 110.0f;
+#else
+    return false;
+#endif
+}
+
+bool BatteryMonitor::readFuelGaugeRegister16(uint8_t reg, uint16_t& value) {
+#if HAS_I2C_FUEL_GAUGE
+    Wire.beginTransmission(FUEL_GAUGE_MAX17048_ADDR);
+    Wire.write(reg);
+    if (Wire.endTransmission(false) != 0) {
+        return false;
+    }
+
+    const uint8_t bytesRead = Wire.requestFrom(static_cast<uint8_t>(FUEL_GAUGE_MAX17048_ADDR),
+                                               static_cast<uint8_t>(2));
+    if (bytesRead != 2 || Wire.available() < 2) {
+        return false;
+    }
+
+    const uint8_t msb = Wire.read();
+    const uint8_t lsb = Wire.read();
+    value = (static_cast<uint16_t>(msb) << 8) | lsb;
+    return true;
+#else
+    (void)reg;
+    (void)value;
+    return false;
+#endif
+}
+
+bool BatteryMonitor::readUsbPowerPresent() {
+#if HAS_USB_POWER_SENSE
+    return digitalRead(USB_POWER_SENSE_PIN) == HIGH;
+#else
+    return false;
+#endif
 }
 
 float BatteryMonitor::getBatteryVoltage() {
@@ -136,6 +279,7 @@ int BatteryMonitor::getEstimatedRuntimeMinutesRemaining() {
     if (estimatedRuntimeMinutes < 0.0f &&
         learnedDischargeRatePercentPerHour > 0.0f &&
         chargingState != "charging_likely" &&
+        chargingState != "usb_present" &&
         chargingState != "full") {
         const float currentPercentage = constrain(smoothedPercentage, 0.0f, 100.0f);
         const float learnedPercentPerMinute = learnedDischargeRatePercentPerHour / 60.0f;
@@ -155,6 +299,7 @@ String BatteryMonitor::getRuntimeEstimateConfidence() const {
     if (estimatedRuntimeMinutes < 0.0f &&
         learnedDischargeRatePercentPerHour > 0.0f &&
         chargingState != "charging_likely" &&
+        chargingState != "usb_present" &&
         chargingState != "full") {
         return "learned-" + getBatteryLearningConfidence();
     }
@@ -288,6 +433,22 @@ String BatteryMonitor::getBatteryLearningConfidence() const {
     return "none";
 }
 
+String BatteryMonitor::getBatteryBackend() const {
+    if (fuelGaugeAvailable) {
+        return "max17048";
+    }
+#if HAS_I2C_FUEL_GAUGE
+    if (!fuelGaugeAvailable) {
+        return "max17048-missing";
+    }
+#endif
+#if HAS_ADC_BATTERY
+    return "adc";
+#else
+    return "none";
+#endif
+}
+
 int BatteryMonitor::voltageToPercentage(float voltage) const {
     // Convert voltage to percentage using Li-ion discharge curve
     int percentage;
@@ -316,6 +477,10 @@ int BatteryMonitor::voltageToPercentage(float voltage) const {
     return constrain(percentage, 0, 100);
 }
 
+int BatteryMonitor::stateOfChargeToPercentage(float stateOfCharge) const {
+    return constrain((int)roundf(stateOfCharge), 0, 100);
+}
+
 int BatteryMonitor::quantizePercentage(int percentage) const {
     percentage = constrain(percentage, 0, 100);
     return constrain(((percentage + (PERCENT_VISIBLE_STEP / 2)) / PERCENT_VISIBLE_STEP) * PERCENT_VISIBLE_STEP, 0, 100);
@@ -324,6 +489,15 @@ int BatteryMonitor::quantizePercentage(int percentage) const {
 void BatteryMonitor::updateRuntimeEstimate() {
     const unsigned long now = millis();
     const float currentPercentage = constrain(smoothedPercentage, 0.0f, 100.0f);
+
+    if (usbPowerPresent) {
+        dischargeStartPercentage = currentPercentage;
+        dischargeStartMillis = now;
+        estimatedRuntimeMinutes = -1.0f;
+        dischargeRatePercentPerHour = 0.0f;
+        runtimeEstimateConfidence = "usb-present";
+        return;
+    }
 
     if (dischargeStartPercentage < 0.0f) {
         dischargeStartPercentage = currentPercentage;
@@ -415,8 +589,8 @@ void BatteryMonitor::updateChargeEstimate() {
         estimatedMinutesTo80 = -1.0f;
         estimatedMinutesTo100 = -1.0f;
         chargeRatePercentPerHour = 0.0f;
-        chargeEstimateConfidence = "discharging";
-        chargingState = "discharging";
+        chargeEstimateConfidence = usbPowerPresent ? "usb-present" : "discharging";
+        chargingState = usbPowerPresent ? "usb_present" : "discharging";
         return;
     }
 
@@ -427,8 +601,10 @@ void BatteryMonitor::updateChargeEstimate() {
         estimatedMinutesTo80 = -1.0f;
         estimatedMinutesTo100 = -1.0f;
         chargeRatePercentPerHour = 0.0f;
-        chargeEstimateConfidence = "learning";
-        chargingState = dischargeRatePercentPerHour > 0.0f ? "discharging" : "unknown";
+        chargeEstimateConfidence = usbPowerPresent ? "usb-present" : "learning";
+        chargingState = usbPowerPresent
+            ? "usb_present"
+            : (dischargeRatePercentPerHour > 0.0f ? "discharging" : "unknown");
         return;
     }
 
@@ -536,7 +712,7 @@ bool BatteryMonitor::isCharging() {
         update();
     }
 
-    return chargingState == "charging_likely";
+    return chargingState == "charging_likely" || chargingState == "usb_present";
 }
 
 bool BatteryMonitor::isLowBattery() {
@@ -564,6 +740,9 @@ int BatteryMonitor::getBatterySegments() {
 
 void BatteryMonitor::calibrateVoltage(float actualVoltage) {
     float measuredVoltage = readRawVoltage() - calibrationOffset;  // Get uncalibrated reading
+    if (fuelGaugeAvailable && lastVoltage > 0.1f) {
+        measuredVoltage = lastVoltage - calibrationOffset;
+    }
     calibrationOffset = actualVoltage - measuredVoltage;
     
     // Save calibration
