@@ -395,8 +395,8 @@ Compatibility paths stay conservative:
 
 - Battery percentage is voltage-estimated on XIAO/SuperMini builds. TinyS3[D] development builds use the MAX17048 fuel gauge when present.
 - Charging/runtime estimates are experimental; WMB+ learns charge/discharge rates over time, but this is still voltage-based intelligence, not a dedicated fuel gauge.
-- XIAO ESP32S3 is the only primary beta-supported target in `0.2.0-beta.5`.
-- App firmware OTA requires the new dual-OTA partition table. Existing devices on a legacy/single-app layout need the `0.2.0-beta.5` full factory flash before relying on app OTA.
+- XIAO ESP32S3 is the primary hardware-tested beta target. ESP32-S3 SuperMini and TinyS3[D] builds are available for beta/development testing, but XIAO remains the reference path.
+- App firmware OTA requires the WMB+ dual-OTA partition table. Existing devices on a legacy/single-app layout need the current matching `factory-full.bin` flashed once over USB before relying on app OTA.
 - Calibration is still per-device and must be verified by the builder.
 - 80 SPS requires the HX711 hardware rate pin/jumper to be configured correctly.
 - Tare and sleep inputs expect active-high digital touch sensor modules. The firmware enables `INPUT_PULLDOWN` on those pins; bare capacitive pads or open-drain sensors need appropriate external conditioning.
