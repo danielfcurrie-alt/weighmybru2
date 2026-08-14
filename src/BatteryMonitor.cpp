@@ -290,7 +290,17 @@ int BatteryMonitor::getBatteryPercentage() {
         return 0;
     }
 
-    return quantizePercentage((int)roundf(smoothedPercentage));
+    const int percentage = (int)roundf(smoothedPercentage);
+
+    // Fuel-gauge boards have a real SOC estimator, so expose the fine-grained
+    // value. ADC-backed boards are voltage-derived and sag under load, so expose
+    // a coarse visible percentage while preserving raw voltage/raw percentage in
+    // diagnostics.
+    if (fuelGaugeAvailable) {
+        return constrain(percentage, 0, 100);
+    }
+
+    return quantizePercentage(percentage);
 }
 
 int BatteryMonitor::getRawBatteryPercentage() {
