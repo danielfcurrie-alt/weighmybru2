@@ -740,15 +740,18 @@ long Scale::getRawValue() {
 }
 
 void Scale::powerDown() {
-    if (!isConnected) {
-        return;
-    }
-
 #if WMBP_SIMULATION_MODE
     Serial.println("HX711 power down skipped in WMB+ simulation mode");
 #else
-    hx711.power_down();
-    Serial.println("HX711 powered down for deep sleep");
+    if (isConnected) {
+        hx711.power_down();
+    }
+    pinMode(clockPin, OUTPUT);
+    digitalWrite(clockPin, HIGH);
+    delayMicroseconds(80);
+    Serial.println(isConnected
+        ? "HX711 powered down for deep sleep; PD_SCK held HIGH"
+        : "HX711 PD_SCK held HIGH for deep sleep before connection was confirmed");
 #endif
 }
 

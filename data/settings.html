@@ -96,6 +96,7 @@
         <input type="number" id="criticalShutdownPercent" name="criticalShutdownPercent" min="1" max="20" step="1" class="w-32 px-3 py-2 mb-2 rounded text-black" />
         <span class="text-gray-400 ml-2">%</span>
         <p class="text-gray-400 text-sm mb-4">Fuel-gauge boards sleep below this state of charge. Default is 7%.</p>
+        <p class="text-blue-400 text-sm mb-4" id="criticalRecoverySummary"></p>
 
         <button type="submit" class="bg-gray-600 hover:bg-button-green active:bg-green-900 text-white px-4 py-2 rounded">Save Battery Settings</button>
       </form>
@@ -280,6 +281,12 @@
       const criticalPercent = data.criticalShutdownPercent !== undefined ? data.criticalShutdownPercent : data.critical_shutdown_percent;
       if (criticalPercent !== undefined) {
         document.getElementById('criticalShutdownPercent').value = criticalPercent;
+      }
+      const recoveryVoltage = data.criticalRecoveryVoltage !== undefined ? data.criticalRecoveryVoltage : data.critical_recovery_voltage;
+      const recoveryPercent = data.criticalRecoveryPercent !== undefined ? data.criticalRecoveryPercent : data.critical_recovery_percent;
+      if (recoveryVoltage !== undefined && recoveryPercent !== undefined) {
+        document.getElementById('criticalRecoverySummary').textContent =
+          `After a critical-battery sleep, full boot resumes at about ${Number(recoveryVoltage).toFixed(2)}V or ${recoveryPercent}% SOC.`;
       }
     }
 
@@ -529,6 +536,7 @@
         const result = await response.json();
         if (result.status === 'success') {
           messageEl.textContent = `Battery settings saved: ${result.capacity_mah} mAh, cutoff ${Number(result.critical_shutdown_voltage).toFixed(2)}V / ${result.critical_shutdown_percent}%`;
+          applyBatteryData(result);
           statusEl.textContent = '';
         } else {
           statusEl.textContent = result.message || 'Error saving battery settings.';

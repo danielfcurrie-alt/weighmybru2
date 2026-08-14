@@ -57,11 +57,12 @@ struct SleepSnapshot {
   float batteryVoltage;
   int batteryPercent;
   bool usbPowerPresent;
+  bool criticalSleep;
   uint32_t enterMillis;
 };
 
 RTC_DATA_ATTR SleepSnapshot rtcSleepSnapshot = {};
-static constexpr uint32_t SLEEP_SNAPSHOT_MAGIC = 0x574D4250; // WMBP
+static constexpr uint32_t SLEEP_SNAPSHOT_MAGIC = 0x574D4251; // WMBQ, includes critical-sleep flag
 
 enum UsbWeightStatusFlags : uint16_t {
   USB_WEIGHT_STATUS_HX711_CONNECTED = 1U << 0,
@@ -92,19 +93,20 @@ static const char* wakeCauseName(esp_sleep_wakeup_cause_t cause) {
   }
 }
 
-static void captureSleepSnapshot() {
+static void captureSleepSnapshot(bool criticalSleep) {
   rtcSleepSnapshot.magic = SLEEP_SNAPSHOT_MAGIC;
   rtcSleepSnapshot.sleepCount++;
   rtcSleepSnapshot.batteryVoltage = batteryMonitor.getBatteryVoltage();
   rtcSleepSnapshot.batteryPercent = batteryMonitor.getBatteryPercentage();
   rtcSleepSnapshot.usbPowerPresent = batteryMonitor.isUsbPowerPresent();
+  rtcSleepSnapshot.criticalSleep = criticalSleep;
   rtcSleepSnapshot.enterMillis = millis();
 }
 
-static void preparePeripheralsForDeepSleep(const char* reason) {
+static void preparePeripheralsForDeepSleep(const char* reason, bool criticalSleep = false) {
   const char* sleepReason = reason ? reason : "deep sleep";
   Serial.printf("Preparing peripherals for deep sleep: %s\n", sleepReason);
-  captureSleepSnapshot();
+  captureSleepSnapshot(criticalSleep);
   diagnosticEventLog.record(DiagnosticEventType::SleepEnter,
                             batteryMonitor.getBatteryVoltage(),
                             sleepReason);
@@ -124,6 +126,17 @@ static void preparePeripheralsForDeepSleep(const char* reason) {
 #endif
 }
 
+static void forceDeepSleepNow(const char* reason, bool criticalSleep = false) {
+  preparePeripheralsForDeepSleep(reason, criticalSleep);
+  if (oledDisplay.isConnected()) {
+    oledDisplay.clear();
+    oledDisplay.powerOff();
+  }
+  Serial.println("Wake-up configured for EXT0 on GPIO" + String(sleepTouchPin));
+  Serial.flush();
+  esp_deep_sleep_start();
+}
+
 static void recordWakeSnapshot(esp_sleep_wakeup_cause_t wakeupReason) {
   String detail = "cause=" + String(wakeCauseName(wakeupReason));
   if (rtcSleepSnapshot.magic == SLEEP_SNAPSHOT_MAGIC && rtcSleepSnapshot.sleepCount > 0) {
@@ -132,14 +145,16 @@ static void recordWakeSnapshot(esp_sleep_wakeup_cause_t wakeupReason) {
     detail += " prev=" + String(rtcSleepSnapshot.batteryPercent) + "%";
     detail += " delta=" + String(deltaPercent) + "%";
     detail += " usbWas=" + String(rtcSleepSnapshot.usbPowerPresent ? "1" : "0");
+    detail += " criticalWas=" + String(rtcSleepSnapshot.criticalSleep ? "1" : "0");
     diagnosticEventLog.record(DiagnosticEventType::Wake, static_cast<float>(deltaPercent), detail.c_str());
-    Serial.printf("Last sleep snapshot: count=%lu previous=%d%% now=%d%% delta=%+d%% usbWas=%s usbNow=%s\n",
+    Serial.printf("Last sleep snapshot: count=%lu previous=%d%% now=%d%% delta=%+d%% usbWas=%s usbNow=%s criticalWas=%s\n",
                   static_cast<unsigned long>(rtcSleepSnapshot.sleepCount),
                   rtcSleepSnapshot.batteryPercent,
                   currentPercent,
                   deltaPercent,
                   boolText(rtcSleepSnapshot.usbPowerPresent),
-                  boolText(batteryMonitor.isUsbPowerPresent()));
+                  boolText(batteryMonitor.isUsbPowerPresent()),
+                  boolText(rtcSleepSnapshot.criticalSleep));
   } else {
     diagnosticEventLog.record(DiagnosticEventType::Wake, static_cast<float>(wakeupReason), detail.c_str());
   }
@@ -245,12 +260,7 @@ static void enforceRuntimeCriticalBatterySleep() {
   }
 
   Serial.println("CRITICAL: Runtime battery guard entering deep sleep now");
-  if (oledDisplay.isConnected()) {
-    oledDisplay.powerOff();
-  }
-  preparePeripheralsForDeepSleep("runtime critical battery");
-  Serial.flush();
-  esp_deep_sleep_start();
+  forceDeepSleepNow("runtime critical battery", true);
 }
 
 static const char* wifiModeName(wifi_mode_t mode) {
@@ -673,12 +683,63 @@ void setup() {
   // a real value instead of a fake default.
   batteryMonitor.begin();
   resetBatteryDrainSession("boot");
+
+  // Initialize display early so critical-battery boot guard can show a warning
+  // before BLE/WiFi spend power on a depleted cell.
+  Serial.println("Initializing display...");
+  bool displayAvailable = oledDisplay.begin();
+
+  if (!displayAvailable) {
+    Serial.println("WARNING: Display initialization failed!");
+    Serial.println("System will continue in headless mode without display.");
+    Serial.println("All functionality remains available via web interface.");
+    diagnosticEventLog.record(DiagnosticEventType::DisplayMissing, 0.0f, "display init failed");
+  } else {
+    Serial.println("Display initialized - ready for visual feedback");
+    oledDisplay.setBrightness(128);
+    oledDisplay.setBatteryMonitor(&batteryMonitor);
+    Serial.println("Display brightness set to 50% for power optimization");
+  }
+
+  // Configure sleep wake before any early critical-battery guard can sleep.
+  powerManager.begin();
+  powerManager.loadAutoSleepSettings();
+  powerManager.setBeforeSleepCallback([]() {
+    preparePeripheralsForDeepSleep("deep sleep", false);
+  });
+
   recordWakeSnapshot(esp_sleep_get_wakeup_cause());
 #if HAS_I2C_FUEL_GAUGE
   if (!batteryMonitor.hasFuelGauge()) {
     diagnosticEventLog.record(DiagnosticEventType::FuelGaugeMissing, 0.0f, "MAX17048 missing");
   }
 #endif
+
+  const bool wokeFromCriticalSleep =
+      rtcSleepSnapshot.magic == SLEEP_SNAPSHOT_MAGIC &&
+      rtcSleepSnapshot.sleepCount > 0 &&
+      rtcSleepSnapshot.criticalSleep;
+  const bool recoveredFromCriticalSleep = batteryMonitor.hasRecoveredFromCriticalSleep();
+  if ((wokeFromCriticalSleep && !recoveredFromCriticalSleep) ||
+      batteryMonitor.shouldForceCriticalSleep()) {
+    const float batteryVoltage = batteryMonitor.getBatteryVoltage();
+    Serial.printf("CRITICAL: Battery %.2fV %d%% not safe for full boot - entering sleep\n",
+                  batteryVoltage,
+                  batteryMonitor.getBatteryPercentage());
+    Serial.printf("Critical recovery requires %.2fV or %u%% SOC; usbPower=%s\n",
+                  batteryMonitor.getCriticalRecoveryVoltage(),
+                  static_cast<unsigned int>(batteryMonitor.getCriticalRecoveryPercent()),
+                  boolText(batteryMonitor.isUsbPowerPresent()));
+    diagnosticEventLog.record(DiagnosticEventType::CriticalBattery,
+                              batteryVoltage,
+                              wokeFromCriticalSleep ? "critical recovery guard sleep" : "boot guard sleep");
+    if (oledDisplay.isConnected()) {
+      oledDisplay.showBatteryLowMessage(batteryVoltage, 3000);
+      delay(3000);
+    }
+    forceDeepSleepNow(wokeFromCriticalSleep ? "critical battery recovery wait" : "boot critical battery", true);
+  }
+
   bluetoothScale.setBatteryMonitor(&batteryMonitor);
   
   // CRITICAL: Initialize BLE FIRST before WiFi to prevent radio conflicts
@@ -695,22 +756,6 @@ void setup() {
     Serial.println("BLE initialization failed - continuing without Bluetooth");
     diagnosticEventLog.record(DiagnosticEventType::BleError, 0.0f, "BLE initialization failed");
     Serial.printf("Free heap after BLE fail: %u bytes\n", ESP.getFreeHeap());
-  }
-  
-  // Initialize display with error handling - don't block if display fails
-  Serial.println("Initializing display...");
-  bool displayAvailable = oledDisplay.begin();
-  
-  if (!displayAvailable) {
-    Serial.println("WARNING: Display initialization failed!");
-    Serial.println("System will continue in headless mode without display.");
-    Serial.println("All functionality remains available via web interface.");
-    diagnosticEventLog.record(DiagnosticEventType::DisplayMissing, 0.0f, "display init failed");
-  } else {
-    Serial.println("Display initialized - ready for visual feedback");
-    // Set reduced brightness for power optimization
-    oledDisplay.setBrightness(128);  // 50% brightness vs 255 max
-    Serial.println("Display brightness set to 50% for power optimization");
   }
   
   // Check wake-up reason and show appropriate message
@@ -800,43 +845,7 @@ void setup() {
   // Initialize touch sensor
   touchSensor.begin();
 
-  // Initialize power manager
-  powerManager.begin();
-  powerManager.loadAutoSleepSettings();
-  powerManager.setBeforeSleepCallback([]() {
-    preparePeripheralsForDeepSleep("deep sleep");
-  });
-
-  // Check for critical battery - prevent boot if voltage/SOC is too low.
-  float batteryVoltage = batteryMonitor.getBatteryVoltage();
-  if (batteryMonitor.shouldForceCriticalSleep()) {
-    Serial.printf("CRITICAL: Battery %.2fV %d%% below shutdown threshold - entering sleep\n",
-                  batteryVoltage,
-                  batteryMonitor.getBatteryPercentage());
-    diagnosticEventLog.record(DiagnosticEventType::CriticalBattery, batteryVoltage, "boot guard sleep");
-    
-    // Show battery low message on display with large, centered formatting
-    if (oledDisplay.isConnected()) {
-      oledDisplay.showBatteryLowMessage(batteryVoltage, 3000);
-    }
-    
-    delay(3000); // Show message for 3 seconds
-    
-    // Force clear any display state and sleep immediately
-    if (oledDisplay.isConnected()) {
-      oledDisplay.clear();
-    }
-    
-    Serial.println("Forcing deep sleep now...");
-    preparePeripheralsForDeepSleep("boot critical battery");
-    if (oledDisplay.isConnected()) {
-      oledDisplay.powerOff();
-    }
-    Serial.flush();
-    esp_deep_sleep_start();
-  }
-  
-  Serial.printf("Battery voltage OK (%.2fV) - continuing boot\n", batteryVoltage);
+  Serial.printf("Battery voltage OK (%.2fV) - continuing boot\n", batteryMonitor.getBatteryVoltage());
 
   // Show IP addresses and welcome message if display is available
   delay(100); // Small delay to ensure WiFi is fully initialized

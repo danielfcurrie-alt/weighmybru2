@@ -757,6 +757,15 @@ String BatteryMonitor::getBatteryStatus() {
     }
 
     float voltage = getBatteryVoltage();
+    const bool critical = isCriticalBattery();
+    const bool low = isLowBattery();
+
+    if (critical) {
+        return voltage < BATTERY_EMPTY ? "Empty" : "Critical";
+    }
+    if (low) {
+        return "Low";
+    }
     
     if (voltage >= BATTERY_FULL) {
         return "Full";
@@ -764,35 +773,42 @@ String BatteryMonitor::getBatteryStatus() {
         return "Good";        // 4.0V+ - Reliable ESP32 operation
     } else if (voltage >= BATTERY_NOMINAL) {
         return "Fair";        // 3.8V+ - Normal operation
-    } else if (voltage >= BATTERY_LOW) {
-        return "Low";         // 3.6V+ - Consider charging
-    } else if (voltage >= BATTERY_CRITICAL) {
-        return "Critical";    // 3.4V+ - Charge immediately
+    } else if (voltage >= BATTERY_EMPTY) {
+        return "Fair";
     } else {
-        return "Empty";       // <3.4V - Below critical threshold
+        return "Empty";       // Below lower discharge threshold
     }
 }
 
 bool BatteryMonitor::isCharging() {
+    if (usbOnlyPower || (usbPowerPresent && !hasReading)) {
+        return true;
+    }
     if (!hasReading) {
         update();
     }
 
-    return chargingState == "charging_likely" || chargingState == "usb_present";
+    return chargingState == "charging_likely" || chargingState == "usb_present" || chargingState == "usb_only";
 }
 
 bool BatteryMonitor::isLowBattery() {
     if (usbOnlyPower || (usbPowerPresent && !hasReading) || !hasValidReading()) {
         return false;
     }
-    return getBatteryVoltage() < BATTERY_LOW;
+    if (fuelGaugeSocAvailable() && fuelGaugeStateOfCharge <= lowBatteryPercentThreshold()) {
+        return true;
+    }
+    return getBatteryVoltage() <= lowBatteryVoltageThreshold();
 }
 
 bool BatteryMonitor::isCriticalBattery() {
     if (usbOnlyPower || (usbPowerPresent && !hasReading) || !hasValidReading()) {
         return false;
     }
-    return getBatteryVoltage() < BATTERY_CRITICAL;
+    if (fuelGaugeSocAvailable() && fuelGaugeStateOfCharge <= criticalShutdownPercent) {
+        return true;
+    }
+    return getBatteryVoltage() <= criticalShutdownVoltage;
 }
 
 int BatteryMonitor::getBatterySegments() {
@@ -913,6 +929,33 @@ bool BatteryMonitor::shouldForceCriticalSleep() {
     return voltage <= criticalShutdownVoltage;
 }
 
+bool BatteryMonitor::hasRecoveredFromCriticalSleep() {
+    if (usbPowerPresent || usbOnlyPower) {
+        return true;
+    }
+    if (!hasReading) {
+        update();
+    }
+    if (!hasReading) {
+        return false;
+    }
+
+    if (fuelGaugeSocAvailable() && fuelGaugeStateOfCharge < getCriticalRecoveryPercent()) {
+        return false;
+    }
+
+    return getBatteryVoltage() >= getCriticalRecoveryVoltage();
+}
+
+float BatteryMonitor::getCriticalRecoveryVoltage() const {
+    return criticalShutdownVoltage + CRITICAL_RECOVERY_MARGIN_VOLTAGE;
+}
+
+uint8_t BatteryMonitor::getCriticalRecoveryPercent() const {
+    const uint16_t threshold = static_cast<uint16_t>(criticalShutdownPercent) + CRITICAL_RECOVERY_MARGIN_PERCENT;
+    return static_cast<uint8_t>(threshold > 100U ? 100U : threshold);
+}
+
 void BatteryMonitor::loadCalibration() {
     calibrationOffset = preferences.getFloat("cal_offset", 0.0f);
     Serial.printf("Battery calibration loaded: offset = %.3fV\n", calibrationOffset);
@@ -1000,4 +1043,18 @@ void BatteryMonitor::saveLearningProfile() {
                   learnedChargeRatePercentPerHour,
                   learnedChargeObservations,
                   getBatteryLearningConfidence().c_str());
+}
+
+float BatteryMonitor::lowBatteryVoltageThreshold() const {
+    const float threshold = criticalShutdownVoltage + 0.15f;
+    return threshold > BATTERY_LOW ? threshold : BATTERY_LOW;
+}
+
+uint8_t BatteryMonitor::lowBatteryPercentThreshold() const {
+    const uint16_t threshold = static_cast<uint16_t>(criticalShutdownPercent) + 10U;
+    return static_cast<uint8_t>(threshold > 100U ? 100U : threshold);
+}
+
+bool BatteryMonitor::fuelGaugeSocAvailable() const {
+    return fuelGaugeAvailable && fuelGaugeStateOfCharge >= 0.0f;
 }

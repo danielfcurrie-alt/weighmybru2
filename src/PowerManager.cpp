@@ -151,13 +151,16 @@ bool PowerManager::isSleepTouchPressed() {
     // For digital touch sensor modules, check if the pin is HIGH
     bool pressed = digitalRead(sleepTouchPin) == HIGH;
     
-    // Debug: log unexpected HIGH readings when no sensor should be connected
+    // Debug: log unexpected HIGH readings on edge, then at most once/minute
+    // while held. This avoids serial spam when a sensor is stuck high.
     static unsigned long lastDebugTime = 0;
-    if (pressed && millis() - lastDebugTime > 5000) { // Log every 5 seconds max
+    static bool lastLoggedPressed = false;
+    if (pressed && (!lastLoggedPressed || millis() - lastDebugTime > 60000)) {
         Serial.println("DEBUG: Sleep touch pin GPIO" + String(sleepTouchPin) + " reading HIGH - check for floating pin or connected sensor");
         lastDebugTime = millis();
     }
-    
+    lastLoggedPressed = pressed;
+
     return pressed;
 }
 

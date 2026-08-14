@@ -44,6 +44,9 @@ public:
     uint8_t getCriticalShutdownPercent() const { return criticalShutdownPercent; }
     void setCriticalShutdownPercent(uint8_t percent);
     bool shouldForceCriticalSleep();
+    bool hasRecoveredFromCriticalSleep();
+    float getCriticalRecoveryVoltage() const;
+    uint8_t getCriticalRecoveryPercent() const;
     bool hasFuelGauge() const { return fuelGaugeAvailable; }
     bool isUsbPowerPresent() const { return usbPowerPresent; }
     bool isUsbOnlyPower() const { return usbOnlyPower; }
@@ -91,6 +94,8 @@ private:
     static constexpr uint8_t DEFAULT_CRITICAL_SHUTDOWN_PERCENT = 7;
     static constexpr uint8_t MIN_CRITICAL_SHUTDOWN_PERCENT = 1;
     static constexpr uint8_t MAX_CRITICAL_SHUTDOWN_PERCENT = 20;
+    static constexpr float CRITICAL_RECOVERY_MARGIN_VOLTAGE = 0.10f;
+    static constexpr uint8_t CRITICAL_RECOVERY_MARGIN_PERCENT = 3;
     
     // Calibration and smoothing
     float calibrationOffset = 0.0f;  // Voltage adjustment for accuracy
@@ -164,6 +169,9 @@ private:
     void saveLearningProfile();
     void loadCalibration();
     void saveCalibration();
+    float lowBatteryVoltageThreshold() const;
+    uint8_t lowBatteryPercentThreshold() const;
+    bool fuelGaugeSocAvailable() const;
 };
 
 #endif

@@ -27,7 +27,7 @@ Main reasons to try it:
 - **USB-C serial capture:** ScaleBench or a terminal can record high-rate wired samples directly over USB CDC serial.
 - **Firmware-side quality monitoring:** the scale tracks sample cadence, long gaps, bump/glitch diagnostics, current quality, and lifetime quality.
 - **Webhook stop targets:** StopMyBru can drive local HTTP relays such as Tasmota and Shelly in addition to the ESP-NOW relay module.
-- **Power controls:** WiFi can stay disabled for battery saving, critical battery can force deep sleep, USB-present boards stay awake while plugged in, USB-only bench power is handled without false low-battery alarms, and sleep sends HX711 power-down plus display/board sleep prep.
+- **Power controls:** WiFi can stay disabled for battery saving, critical battery can force deep sleep with recovery hysteresis, USB-present boards stay awake while plugged in, USB-only bench power is handled without false low-battery alarms, and sleep sends HX711 power-down plus display/board sleep prep.
 - **Rollback-friendly beta:** the release provides app-only and factory images so testers can choose the least invasive flash path for their device.
 
 This is beta firmware for testers. It is not an official upstream WeighMyBru release.
@@ -113,8 +113,8 @@ Important: the originally published `0.2.0-beta.1` XIAO fallback assets used Lit
 - StopMyBru target stop learning to compensate for grinder/brewer overshoot after relay cutoff.
 - Web OTA upload for app firmware and LittleFS web UI images.
 - WiFi-disabled workflow for lower battery draw.
-- Critical-battery deep sleep guard. Defaults are enabled, `3.45V` for ADC-backed boards and `7%` state of charge for fuel-gauge boards.
-- HX711 power-down before ESP32 deep sleep. This uses the HX711 clock-hold/power-down path, then turns off display/board peripherals where supported.
+- Critical-battery deep sleep guard. Defaults are enabled, `3.45V` for ADC-backed boards and `7%` state of charge for fuel-gauge boards. After a critical-battery sleep, full boot requires a recovery margin of about `+0.10V` or `+3%` SOC unless USB power is present.
+- HX711 power-down before ESP32 deep sleep. This holds HX711 `PD_SCK` high for the low-power state, then turns off display/board peripherals where supported.
 
 The Bluetooth extension packet is documented in [WMB+ BLE protocol](docs/WMB_PLUS_PROTOCOL.md). The USB-C text stream is documented in [USB serial protocol](docs/USB_SERIAL.md).
 

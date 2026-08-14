@@ -424,6 +424,8 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
     json += ",\"battery_critical_shutdown_enabled\":" + String(battery.isCriticalShutdownEnabled() ? "true" : "false");
     json += ",\"battery_critical_shutdown_voltage\":" + String(battery.getCriticalShutdownVoltage(), 2);
     json += ",\"battery_critical_shutdown_percent\":" + String(static_cast<unsigned int>(battery.getCriticalShutdownPercent()));
+    json += ",\"battery_critical_recovery_voltage\":" + String(battery.getCriticalRecoveryVoltage(), 2);
+    json += ",\"battery_critical_recovery_percent\":" + String(static_cast<unsigned int>(battery.getCriticalRecoveryPercent()));
     json += ",\"battery_critical_shutdown_active\":" + String(battery.shouldForceCriticalSleep() ? "true" : "false");
     int dashboardRuntimeMinutes = battery.getEstimatedRuntimeMinutesRemaining();
     json += ",\"battery_runtime_estimate_available\":" + String(dashboardRuntimeMinutes >= 0 ? "true" : "false");
@@ -608,6 +610,8 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
     json += ",\"critical_shutdown_enabled\":" + String(battery.isCriticalShutdownEnabled() ? "true" : "false");
     json += ",\"critical_shutdown_voltage\":" + String(battery.getCriticalShutdownVoltage(), 2);
     json += ",\"critical_shutdown_percent\":" + String(static_cast<unsigned int>(battery.getCriticalShutdownPercent()));
+    json += ",\"critical_recovery_voltage\":" + String(battery.getCriticalRecoveryVoltage(), 2);
+    json += ",\"critical_recovery_percent\":" + String(static_cast<unsigned int>(battery.getCriticalRecoveryPercent()));
     json += ",\"critical_shutdown_active\":" + String(battery.shouldForceCriticalSleep() ? "true" : "false");
     int runtimeMinutes = battery.getEstimatedRuntimeMinutesRemaining();
     json += ",\"runtime_estimate_available\":" + String(runtimeMinutes >= 0 ? "true" : "false");
@@ -732,7 +736,9 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
     json += "\"capacity_mah\":" + String(battery.getBatteryCapacityMah()) + ",";
     json += "\"critical_shutdown_enabled\":" + String(battery.isCriticalShutdownEnabled() ? "true" : "false") + ",";
     json += "\"critical_shutdown_voltage\":" + String(battery.getCriticalShutdownVoltage(), 2) + ",";
-    json += "\"critical_shutdown_percent\":" + String(static_cast<unsigned int>(battery.getCriticalShutdownPercent()));
+    json += "\"critical_shutdown_percent\":" + String(static_cast<unsigned int>(battery.getCriticalShutdownPercent())) + ",";
+    json += "\"critical_recovery_voltage\":" + String(battery.getCriticalRecoveryVoltage(), 2) + ",";
+    json += "\"critical_recovery_percent\":" + String(static_cast<unsigned int>(battery.getCriticalRecoveryPercent()));
     json += "}";
     request->send(200, "application/json", json);
   });
@@ -770,6 +776,8 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
     json += ",\"critical_shutdown_enabled\":" + String(battery.isCriticalShutdownEnabled() ? "true" : "false");
     json += ",\"critical_shutdown_voltage\":" + String(battery.getCriticalShutdownVoltage(), 2);
     json += ",\"critical_shutdown_percent\":" + String(static_cast<unsigned int>(battery.getCriticalShutdownPercent()));
+    json += ",\"critical_recovery_voltage\":" + String(battery.getCriticalRecoveryVoltage(), 2);
+    json += ",\"critical_recovery_percent\":" + String(static_cast<unsigned int>(battery.getCriticalRecoveryPercent()));
     json += ",\"critical_shutdown_active\":" + String(battery.shouldForceCriticalSleep() ? "true" : "false");
     json += ",\"runtime_minutes_remaining\":";
     int runtimeMinutes = battery.getEstimatedRuntimeMinutesRemaining();
@@ -847,6 +855,8 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
     json += "\"critical_shutdown_enabled\":" + String(battery.isCriticalShutdownEnabled() ? "true" : "false") + ",";
     json += "\"critical_shutdown_voltage\":" + String(battery.getCriticalShutdownVoltage(), 2) + ",";
     json += "\"critical_shutdown_percent\":" + String(static_cast<unsigned int>(battery.getCriticalShutdownPercent())) + ",";
+    json += "\"critical_recovery_voltage\":" + String(battery.getCriticalRecoveryVoltage(), 2) + ",";
+    json += "\"critical_recovery_percent\":" + String(static_cast<unsigned int>(battery.getCriticalRecoveryPercent())) + ",";
     json += "\"critical_shutdown_active\":" + String(battery.shouldForceCriticalSleep() ? "true" : "false") + ",";
     int runtimeMinutes = battery.getEstimatedRuntimeMinutesRemaining();
     json += "\"runtime_estimate_available\":" + String(runtimeMinutes >= 0 ? "true" : "false") + ",";
@@ -1319,6 +1329,8 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
     json += "\"criticalShutdownEnabled\":" + String(battery.isCriticalShutdownEnabled() ? "true" : "false") + ",";
     json += "\"criticalShutdownVoltage\":" + String(battery.getCriticalShutdownVoltage(), 2) + ",";
     json += "\"criticalShutdownPercent\":" + String(static_cast<unsigned int>(battery.getCriticalShutdownPercent())) + ",";
+    json += "\"criticalRecoveryVoltage\":" + String(battery.getCriticalRecoveryVoltage(), 2) + ",";
+    json += "\"criticalRecoveryPercent\":" + String(static_cast<unsigned int>(battery.getCriticalRecoveryPercent())) + ",";
     json += "\"boardRgbStatusLedAvailable\":" + String(boardHardware.hasRgbStatusLed() ? "true" : "false") + ",";
     json += "\"boardRgbStatusLedEnabled\":" + String(boardHardware.isRgbStatusLedEnabled() ? "true" : "false") + ",";
     json += "\"boardRgbStatusLedBrightness\":" + String(boardHardware.getRgbStatusLedBrightness()) + ",";
