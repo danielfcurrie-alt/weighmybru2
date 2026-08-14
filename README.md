@@ -139,17 +139,41 @@ The Bluetooth extension packet is documented in [WMB+ BLE protocol](docs/WMB_PLU
 
 ## Validated so far
 
-Early hardware validation on a XIAO ESP32S3 reference build:
+Hardware-tested on the XIAO ESP32S3 reference build:
 
 - BLE advertises as `WeighMyBru+`.
-- Bean Conqueror has been hardware-tested and reads live weight through the Float32 compatibility path.
-- USB serial stream works at approximately 80 Hz with zero reported USB drops in initial testing.
-- WMB+-aware paths report approximately 79-80 Hz on the reference 80 SPS HX711 build.
-- Standard battery field is visible to WMB+ aware tooling.
-- WiFi can remain disabled.
+- Bean Conqueror reads live weight through the pure Float32 compatibility path.
+- The Float32 compatibility path can run as a clean app-friendly stream while the WMB+ path keeps the higher-rate diagnostic stream available.
+- WMB+-aware Bluetooth telemetry reports real high-rate operation on the reference 80 SPS HX711 build, around 79-80 Hz in ScaleBench captures.
+- USB-C serial weight capture works at approximately 80 Hz with zero reported USB drops in initial testing.
+- USB-C serial capture has also been confirmed from Android host-side tooling.
+- Standard BLE Battery Service data is visible to WMB+-aware tooling.
+- Battery/USB state reporting includes charging detection on the tested reference unit.
+- WiFi can remain disabled for battery-focused use.
+- Local web UI works in access-point mode and can also use saved local WiFi credentials.
+- Manual browser-upload OTA works for app firmware.
+- Manual browser-upload OTA works for LittleFS web UI updates.
+- The browser-side GitHub release checker works when the browser has internet access.
+- Physical tare and sleep controls work on the reference build.
 - Firmware quality diagnostics report high quality on clean captures.
 
-More tester reports are needed before upstream pull requests are split out.
+Build/release validation currently covers:
+
+- XIAO ESP32S3 app and LittleFS builds.
+- ESP32-S3 SuperMini app and LittleFS builds.
+- TinyS3[D] app and LittleFS development builds.
+- Release manifest checks for board-specific flash size, LittleFS offset, and non-erase install policy.
+- Host-side simulation tests for battery/runtime/power-mode estimation logic.
+- A release-blocking OTA smoke-test checklist for future beta releases.
+
+Still needs broader tester validation before upstream pull requests are split out:
+
+- More stock WeighMyBru hardware variants.
+- More 10 SPS and 80 SPS HX711 builds.
+- GaggiMate/Gaggiuino-style 20-byte clients on real hardware.
+- TinyS3[D] fuel-gauge behavior on real hardware.
+- SuperMini behavior on real hardware.
+- StopMyBru webhook cutoff behavior with real Tasmota/Shelly-style devices.
 
 ## Testing and compatible apps
 
