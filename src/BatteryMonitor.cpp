@@ -26,6 +26,7 @@ BatteryMonitor::BatteryMonitor(uint8_t batteryPin) : batteryPin(batteryPin) {
     learnedChargeObservations = 0;
     fuelGaugeAvailable = false;
     usbPowerPresent = false;
+    usbOnlyPower = false;
     fuelGaugeStateOfCharge = -1.0f;
     lastLearningSaveMillis = 0;
     lastUpdate = 0;
@@ -121,6 +122,7 @@ bool BatteryMonitor::readBatterySnapshot(float& voltage, int& percentage) {
 #if HAS_USB_POWER_SENSE
     usbPowerPresent = readUsbPowerPresent();
 #endif
+    usbOnlyPower = false;
 
 #if HAS_I2C_FUEL_GAUGE
     if (fuelGaugeAvailable) {
@@ -133,6 +135,10 @@ bool BatteryMonitor::readBatterySnapshot(float& voltage, int& percentage) {
         }
 
         Serial.println("Battery fuel gauge read failed; marking battery reading invalid");
+        if (usbPowerPresent) {
+            usbOnlyPower = true;
+            chargingState = "usb_only";
+        }
         return false;
     }
 #endif
@@ -140,12 +146,20 @@ bool BatteryMonitor::readBatterySnapshot(float& voltage, int& percentage) {
 #if HAS_ADC_BATTERY
     voltage = readRawVoltage();
     if (voltage <= 0.1f) {
+        if (usbPowerPresent) {
+            usbOnlyPower = true;
+            chargingState = "usb_only";
+        }
         return false;
     }
     fuelGaugeStateOfCharge = -1.0f;
     percentage = voltageToPercentage(voltage);
     return true;
 #else
+    if (usbPowerPresent) {
+        usbOnlyPower = true;
+        chargingState = "usb_only";
+    }
     return false;
 #endif
 }
@@ -738,6 +752,10 @@ void BatteryMonitor::maybeLearnChargeRate(float ratePercentPerHour, float elapse
 }
 
 String BatteryMonitor::getBatteryStatus() {
+    if (usbOnlyPower || (usbPowerPresent && !hasReading)) {
+        return "USB Only";
+    }
+
     float voltage = getBatteryVoltage();
     
     if (voltage >= BATTERY_FULL) {
@@ -764,10 +782,16 @@ bool BatteryMonitor::isCharging() {
 }
 
 bool BatteryMonitor::isLowBattery() {
+    if (usbOnlyPower || (usbPowerPresent && !hasReading) || !hasValidReading()) {
+        return false;
+    }
     return getBatteryVoltage() < BATTERY_LOW;
 }
 
 bool BatteryMonitor::isCriticalBattery() {
+    if (usbOnlyPower || (usbPowerPresent && !hasReading) || !hasValidReading()) {
+        return false;
+    }
     return getBatteryVoltage() < BATTERY_CRITICAL;
 }
 

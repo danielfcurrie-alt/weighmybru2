@@ -650,13 +650,17 @@
           const segment4 = document.getElementById('batterySegment4');
           const batteryRuntime = document.getElementById('batteryRuntime');
           
-          batteryPercentage.innerText = data.battery_percentage + '%';
+          const usbOnlyPower = data.usb_only_power === true || data.usb_only_power === 'true';
+          batteryPercentage.innerText = usbOnlyPower ? 'USB' : data.battery_percentage + '%';
           if (batteryRuntime) {
             const chargingState = data.battery_charging_state || 'unknown';
             let batteryDetail = data.battery_runtime_display || 'Estimating';
             let estimateLabel = `runtime ${batteryDetail}`;
 
-            if (chargingState === 'full') {
+            if (usbOnlyPower) {
+              batteryDetail = 'USB only';
+              estimateLabel = 'external power, no battery reading';
+            } else if (chargingState === 'full') {
               batteryDetail = 'Full';
               estimateLabel = 'full';
             } else if (chargingState === 'charging_likely') {
@@ -675,15 +679,21 @@
             batteryRuntime.innerText = batteryDetail;
             const confidence = data.battery_charge_confidence || data.battery_runtime_confidence || 'learning';
             const learningConfidence = data.battery_learning_confidence || 'none';
-            batteryStatus.title = `Battery: ${data.battery_percentage}% · ${chargingState} · ${estimateLabel} · Confidence: ${confidence} · Learning: ${learningConfidence}`;
+            batteryStatus.title = usbOnlyPower
+              ? `Power: USB only · ${estimateLabel}`
+              : `Battery: ${data.battery_percentage}% · ${chargingState} · ${estimateLabel} · Confidence: ${confidence} · Learning: ${learningConfidence}`;
           }
           
           // Calculate segments based on percentage (0-4 segments)
           let activeSegments = 0;
-          if (data.battery_percentage >= 25) activeSegments = 1;
-          if (data.battery_percentage >= 50) activeSegments = 2;
-          if (data.battery_percentage >= 75) activeSegments = 3;
-          if (data.battery_percentage >= 90) activeSegments = 4;
+          if (usbOnlyPower) {
+            activeSegments = 4;
+          } else {
+            if (data.battery_percentage >= 25) activeSegments = 1;
+            if (data.battery_percentage >= 50) activeSegments = 2;
+            if (data.battery_percentage >= 75) activeSegments = 3;
+            if (data.battery_percentage >= 90) activeSegments = 4;
+          }
           
           // Update segments visibility with smooth fade
           segment1.style.opacity = activeSegments >= 1 ? '1' : '0.3';
@@ -693,7 +703,9 @@
           
           // Color code based on battery level
           let batteryColor = '#22c55e'; // green
-          if (data.battery_critical) {
+          if (usbOnlyPower) {
+            batteryColor = '#60a5fa'; // blue for external USB-only power
+          } else if (data.battery_critical) {
             batteryColor = '#ef4444'; // red
           } else if (data.battery_low) {
             batteryColor = '#f59e0b'; // orange/yellow

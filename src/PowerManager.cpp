@@ -8,7 +8,8 @@ PowerManager::PowerManager(uint8_t sleepTouchPin, Display* display)
       longPressDetected(false), cancelledRecently(false), cancelTime(0),
       timerState(TimerState::STOPPED), lastTimerControlTime(0),
       _autoSleepEnabled(false), _autoSleepTime(300), _autoSleepDrift(1.0f),
-      _autoSleepBaseline(0.0f), _autoSleepWindowStart(0), _autoSleepHasBaseline(false) {
+      _autoSleepBaseline(0.0f), _autoSleepWindowStart(0), _autoSleepHasBaseline(false),
+      _autoSleepInhibited(false), _autoSleepInhibitReason("") {
 }
 
 void PowerManager::begin() {
@@ -102,7 +103,7 @@ void PowerManager::update() {
     }
 
     // Auto-sleep timer check
-    if (_autoSleepEnabled && _autoSleepHasBaseline && !sleepCountdownActive) {
+    if (_autoSleepEnabled && _autoSleepHasBaseline && !sleepCountdownActive && !_autoSleepInhibited) {
         if (currentTime - _autoSleepWindowStart >= (unsigned long)_autoSleepTime * 1000UL) {
             Serial.println("Auto-sleep: idle timeout reached - initiating sleep countdown");
             sleepCountdownActive  = true;
@@ -230,6 +231,10 @@ void PowerManager::resetTimerState() {
 
 void PowerManager::notifyWeight(float weight) {
     if (!_autoSleepEnabled) return;
+    if (_autoSleepInhibited) {
+        _autoSleepHasBaseline = false;
+        return;
+    }
 
     if (!_autoSleepHasBaseline) {
         _autoSleepBaseline     = weight;
@@ -242,6 +247,25 @@ void PowerManager::notifyWeight(float weight) {
     if (fabsf(weight - _autoSleepBaseline) > _autoSleepDrift) {
         _autoSleepBaseline    = weight;
         _autoSleepWindowStart = millis();
+    }
+}
+
+void PowerManager::setAutoSleepInhibited(bool inhibited, const char* reason) {
+    if (_autoSleepInhibited == inhibited) {
+        if (inhibited && reason != nullptr && _autoSleepInhibitReason != String(reason)) {
+            _autoSleepInhibitReason = reason;
+        }
+        return;
+    }
+
+    _autoSleepInhibited = inhibited;
+    _autoSleepInhibitReason = inhibited && reason != nullptr ? String(reason) : String("");
+    if (_autoSleepInhibited) {
+        _autoSleepHasBaseline = false;
+        sleepCountdownActive = false;
+        Serial.println("Auto-sleep inhibited: " + _autoSleepInhibitReason);
+    } else {
+        Serial.println("Auto-sleep inhibition cleared");
     }
 }
 

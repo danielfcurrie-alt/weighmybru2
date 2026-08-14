@@ -172,6 +172,7 @@ static void recordRuntimeDiagnosticEvents() {
   const bool lowBattery = batteryMonitor.isLowBattery();
   const bool criticalBattery = batteryMonitor.isCriticalBattery();
   const bool validBattery = batteryMonitor.hasValidReading();
+  const bool usbOnlyPower = batteryMonitor.isUsbOnlyPower();
 
   if (!initialized) {
     lastUsbPowerPresent = usbPowerPresent;
@@ -183,10 +184,10 @@ static void recordRuntimeDiagnosticEvents() {
     lastUsbPowerPresent = usbPowerPresent;
   }
 
-  if (!validBattery && !invalidBatteryReported) {
+  if (!validBattery && !usbOnlyPower && !invalidBatteryReported) {
     diagnosticEventLog.record(DiagnosticEventType::BatteryInvalid, 0.0f, "battery reading invalid");
     invalidBatteryReported = true;
-  } else if (validBattery) {
+  } else if (validBattery || usbOnlyPower) {
     invalidBatteryReported = false;
   }
 
@@ -323,7 +324,7 @@ static void printBatteryBenchmarkLog(bool force = false) {
 
   Serial.printf(
       "BATTERY_BENCH ms=%lu uptimeMin=%.1f backend=%s voltage=%.3f percent=%d rawPercent=%d valid=%s "
-      "capacityMah=%u fuelGauge=%s usbPower=%s soc=%.2f chargingState=%s charging=%s "
+      "capacityMah=%u fuelGauge=%s usbPower=%s usbOnly=%s soc=%.2f chargingState=%s charging=%s "
       "session=%s sessionMin=%.1f sessionSamples=%lu sessionInvalid=%lu "
       "sessionStartV=%.3f sessionStartPercent=%d sessionStartRawPercent=%d "
       "sessionDeltaV=%.3f sessionDeltaRawPercent=%d voltageMvPerHour=%.2f rawPercentPerHour=%.3f "
@@ -345,6 +346,7 @@ static void printBatteryBenchmarkLog(bool force = false) {
       batteryMonitor.getBatteryCapacityMah(),
       boolText(batteryMonitor.hasFuelGauge()),
       boolText(batteryMonitor.isUsbPowerPresent()),
+      boolText(batteryMonitor.isUsbOnlyPower()),
       batteryMonitor.getFuelGaugeStateOfCharge(),
       chargingState.c_str(),
       boolText(batteryMonitor.isCharging()),
@@ -493,7 +495,7 @@ static void printConfigDiagnostics() {
 #endif
   Serial.printf("HX711 DOUT GPIO%u, SCK GPIO%u\n", dataPin, clockPin);
   Serial.printf("Touch tare GPIO%u, sleep GPIO%u\n", touchPin, sleepTouchPin);
-  Serial.printf("Battery backend=%s ADC GPIO%u capacity=%umAh voltage=%.3fV percent=%d rawPercent=%d valid=%s fuelGauge=%s usbPower=%s soc=%.2f%%\n",
+  Serial.printf("Battery backend=%s ADC GPIO%u capacity=%umAh voltage=%.3fV percent=%d rawPercent=%d valid=%s fuelGauge=%s usbPower=%s usbOnly=%s soc=%.2f%%\n",
                 batteryMonitor.getBatteryBackend().c_str(),
                 batteryPin,
                 batteryMonitor.getBatteryCapacityMah(),
@@ -503,6 +505,7 @@ static void printConfigDiagnostics() {
                 batteryMonitor.hasValidReading() ? "true" : "false",
                 batteryMonitor.hasFuelGauge() ? "true" : "false",
                 batteryMonitor.isUsbPowerPresent() ? "true" : "false",
+                batteryMonitor.isUsbOnlyPower() ? "true" : "false",
                 batteryMonitor.getFuelGaugeStateOfCharge());
   Serial.printf("Battery runtime estimate: minutes=%d confidence=%s observation=%dmin discharge=%.3f%%/h %.2fmA\n",
                 batteryMonitor.getEstimatedRuntimeMinutesRemaining(),
@@ -920,6 +923,7 @@ void loop() {
   touchSensor.update();
   
   // Update power manager
+  powerManager.setAutoSleepInhibited(batteryMonitor.isUsbPowerPresent(), "usb_power");
   powerManager.update();
   
   // Update battery monitor

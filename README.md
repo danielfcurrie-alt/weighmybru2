@@ -16,9 +16,9 @@ Main reasons to try it:
 - **Bump/glitch diagnostics:** the firmware can identify likely bumps, one-frame ADC/load-cell glitches, cadence problems, and scale-quality changes instead of leaving every app to guess.
 - **Compatibility stays on:** Bean Conqueror has been hardware-tested through the Float32 Bluetooth path. WeighMyBru/GaggiMate/Gaggiuino-style clients should continue to work through their existing 20-byte Bluetooth path.
 - **Standard BLE battery:** exposes battery through the standard `180F / 2A19` Battery Service instead of hiding it in a web-only path.
-- **Better battery backends:** ADC-backed boards expose voltage-estimated battery; TinyS3[D] development builds use the onboard MAX17048 fuel gauge for real state-of-charge plus USB-power detection.
+- **Better battery backends:** ADC-backed boards expose voltage-estimated battery; TinyS3[D] development builds use the onboard MAX17048 fuel gauge for state-of-charge/voltage plus USB-power detection. Runtime and charge-current values are learned estimates unless future hardware exposes true current sensing.
 - **Battery drain/charge diagnostics:** serial and web benchmark outputs track voltage slope, raw-percent slope, charge/drain trend, confidence, and active feature state so testers can compare WiFi/display/BLE settings across XIAO, SuperMini, and TinyS3[D].
-- **TinyS3[D] hardware support:** development builds can use the board’s MAX17048 fuel gauge, USB power sense, software RF antenna switch, and optional RGB status LED. The LED defaults off for battery testing.
+- **TinyS3[D] hardware support:** development builds can use the board’s MAX17048 fuel gauge, USB power sense, software RF antenna switch, and optional configurable RGB status LED. The LED defaults off for battery testing.
 - **Diagnostics without raw buffering:** the firmware keeps a compact ring of errors/events such as bump, glitch, low battery, sleep/wake, USB-power changes, and hardware faults. It uses PSRAM when available and does not store raw sample history in PSRAM.
 - **Web OTA updates:** after one USB install with the dual-OTA partition table, future app firmware and web UI/LittleFS images can be uploaded from the scale’s Updates page.
 - **Cleaner app tare behavior:** app-triggered tare goes through the same delayed/settled path as the physical tare button.
@@ -27,7 +27,7 @@ Main reasons to try it:
 - **USB-C serial capture:** ScaleBench or a terminal can record high-rate wired samples directly over USB CDC serial.
 - **Firmware-side quality monitoring:** the scale tracks sample cadence, long gaps, bump/glitch diagnostics, current quality, and lifetime quality.
 - **Webhook stop targets:** StopMyBru can drive local HTTP relays such as Tasmota and Shelly in addition to the ESP-NOW relay module.
-- **Power controls:** WiFi can stay disabled for battery saving, critical battery can force deep sleep, and sleep sends HX711 power-down plus display/board sleep prep.
+- **Power controls:** WiFi can stay disabled for battery saving, critical battery can force deep sleep, USB-present boards stay awake while plugged in, USB-only bench power is handled without false low-battery alarms, and sleep sends HX711 power-down plus display/board sleep prep.
 - **Rollback-friendly beta:** the release provides app-only and factory images so testers can choose the least invasive flash path for their device.
 
 This is beta firmware for testers. It is not an official upstream WeighMyBru release.
@@ -92,12 +92,13 @@ Important: the originally published `0.2.0-beta.1` XIAO fallback assets used Lit
 - Clean 20 Hz legacy Float32 stream derived from the high-rate acquisition path.
 - Standard BLE Battery Service `180F / 2A19`.
 - ADC-backed battery estimate on XIAO/SuperMini builds.
-- MAX17048 fuel-gauge battery backend and USB-power detection on TinyS3[D] development builds.
+- MAX17048 fuel-gauge battery backend and USB-power detection on TinyS3[D] development builds. MAX17048 provides voltage and state-of-charge, not true current measurement; WMB+ learns charge/drain estimates from observed percentage movement.
 - Learned battery runtime/charge estimates persisted across reboots where the active battery backend supports enough observation data.
+- USB-aware power behavior on boards with VBUS sense: critical battery sleep and auto-sleep are inhibited while plugged in, and USB-only/no-battery bench power is reported as a valid external-power state instead of a critical battery fault.
 - Resettable battery benchmark session exposed through serial `BATTERY_BENCH` rows, `/api/battery/benchmark`, and `/api/battery/benchmark/reset`.
 - Diagnostic event log for exceptions only: bump, glitch, low/critical battery, invalid battery, USB power changes, sleep/wake, missing HX711, missing display, missing TinyS3[D] fuel gauge, BLE/WiFi faults. XIAO and TinyS3[D] builds target a 512-event PSRAM-backed log when PSRAM is available, with a small heap fallback.
 - TinyS3[D] RF antenna switch setting, defaulting to onboard/internal antenna.
-- Optional TinyS3[D] RGB status LED, defaulting off to avoid corrupting battery tests.
+- Optional TinyS3[D] RGB status LED, defaulting off to avoid corrupting battery tests, with web-configurable enable and low brightness.
 - WMB+ capabilities characteristic.
 - WMB+ extended telemetry packet.
 - Fresh-sample notification cadence and HX711 cadence diagnostics for capable clients.

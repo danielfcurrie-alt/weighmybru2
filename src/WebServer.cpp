@@ -414,6 +414,7 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
     json += ",\"battery_fuel_gauge\":" + String(battery.hasFuelGauge() ? "true" : "false");
     json += ",\"battery_fuel_gauge_soc\":" + String(battery.getFuelGaugeStateOfCharge(), 2);
     json += ",\"usb_power_present\":" + String(battery.isUsbPowerPresent() ? "true" : "false");
+    json += ",\"usb_only_power\":" + String(battery.isUsbOnlyPower() ? "true" : "false");
     json += ",\"battery_status\":\"" + battery.getBatteryStatus() + "\"";
     json += ",\"battery_segments\":" + String(battery.getBatterySegments());
     json += ",\"battery_low\":" + String(battery.isLowBattery() ? "true" : "false");
@@ -466,6 +467,7 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
     json += ",\"diagnostic_event_log_psram\":" + String(diagnosticEvents.isPsramBacked() ? "true" : "false");
     json += ",\"board_rgb_status_led_available\":" + String(boardHardware.hasRgbStatusLed() ? "true" : "false");
     json += ",\"board_rgb_status_led_enabled\":" + String(boardHardware.isRgbStatusLedEnabled() ? "true" : "false");
+    json += ",\"board_rgb_status_led_brightness\":" + String(boardHardware.getRgbStatusLedBrightness());
     json += ",\"board_antenna_switch_available\":" + String(boardHardware.hasAntennaSwitch() ? "true" : "false");
     json += ",\"board_external_antenna_selected\":" + String(boardHardware.isExternalAntennaSelected() ? "true" : "false");
     
@@ -596,6 +598,7 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
     json += ",\"fuel_gauge\":" + String(battery.hasFuelGauge() ? "true" : "false");
     json += ",\"fuel_gauge_soc\":" + String(battery.getFuelGaugeStateOfCharge(), 2);
     json += ",\"usb_power_present\":" + String(battery.isUsbPowerPresent() ? "true" : "false");
+    json += ",\"usb_only_power\":" + String(battery.isUsbOnlyPower() ? "true" : "false");
     json += ",\"status\":\"" + battery.getBatteryStatus() + "\"";
     json += ",\"segments\":" + String(battery.getBatterySegments());
     json += ",\"low_battery\":" + String(battery.isLowBattery() ? "true" : "false");
@@ -1090,6 +1093,7 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
     json += "\"battery_voltage\":" + String(battery.getBatteryVoltage(), 3) + ",";
     json += "\"fuel_gauge\":" + String(battery.hasFuelGauge() ? "true" : "false") + ",";
     json += "\"usb_power_present\":" + String(battery.isUsbPowerPresent() ? "true" : "false") + ",";
+    json += "\"usb_only_power\":" + String(battery.isUsbOnlyPower() ? "true" : "false") + ",";
     json += "\"hx711_rate_hz\":" + String(scale.getDetectedSampleRateHz(), 2) + ",";
     json += "\"hx711_rate_mode\":\"" + scale.getDetectedHx711RateMode() + "\",";
     json += "\"scale_quality\":" + String(scale.getScaleQualityScore()) + ",";
@@ -1124,13 +1128,23 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
   });
 
   server.on("/api/board/status-led", HTTP_POST, [&boardHardware](AsyncWebServerRequest *request) {
-    if (!request->hasParam("enabled", true)) {
-      request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"Missing enabled parameter\"}");
+    if (!request->hasParam("enabled", true) && !request->hasParam("brightness", true)) {
+      request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"Missing enabled or brightness parameter\"}");
       return;
     }
-    const String enabledValue = request->getParam("enabled", true)->value();
-    const bool enabled = enabledValue == "1" || enabledValue == "true" || enabledValue == "on";
-    boardHardware.setRgbStatusLedEnabled(enabled);
+    if (request->hasParam("brightness", true)) {
+      const int brightness = request->getParam("brightness", true)->value().toInt();
+      if (brightness < 1 || brightness > 64) {
+        request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"brightness must be 1-64\"}");
+        return;
+      }
+      boardHardware.setRgbStatusLedBrightness(static_cast<uint8_t>(brightness));
+    }
+    if (request->hasParam("enabled", true)) {
+      const String enabledValue = request->getParam("enabled", true)->value();
+      const bool enabled = enabledValue == "1" || enabledValue == "true" || enabledValue == "on";
+      boardHardware.setRgbStatusLedEnabled(enabled);
+    }
     request->send(200, "application/json", boardHardware.toJson());
   });
 
@@ -1281,7 +1295,7 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
   });
 
   // Combined settings endpoint for faster loading
-  server.on("/api/settings", HTTP_GET, [&powerManager, &battery](AsyncWebServerRequest *request) {
+  server.on("/api/settings", HTTP_GET, [&powerManager, &battery, &boardHardware](AsyncWebServerRequest *request) {
     // Get WiFi credentials (from cache)
     String ssid = getStoredSSID();
     String password = getStoredPassword();
@@ -1297,10 +1311,19 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
     json += "\"autoSleepEnabled\":" + String(powerManager.getAutoSleepEnabled() ? "true" : "false") + ",";
     json += "\"autoSleepTime\":" + String(powerManager.getAutoSleepTime()) + ",";
     json += "\"autoSleepDrift\":" + String(powerManager.getAutoSleepDrift(), 1) + ",";
+    json += "\"autoSleepInhibited\":" + String(powerManager.getAutoSleepInhibited() ? "true" : "false") + ",";
+    json += "\"autoSleepInhibitReason\":\"" + powerManager.getAutoSleepInhibitReason() + "\",";
+    json += "\"usbPowerPresent\":" + String(battery.isUsbPowerPresent() ? "true" : "false") + ",";
+    json += "\"usbOnlyPower\":" + String(battery.isUsbOnlyPower() ? "true" : "false") + ",";
     json += "\"batteryCapacityMah\":" + String(battery.getBatteryCapacityMah()) + ",";
     json += "\"criticalShutdownEnabled\":" + String(battery.isCriticalShutdownEnabled() ? "true" : "false") + ",";
     json += "\"criticalShutdownVoltage\":" + String(battery.getCriticalShutdownVoltage(), 2) + ",";
-    json += "\"criticalShutdownPercent\":" + String(static_cast<unsigned int>(battery.getCriticalShutdownPercent()));
+    json += "\"criticalShutdownPercent\":" + String(static_cast<unsigned int>(battery.getCriticalShutdownPercent())) + ",";
+    json += "\"boardRgbStatusLedAvailable\":" + String(boardHardware.hasRgbStatusLed() ? "true" : "false") + ",";
+    json += "\"boardRgbStatusLedEnabled\":" + String(boardHardware.isRgbStatusLedEnabled() ? "true" : "false") + ",";
+    json += "\"boardRgbStatusLedBrightness\":" + String(boardHardware.getRgbStatusLedBrightness()) + ",";
+    json += "\"boardAntennaSwitchAvailable\":" + String(boardHardware.hasAntennaSwitch() ? "true" : "false") + ",";
+    json += "\"boardExternalAntennaSelected\":" + String(boardHardware.isExternalAntennaSelected() ? "true" : "false");
     json += "}";
     
     request->send(200, "application/json", json);
@@ -1341,7 +1364,9 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
     String json = "{";
     json += "\"enabled\":"       + String(powerManager.getAutoSleepEnabled() ? "true" : "false") + ",";
     json += "\"timeToSleep\":"   + String(powerManager.getAutoSleepTime()) + ",";
-    json += "\"driftIgnore\":"   + String(powerManager.getAutoSleepDrift(), 1);
+    json += "\"driftIgnore\":"   + String(powerManager.getAutoSleepDrift(), 1) + ",";
+    json += "\"inhibited\":"     + String(powerManager.getAutoSleepInhibited() ? "true" : "false") + ",";
+    json += "\"inhibitReason\":\"" + powerManager.getAutoSleepInhibitReason() + "\"";
     json += "}";
     request->send(200, "application/json", json);
   });

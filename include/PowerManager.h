@@ -36,9 +36,12 @@ public:
     void setAutoSleepEnabled(bool enabled) { _autoSleepEnabled = enabled; }
     void setAutoSleepTime(int seconds)     { _autoSleepTime    = seconds; }
     void setAutoSleepDrift(float grams)    { _autoSleepDrift   = grams;   }
+    void setAutoSleepInhibited(bool inhibited, const char* reason = "");
     bool getAutoSleepEnabled() const       { return _autoSleepEnabled; }
     int  getAutoSleepTime()    const       { return _autoSleepTime;    }
     float getAutoSleepDrift()  const       { return _autoSleepDrift;   }
+    bool getAutoSleepInhibited() const     { return _autoSleepInhibited; }
+    String getAutoSleepInhibitReason() const { return _autoSleepInhibitReason; }
     
 private:
     uint8_t sleepTouchPin;
@@ -77,6 +80,8 @@ private:
     float         _autoSleepBaseline;    // weight at start of idle window
     unsigned long _autoSleepWindowStart; // millis() when idle window began
     bool          _autoSleepHasBaseline; // true once first weight received
+    bool          _autoSleepInhibited;   // true while external power should keep scale awake
+    String        _autoSleepInhibitReason;
 };
 
 #endif

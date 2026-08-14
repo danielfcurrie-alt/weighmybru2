@@ -101,6 +101,37 @@
       </form>
       <div id="batteryMessage" class="text-green-400 mb-2"></div>
       <p id="batteryStatus" class="text-red-400"></p>
+
+      <h2 class="text-2xl font-semibold mb-4 mt-8">Board Hardware</h2>
+      <form id="boardHardwareForm" class="mb-6">
+        <div class="mb-4 p-4 bg-black-hover rounded">
+          <p class="text-sm text-gray-400 mb-4" id="boardHardwareSummary">Loading board hardware...</p>
+
+          <div class="flex items-center mb-4">
+            <label class="flex items-center cursor-pointer gap-3">
+              <input type="checkbox" id="rgbStatusLedEnabled" class="w-4 h-4 accent-green-600 cursor-pointer">
+              <span class="text-sm font-medium text-gray-300">RGB status LED</span>
+            </label>
+          </div>
+
+          <label for="rgbStatusLedBrightness" class="block mb-2">RGB brightness:</label>
+          <input type="number" id="rgbStatusLedBrightness" name="rgbStatusLedBrightness" min="1" max="64" step="1" class="w-32 px-3 py-2 mb-2 rounded text-black" />
+          <span class="text-gray-400 ml-2">1-64</span>
+          <p class="text-gray-400 text-sm mb-4">TinyS3[D] only. Defaults low and off so LED current does not corrupt battery tests.</p>
+
+          <div class="flex items-center mb-4">
+            <label class="flex items-center cursor-pointer gap-3">
+              <input type="checkbox" id="externalAntennaSelected" class="w-4 h-4 accent-green-600 cursor-pointer">
+              <span class="text-sm font-medium text-gray-300">External antenna</span>
+            </label>
+          </div>
+          <p class="text-gray-400 text-sm mb-4">Only applies to boards with a software RF antenna switch.</p>
+
+          <button type="submit" class="bg-gray-600 hover:bg-button-green active:bg-green-900 text-white px-4 py-2 rounded">Save Board Hardware Settings</button>
+        </div>
+      </form>
+      <div id="boardHardwareMessage" class="text-green-400 mb-2"></div>
+      <p id="boardHardwareStatus" class="text-red-400"></p>
       
       <h2 class="text-2xl font-semibold mb-4 mt-8">Filtering Settings</h2>
       <form id="filterForm" class="mb-6">
@@ -160,6 +191,7 @@
           <span class="text-gray-400 ml-2">grams</span>
         </div>
         <p class="text-gray-400 text-sm mb-4">Weight change within this value is treated as drift and ignored. The timer only resets when weight changes by more than this amount.</p>
+        <p id="autoSleepInhibitNotice" class="text-blue-400 text-sm mb-4 hidden"></p>
 
         <button type="button" onclick="saveAutoSleepSettings()"
                 class="bg-gray-600 hover:bg-button-green active:bg-green-900 text-white px-4 py-2 rounded">
@@ -187,6 +219,7 @@
       }
 
       applyBatteryData(settingsData);
+      applyBoardHardwareData(settingsData);
       
       // Set filter settings
       document.getElementById('brewingThreshold').value = filterData.brewingThreshold || 0.15;
@@ -227,6 +260,7 @@
         document.getElementById('averageSamples').value = filterData.averageSamples || 5;
         applyAutoSleepData(autoSleepData);
         fetch('/api/battery').then(r => r.json()).then(applyBatteryData).catch(() => {});
+        fetch('/api/board/hardware').then(r => r.json()).then(applyBoardHardwareData).catch(() => {});
       }).catch(err => console.error('Error loading individual settings:', err));
     }
 
@@ -249,6 +283,33 @@
       }
     }
 
+    function applyBoardHardwareData(data) {
+      const rgbAvailable = data.boardRgbStatusLedAvailable !== undefined ? data.boardRgbStatusLedAvailable : data.rgb_status_led_available;
+      const rgbEnabled = data.boardRgbStatusLedEnabled !== undefined ? data.boardRgbStatusLedEnabled : data.rgb_status_led_enabled;
+      const rgbBrightness = data.boardRgbStatusLedBrightness !== undefined ? data.boardRgbStatusLedBrightness : data.rgb_status_led_brightness;
+      const antennaAvailable = data.boardAntennaSwitchAvailable !== undefined ? data.boardAntennaSwitchAvailable : data.antenna_switch_available;
+      const externalAntenna = data.boardExternalAntennaSelected !== undefined ? data.boardExternalAntennaSelected : data.external_antenna_selected;
+
+      const rgbAvailableBool = rgbAvailable === true || rgbAvailable === 'true';
+      const antennaAvailableBool = antennaAvailable === true || antennaAvailable === 'true';
+      document.getElementById('boardHardwareSummary').textContent =
+        `RGB LED: ${rgbAvailableBool ? 'available' : 'not available'} · Antenna switch: ${antennaAvailableBool ? 'available' : 'not available'}`;
+
+      document.getElementById('rgbStatusLedEnabled').disabled = !rgbAvailableBool;
+      document.getElementById('rgbStatusLedBrightness').disabled = !rgbAvailableBool;
+      document.getElementById('externalAntennaSelected').disabled = !antennaAvailableBool;
+
+      if (rgbEnabled !== undefined) {
+        document.getElementById('rgbStatusLedEnabled').checked = rgbEnabled === true || rgbEnabled === 'true';
+      }
+      if (rgbBrightness !== undefined) {
+        document.getElementById('rgbStatusLedBrightness').value = rgbBrightness;
+      }
+      if (externalAntenna !== undefined) {
+        document.getElementById('externalAntennaSelected').checked = externalAntenna === true || externalAntenna === 'true';
+      }
+    }
+
     // Apply auto-sleep data to the UI (handles both /api/settings and /api/auto-sleep key names)
     function applyAutoSleepData(data) {
       const enabledEl = document.getElementById('autoSleepEnabled');
@@ -256,6 +317,8 @@
       const enabled   = data.enabled !== undefined ? data.enabled : data.autoSleepEnabled;
       const sleepTime = data.timeToSleep !== undefined ? data.timeToSleep : data.autoSleepTime;
       const drift     = data.driftIgnore !== undefined ? data.driftIgnore : data.autoSleepDrift;
+      const inhibited = data.inhibited !== undefined ? data.inhibited : data.autoSleepInhibited;
+      const inhibitReason = data.inhibitReason !== undefined ? data.inhibitReason : data.autoSleepInhibitReason;
       if (enabled !== undefined) {
         enabledEl.checked = enabled;
         labelEl.textContent = enabled ? 'Enabled' : 'Disabled';
@@ -265,6 +328,14 @@
       }
       if (drift !== undefined) {
         document.getElementById('autoSleepDrift').value = drift;
+      }
+      const inhibitNotice = document.getElementById('autoSleepInhibitNotice');
+      if (inhibited === true || inhibited === 'true') {
+        inhibitNotice.textContent = `Auto sleep is currently inhibited by ${inhibitReason || 'external power'}.`;
+        inhibitNotice.classList.remove('hidden');
+      } else {
+        inhibitNotice.textContent = '';
+        inhibitNotice.classList.add('hidden');
       }
     }
 
@@ -467,6 +538,62 @@
         statusEl.textContent = 'Error saving battery settings.';
         messageEl.textContent = '';
         console.error('Battery settings error:', err);
+      }
+    });
+
+    document.getElementById('boardHardwareForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const messageEl = document.getElementById('boardHardwareMessage');
+      const statusEl = document.getElementById('boardHardwareStatus');
+      const rgbEnabled = document.getElementById('rgbStatusLedEnabled').checked;
+      const rgbBrightness = parseInt(document.getElementById('rgbStatusLedBrightness').value, 10);
+      const externalAntenna = document.getElementById('externalAntennaSelected').checked;
+
+      if (!document.getElementById('rgbStatusLedBrightness').disabled &&
+          (isNaN(rgbBrightness) || rgbBrightness < 1 || rgbBrightness > 64)) {
+        statusEl.textContent = 'RGB brightness must be between 1 and 64.';
+        messageEl.textContent = '';
+        return;
+      }
+
+      try {
+        if (!document.getElementById('rgbStatusLedEnabled').disabled) {
+          const ledParams = new URLSearchParams();
+          ledParams.append('enabled', rgbEnabled.toString());
+          ledParams.append('brightness', rgbBrightness.toString());
+          const ledResponse = await fetch('/api/board/status-led', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: ledParams.toString()
+          });
+          if (!ledResponse.ok) {
+            const result = await ledResponse.json();
+            throw new Error(result.message || 'RGB status LED update failed');
+          }
+        }
+
+        if (!document.getElementById('externalAntennaSelected').disabled) {
+          const antennaParams = new URLSearchParams();
+          antennaParams.append('external', externalAntenna.toString());
+          const antennaResponse = await fetch('/api/board/antenna', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: antennaParams.toString()
+          });
+          if (!antennaResponse.ok) {
+            const result = await antennaResponse.json();
+            throw new Error(result.message || 'Antenna update failed');
+          }
+        }
+
+        const refreshed = await fetch('/api/board/hardware').then(r => r.json());
+        applyBoardHardwareData(refreshed);
+        messageEl.textContent = 'Board hardware settings saved.';
+        statusEl.textContent = '';
+      } catch (err) {
+        statusEl.textContent = err.message || 'Error saving board hardware settings.';
+        messageEl.textContent = '';
+        console.error('Board hardware settings error:', err);
       }
     });
 

@@ -46,6 +46,7 @@ public:
     bool shouldForceCriticalSleep();
     bool hasFuelGauge() const { return fuelGaugeAvailable; }
     bool isUsbPowerPresent() const { return usbPowerPresent; }
+    bool isUsbOnlyPower() const { return usbOnlyPower; }
     float getFuelGaugeStateOfCharge() const { return fuelGaugeStateOfCharge; }
     
     // Battery state indicators
@@ -119,6 +120,7 @@ private:
     uint16_t learnedChargeObservations = 0;
     bool fuelGaugeAvailable = false;
     bool usbPowerPresent = false;
+    bool usbOnlyPower = false;
     float fuelGaugeStateOfCharge = -1.0f;
     unsigned long lastLearningSaveMillis = 0;
     unsigned long lastUpdate = 0;
