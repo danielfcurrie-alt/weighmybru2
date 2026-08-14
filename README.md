@@ -295,6 +295,14 @@ pio run -e esp32s3-xiao-sim-battery-charging
 
 Simulation builds are for parser/cadence/UI development only. They bypass HX711 hardware and battery hardware, then emit deterministic synthetic streams through the normal firmware paths. Use the 10/80 SPS profiles for cadence testing, the glitch/bump profiles for diagnostic flag testing, and the battery profiles for drain/charge trend testing. Do not publish or flash simulation builds as tester firmware unless the goal is explicitly simulation.
 
+Estimated battery/runtime matrix:
+
+```bash
+tools/simulate-battery-matrix.py --capacity-mah 700
+```
+
+This compares XIAO ESP32S3, TinyS3[D], ESP32-S3 SuperMini, and Waveshare ESP32-S3-Zero-style boards across WiFi off/on, 10/80 SPS, and sleep/HX711-power states. It is an explicit assumption model for planning and should be replaced with measured drain-test constants as tester data arrives.
+
 ## Apple Silicon LittleFS builds
 
 The project pins the newer ESP32-oriented PlatformIO LittleFS tool:
