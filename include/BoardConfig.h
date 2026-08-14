@@ -45,6 +45,16 @@
   #define HAS_BOARD_RGB_STATUS_LED 1
   #define HAS_RF_ANTENNA_SWITCH    1
   #define RF_ANTENNA_SWITCH_PIN    38
+#elif defined(BOARD_TYPE_XIAO)
+  #define BATTERY_PIN              7   // GPIO7 - Battery voltage monitoring (ADC1_CH6)
+  #define HAS_ADC_BATTERY          1
+  #define HAS_I2C_FUEL_GAUGE       0
+  #define FUEL_GAUGE_MAX17048_ADDR 0x36
+  #define HAS_USB_POWER_SENSE      0
+  #define USB_POWER_SENSE_PIN      BATTERY_PIN_NONE
+  #define HAS_BOARD_RGB_STATUS_LED 0
+  #define HAS_RF_ANTENNA_SWITCH    0
+  #define RF_ANTENNA_SWITCH_PIN    BATTERY_PIN_NONE
 #else
   #define BATTERY_PIN              7   // GPIO7 - Battery voltage monitoring (ADC1_CH6)
   #define HAS_ADC_BATTERY          1
@@ -79,5 +89,16 @@
 #define HAS_TOUCH_SENSOR    true
 #define ADC_RESOLUTION      12    // 12-bit ADC
 #define PWM_RESOLUTION      8     // 8-bit PWM
+
+// Diagnostic event log policy. This stores exception/error events only, not raw
+// samples. XIAO and TinyS3[D] should use PSRAM when the runtime reports it is
+// present and enough free PSRAM is available.
+#if defined(BOARD_TYPE_XIAO) || defined(BOARD_TYPE_TINYS3D)
+  #define DIAGNOSTIC_EVENT_LOG_PSRAM_CAPACITY 512
+  #define DIAGNOSTIC_EVENT_LOG_HEAP_FALLBACK_CAPACITY 32
+#else
+  #define DIAGNOSTIC_EVENT_LOG_PSRAM_CAPACITY 256
+  #define DIAGNOSTIC_EVENT_LOG_HEAP_FALLBACK_CAPACITY 24
+#endif
 
 #endif // BOARD_CONFIG_H

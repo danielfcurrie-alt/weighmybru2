@@ -496,7 +496,8 @@ void setup() {
   Serial.printf("CPU Frequency: %dMHz (Power Optimized)\n", getCpuFrequencyMhz());
   Serial.println("=================================");
 
-  diagnosticEventLog.begin();
+  diagnosticEventLog.begin(DIAGNOSTIC_EVENT_LOG_PSRAM_CAPACITY,
+                           DIAGNOSTIC_EVENT_LOG_HEAP_FALLBACK_CAPACITY);
   diagnosticEventLog.record(DiagnosticEventType::Boot, 0.0f, "firmware boot");
   boardHardware.begin();
   boardHardware.updateStatus(BoardHardwareStatus::Booting);

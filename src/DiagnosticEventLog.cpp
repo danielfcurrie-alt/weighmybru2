@@ -14,17 +14,35 @@ bool DiagnosticEventLog::begin(size_t preferredCapacity, size_t fallbackCapacity
         fallbackCapacity = 1;
     }
 
-    const size_t preferredBytes = preferredCapacity * sizeof(DiagnosticEvent);
-    events = static_cast<DiagnosticEvent*>(heap_caps_malloc(preferredBytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-    if (events != nullptr) {
-        capacityValue = preferredCapacity;
-        psramBacked = true;
-    } else {
-        const size_t fallbackBytes = fallbackCapacity * sizeof(DiagnosticEvent);
-        events = static_cast<DiagnosticEvent*>(heap_caps_malloc(fallbackBytes, MALLOC_CAP_8BIT));
-        if (events != nullptr) {
-            capacityValue = fallbackCapacity;
-            psramBacked = false;
+    size_t attemptedPsramCapacity = preferredCapacity;
+    while (attemptedPsramCapacity >= fallbackCapacity && ESP.getPsramSize() > 0) {
+        const size_t preferredBytes = attemptedPsramCapacity * sizeof(DiagnosticEvent);
+        if (ESP.getFreePsram() >= preferredBytes + 4096) {
+            events = static_cast<DiagnosticEvent*>(heap_caps_malloc(preferredBytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+            if (events != nullptr) {
+                capacityValue = attemptedPsramCapacity;
+                psramBacked = true;
+                break;
+            }
+        }
+
+        if (attemptedPsramCapacity == fallbackCapacity) {
+            break;
+        }
+        attemptedPsramCapacity = max(fallbackCapacity, attemptedPsramCapacity / 2);
+    }
+
+    if (events == nullptr) {
+        size_t attemptedHeapCapacity = fallbackCapacity;
+        while (attemptedHeapCapacity > 0) {
+            const size_t fallbackBytes = attemptedHeapCapacity * sizeof(DiagnosticEvent);
+            events = static_cast<DiagnosticEvent*>(heap_caps_malloc(fallbackBytes, MALLOC_CAP_8BIT));
+            if (events != nullptr) {
+                capacityValue = attemptedHeapCapacity;
+                psramBacked = false;
+                break;
+            }
+            attemptedHeapCapacity /= 2;
         }
     }
 
@@ -41,10 +59,13 @@ bool DiagnosticEventLog::begin(size_t preferredCapacity, size_t fallbackCapacity
     totalRecordedValue = 0;
     droppedValue = 0;
 
-    Serial.printf("DiagnosticEventLog: capacity=%u eventBytes=%u backend=%s\n",
+    Serial.printf("DiagnosticEventLog: capacity=%u allocatedBytes=%u eventBytes=%u backend=%s psramSize=%u freePsram=%u\n",
                   static_cast<unsigned>(capacityValue),
+                  static_cast<unsigned>(bytesAllocated()),
                   static_cast<unsigned>(sizeof(DiagnosticEvent)),
-                  psramBacked ? "psram" : "heap");
+                  psramBacked ? "psram" : "heap",
+                  static_cast<unsigned>(ESP.getPsramSize()),
+                  static_cast<unsigned>(ESP.getFreePsram()));
     return true;
 }
 
@@ -117,6 +138,9 @@ String DiagnosticEventLog::toJson(size_t limit) const {
     json += ",\"backend\":\"" + String(psramBacked ? "psram" : (events != nullptr ? "heap" : "none")) + "\"";
     json += ",\"psram_backed\":" + String(psramBacked ? "true" : "false");
     json += ",\"capacity\":" + String(capacityValue);
+    json += ",\"allocated_bytes\":" + String(bytesAllocated());
+    json += ",\"psram_size\":" + String(ESP.getPsramSize());
+    json += ",\"free_psram\":" + String(ESP.getFreePsram());
     json += ",\"count\":" + String(countValue);
     json += ",\"total_recorded\":" + String(totalRecordedValue);
     json += ",\"dropped\":" + String(droppedValue);

@@ -89,7 +89,7 @@ bit 22  software RF antenna switch
 bit 23  RGB status LED
 ```
 
-The diagnostic event log is intentionally not a sample buffer. It records exceptional firmware events such as accepted bump, rejected glitch, low/critical battery, invalid battery, USB power transition, sleep/wake, missing HX711, missing display, missing fuel gauge, and BLE/WiFi faults. It uses PSRAM when available; `/api/diagnostics/events` reports the actual backend.
+The diagnostic event log is intentionally not a sample buffer. It records exceptional firmware events such as accepted bump, rejected glitch, low/critical battery, invalid battery, USB power transition, sleep/wake, missing HX711, missing display, missing fuel gauge, and BLE/WiFi faults. XIAO and TinyS3[D] builds target a 512-event PSRAM-backed log when PSRAM is available, then fall back to a small heap log if PSRAM cannot be allocated. `/api/diagnostics/events` reports the actual backend, capacity, allocated bytes, PSRAM size, and free PSRAM.
 
 ## 20-byte WMB+ extension packet v1
 

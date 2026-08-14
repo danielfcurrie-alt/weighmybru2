@@ -93,7 +93,7 @@ Important: the originally published `0.2.0-beta.1` XIAO fallback assets used Lit
 - ADC-backed battery estimate on XIAO/SuperMini builds.
 - MAX17048 fuel-gauge battery backend and USB-power detection on TinyS3[D] development builds.
 - Learned battery runtime/charge estimates persisted across reboots where the active battery backend supports enough observation data.
-- Diagnostic event log for exceptions only: bump, glitch, low/critical battery, invalid battery, USB power changes, sleep/wake, missing HX711, missing display, missing TinyS3[D] fuel gauge, BLE/WiFi faults. The log uses PSRAM when available.
+- Diagnostic event log for exceptions only: bump, glitch, low/critical battery, invalid battery, USB power changes, sleep/wake, missing HX711, missing display, missing TinyS3[D] fuel gauge, BLE/WiFi faults. XIAO and TinyS3[D] builds target a 512-event PSRAM-backed log when PSRAM is available, with a small heap fallback.
 - TinyS3[D] RF antenna switch setting, defaulting to onboard/internal antenna.
 - Optional TinyS3[D] RGB status LED, defaulting off to avoid corrupting battery tests.
 - WMB+ capabilities characteristic.
@@ -300,7 +300,7 @@ Compatibility paths stay conservative:
 - `6E400004` remains exactly a 4-byte little-endian Float32 weight.
 - Existing apps should not need WMB+ metadata to read weight.
 - Optional metadata is exposed through WMB+ capabilities, the extended packet, USB serial, and diagnostics.
-- PSRAM is reserved for compact diagnostic/error events, not raw sample buffering.
+- PSRAM is reserved for compact diagnostic/error events, not raw sample buffering. On XIAO and TinyS3[D], `/api/diagnostics/events` reports `backend`, `capacity`, `allocated_bytes`, `psram_size`, and `free_psram` so testers can verify whether the event log is actually PSRAM-backed.
 
 ## Known limitations
 

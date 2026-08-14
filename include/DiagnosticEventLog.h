@@ -40,6 +40,7 @@ public:
     bool isReady() const { return events != nullptr && capacityValue > 0; }
     bool isPsramBacked() const { return psramBacked; }
     size_t capacity() const { return capacityValue; }
+    size_t bytesAllocated() const { return capacityValue * sizeof(DiagnosticEvent); }
     size_t count() const { return countValue; }
     uint32_t totalRecorded() const { return totalRecordedValue; }
     uint32_t dropped() const { return droppedValue; }
