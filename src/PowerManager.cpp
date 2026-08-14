@@ -1,6 +1,10 @@
 #include "PowerManager.h"
 #include "Display.h"
 
+#ifndef WMBP_TOUCH_DEBUG_LOG
+#define WMBP_TOUCH_DEBUG_LOG 0
+#endif
+
 PowerManager::PowerManager(uint8_t sleepTouchPin, Display* display) 
     : sleepTouchPin(sleepTouchPin), displayPtr(display), sleepTouchThreshold(0),
       lastSleepTouchState(false), lastSleepTouchTime(0), touchStartTime(0),
@@ -151,8 +155,9 @@ bool PowerManager::isSleepTouchPressed() {
     // For digital touch sensor modules, check if the pin is HIGH
     bool pressed = digitalRead(sleepTouchPin) == HIGH;
     
+#if WMBP_TOUCH_DEBUG_LOG
     // Debug: log unexpected HIGH readings on edge, then at most once/minute
-    // while held. This avoids serial spam when a sensor is stuck high.
+    // while held. Disabled by default so production serial stays quiet.
     static unsigned long lastDebugTime = 0;
     static bool lastLoggedPressed = false;
     if (pressed && (!lastLoggedPressed || millis() - lastDebugTime > 60000)) {
@@ -160,6 +165,7 @@ bool PowerManager::isSleepTouchPressed() {
         lastDebugTime = millis();
     }
     lastLoggedPressed = pressed;
+#endif
 
     return pressed;
 }

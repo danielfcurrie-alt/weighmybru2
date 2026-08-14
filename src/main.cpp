@@ -112,9 +112,10 @@ static void preparePeripheralsForDeepSleep(const char* reason, bool criticalSlee
                             sleepReason);
   boardHardware.prepareForSleep();
 
-  if (scale.isHX711Connected()) {
-    scale.powerDown();
-  }
+  // Force PD_SCK high even if HX711 connection was not confirmed yet.
+  // Early critical-battery sleeps can run before scale.begin(), but the
+  // default wiring still benefits from putting the HX711 into power-down.
+  scale.powerDown();
 
   WiFi.disconnect(true);
   WiFi.mode(WIFI_OFF);
