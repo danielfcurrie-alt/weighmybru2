@@ -4,6 +4,8 @@
 #include <HX711.h>
 #include <Preferences.h>
 #include "BoardConfig.h"
+#include "SampleCadenceTracker.h"
+#include "SimulationProfiles.h"
 
 class DiagnosticEventLog;
 
@@ -117,6 +119,7 @@ private:
     bool isConnected = false;  // Track HX711 connection status
     class FlowRate* flowRatePtr = nullptr; // For pausing flow rate during tare
     DiagnosticEventLog* diagnosticEventLog = nullptr;
+    SampleCadenceTracker cadenceTracker;
     
     // Smart filtering variables - reduced buffer for faster response
     static const int MAX_SAMPLES = 10;  // Reduced from 50 to 10 for faster response
@@ -160,6 +163,7 @@ private:
 #if WMBP_SIMULATION_MODE
     unsigned long simulationStartMillis = 0;
     unsigned long simulationLastSampleMillis = 0;
+    uint32_t simulationLastSampleMicros = 0;
     float simulationTareOffset = 0.0f;
     float simulatedRawWeight(unsigned long sampleMillis) const;
 #endif

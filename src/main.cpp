@@ -23,6 +23,7 @@
 #include "DiagnosticEventLog.h"
 #include "BoardHardware.h"
 #include "BatteryDrainSession.h"
+#include "SimulationProfiles.h"
 
 // Board-specific pin configuration
 uint8_t dataPin = HX711_DATA_PIN;     // HX711 Data pin
@@ -411,6 +412,14 @@ static void printConfigDiagnostics() {
   Serial.printf("Version: %s\n", WEIGHMYBRU_FULL_VERSION);
   Serial.printf("Board: %s\n", WEIGHMYBRU_BOARD_NAME);
   Serial.printf("Flash Size: %dMB\n", FLASH_SIZE_MB);
+#if WMBP_SIMULATION_MODE
+  Serial.printf("Simulation: enabled scenario=%s targetHz=%d batteryProfile=%s\n",
+                SimulationProfiles::scenarioName(WMBP_SIM_SCENARIO),
+                WMBP_SIM_HX711_HZ,
+                SimulationProfiles::batteryProfileName(WMBP_SIM_BATTERY_PROFILE));
+#else
+  Serial.println("Simulation: disabled");
+#endif
   Serial.printf("HX711 DOUT GPIO%u, SCK GPIO%u\n", dataPin, clockPin);
   Serial.printf("Touch tare GPIO%u, sleep GPIO%u\n", touchPin, sleepTouchPin);
   Serial.printf("Battery backend=%s ADC GPIO%u voltage=%.3fV percent=%d rawPercent=%d valid=%s fuelGauge=%s usbPower=%s soc=%.2f%%\n",
@@ -553,6 +562,12 @@ void setup() {
   Serial.printf("Full Version: %s\n", WEIGHMYBRU_FULL_VERSION);
   Serial.printf("Flash Size: %dMB\n", FLASH_SIZE_MB);
   Serial.printf("CPU Frequency: %dMHz (Power Optimized)\n", getCpuFrequencyMhz());
+#if WMBP_SIMULATION_MODE
+  Serial.printf("Simulation Mode: scenario=%s targetHz=%d batteryProfile=%s\n",
+                SimulationProfiles::scenarioName(WMBP_SIM_SCENARIO),
+                WMBP_SIM_HX711_HZ,
+                SimulationProfiles::batteryProfileName(WMBP_SIM_BATTERY_PROFILE));
+#endif
   Serial.println("=================================");
 
   diagnosticEventLog.begin(DIAGNOSTIC_EVENT_LOG_PSRAM_CAPACITY,
@@ -864,6 +879,10 @@ void loop() {
     lastDisplayUpdate = millis();
   }
   
+#if WMBP_SIMULATION_MODE
+  delay(1);
+#else
   // Increased delay for better power efficiency while maintaining responsiveness
   delay(10); // Optimized delay: 10ms for good responsiveness with power savings
+#endif
 }

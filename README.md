@@ -282,13 +282,18 @@ Host-side tests for firmware math:
 tools/run-host-tests.sh
 ```
 
-Firmware simulation build:
+Firmware simulation builds:
 
 ```bash
-pio run -e esp32s3-xiao-sim
+pio run -e esp32s3-xiao-sim-80sps
+pio run -e esp32s3-xiao-sim-10sps
+pio run -e esp32s3-xiao-sim-glitch
+pio run -e esp32s3-xiao-sim-bump
+pio run -e esp32s3-xiao-sim-battery-wifi-ap
+pio run -e esp32s3-xiao-sim-battery-charging
 ```
 
-The simulation build is for parser/cadence/UI development only. It bypasses HX711 hardware and emits a deterministic synthetic 80 SPS shot stream through the normal firmware paths. Do not publish or flash it as tester firmware unless the goal is explicitly simulation.
+Simulation builds are for parser/cadence/UI development only. They bypass HX711 hardware and battery hardware, then emit deterministic synthetic streams through the normal firmware paths. Use the 10/80 SPS profiles for cadence testing, the glitch/bump profiles for diagnostic flag testing, and the battery profiles for drain/charge trend testing. Do not publish or flash simulation builds as tester firmware unless the goal is explicitly simulation.
 
 ## Apple Silicon LittleFS builds
 

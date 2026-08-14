@@ -6,13 +6,21 @@ build_dir="${repo_root}/.pio/host-tests"
 
 mkdir -p "${build_dir}"
 
-c++ \
-  -std=c++17 \
-  -Wall \
-  -Wextra \
-  -Werror \
-  -I"${repo_root}/include" \
-  "${repo_root}/test/host/test_battery_drain_session.cpp" \
-  -o "${build_dir}/test_battery_drain_session"
+tests=(
+  test_battery_drain_session
+  test_sample_cadence_tracker
+  test_simulation_profiles
+)
 
-"${build_dir}/test_battery_drain_session"
+for test_name in "${tests[@]}"; do
+  c++ \
+    -std=c++17 \
+    -Wall \
+    -Wextra \
+    -Werror \
+    -I"${repo_root}/include" \
+    "${repo_root}/test/host/${test_name}.cpp" \
+    -o "${build_dir}/${test_name}"
+
+  "${build_dir}/${test_name}"
+done

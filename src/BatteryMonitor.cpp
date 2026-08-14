@@ -1,4 +1,5 @@
 #include "BatteryMonitor.h"
+#include "SimulationProfiles.h"
 #include <Wire.h>
 
 BatteryMonitor::BatteryMonitor(uint8_t batteryPin) : batteryPin(batteryPin) {
@@ -106,6 +107,14 @@ void BatteryMonitor::update() {
 }
 
 bool BatteryMonitor::readBatterySnapshot(float& voltage, int& percentage) {
+#if WMBP_SIMULATION_MODE
+    usbPowerPresent = SimulationProfiles::simulatedUsbPowerPresent(WMBP_SIM_BATTERY_PROFILE);
+    voltage = SimulationProfiles::batteryVoltage(millis(), WMBP_SIM_BATTERY_PROFILE);
+    fuelGaugeStateOfCharge = -1.0f;
+    percentage = voltageToPercentage(voltage);
+    return true;
+#endif
+
 #if HAS_USB_POWER_SENSE
     usbPowerPresent = readUsbPowerPresent();
 #endif
@@ -240,6 +249,10 @@ bool BatteryMonitor::readFuelGaugeRegister16(uint8_t reg, uint16_t& value) {
 }
 
 bool BatteryMonitor::readUsbPowerPresent() {
+#if WMBP_SIMULATION_MODE
+    return SimulationProfiles::simulatedUsbPowerPresent(WMBP_SIM_BATTERY_PROFILE);
+#endif
+
 #if HAS_USB_POWER_SENSE
     return digitalRead(USB_POWER_SENSE_PIN) == HIGH;
 #else
@@ -434,6 +447,10 @@ String BatteryMonitor::getBatteryLearningConfidence() const {
 }
 
 String BatteryMonitor::getBatteryBackend() const {
+#if WMBP_SIMULATION_MODE
+    return "sim-" + String(SimulationProfiles::batteryProfileName(WMBP_SIM_BATTERY_PROFILE));
+#endif
+
     if (fuelGaugeAvailable) {
         return "max17048";
     }

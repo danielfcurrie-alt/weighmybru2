@@ -41,23 +41,9 @@ float clampFloat(float value, float minValue, float maxValue) {
 
 #if WMBP_SIMULATION_MODE
 float Scale::simulatedRawWeight(unsigned long sampleMillis) const {
-    const float t = static_cast<float>(sampleMillis - simulationStartMillis) / 1000.0f;
-    float grams = 0.0f;
-
-    if (t < 3.0f) {
-        grams = 0.0f;
-    } else if (t < 21.0f) {
-        grams = (t - 3.0f) * 2.1f;
-    } else if (t < 26.0f) {
-        grams = 37.8f;
-    } else {
-        grams = 37.8f - fminf(3.0f, (t - 26.0f) * 0.15f);
-    }
-
-    // Deterministic low-amplitude mechanical/electrical texture so downstream
-    // tooling sees realistic decimal movement without requiring HX711 hardware.
-    const float ripple = 0.025f * sinf(t * 7.0f) + 0.010f * sinf(t * 19.0f);
-    return grams + ripple;
+    return SimulationProfiles::weightForScenario(sampleMillis - simulationStartMillis,
+                                                 WMBP_SIM_SCENARIO,
+                                                 WMBP_SIM_HX711_HZ);
 }
 #endif
 
@@ -102,9 +88,13 @@ bool Scale::begin() {
     preferences.end();
 
 #if WMBP_SIMULATION_MODE
-    Serial.println("WMB+ SIMULATION MODE: HX711 hardware is bypassed; synthetic 80 SPS shot stream is active");
+    Serial.printf("WMB+ SIMULATION MODE: HX711 hardware is bypassed; scenario=%s targetHz=%d batteryProfile=%s\n",
+                  SimulationProfiles::scenarioName(WMBP_SIM_SCENARIO),
+                  WMBP_SIM_HX711_HZ,
+                  SimulationProfiles::batteryProfileName(WMBP_SIM_BATTERY_PROFILE));
     simulationStartMillis = millis();
     simulationLastSampleMillis = 0;
+    simulationLastSampleMicros = 0;
     simulationTareOffset = simulatedRawWeight(simulationStartMillis);
     isConnected = true;
     currentWeight = 0.0f;
@@ -185,6 +175,7 @@ void Scale::tare(uint8_t times) {
 
     Serial.println("Taring simulated scale...");
     simulationTareOffset = simulatedRawWeight(millis());
+    simulationLastSampleMicros = 0;
     Serial.println("Simulated tare complete");
 
     currentFilterState = STABLE;
@@ -272,10 +263,13 @@ float Scale::getWeight() {
     unsigned long currentTime = millis();
 
 #if WMBP_SIMULATION_MODE
-    if (simulationLastSampleMillis != 0 &&
-        currentTime - simulationLastSampleMillis < 12UL) {
+    const uint32_t currentMicros = micros();
+    const uint32_t simIntervalMicros = SimulationProfiles::sampleIntervalMicros(WMBP_SIM_HX711_HZ);
+    if (simulationLastSampleMicros != 0 &&
+        currentMicros - simulationLastSampleMicros < simIntervalMicros) {
         return currentWeight;
     }
+    simulationLastSampleMicros = currentMicros;
     simulationLastSampleMillis = currentTime;
     float rawReading = simulatedRawWeight(currentTime) - simulationTareOffset;
 #else
@@ -385,35 +379,17 @@ float Scale::getCurrentWeight() {
 }
 
 void Scale::recordSampleCadence(unsigned long sampleMillis) {
-    const uint32_t nowMicros = micros();
-    if (lastSampleMicros == 0) {
-        lastSampleMicros = nowMicros;
-        lastSampleIntervalMicros = 0;
-        return;
-    }
+    (void)sampleMillis;
+    const bool longGap = cadenceTracker.recordSampleMicros(micros());
 
-    const uint32_t intervalMicros = nowMicros - lastSampleMicros;
-    lastSampleMicros = nowMicros;
-    lastSampleIntervalMicros = intervalMicros;
+    lastSampleIntervalMicros = cadenceTracker.getLastIntervalMicros();
+    sampleIntervalTotalMicros = cadenceTracker.getTotalMicros();
+    sampleIntervalStatsCount = cadenceTracker.getStatsCount();
+    sampleIntervalMinMicros = cadenceTracker.getMinMicros();
+    sampleIntervalMaxMicros = cadenceTracker.getMaxMicros();
+    sampleIntervalLongGapCount = cadenceTracker.getLongGapCount();
 
-    // Ignore clearly bogus intervals from boot/tare discontinuities, but keep
-    // real slow-path gaps. HX711 10 SPS is ~100 ms; 80 SPS is ~12.5 ms.
-    if (intervalMicros == 0 || intervalMicros > 2000000UL) {
-        return;
-    }
-
-    sampleIntervalTotalMicros += intervalMicros;
-    sampleIntervalStatsCount++;
-    if (sampleIntervalMinMicros == 0 || intervalMicros < sampleIntervalMinMicros) {
-        sampleIntervalMinMicros = intervalMicros;
-    }
-    if (intervalMicros > sampleIntervalMaxMicros) {
-        sampleIntervalMaxMicros = intervalMicros;
-    }
-
-    const uint32_t averageMicros = getSampleIntervalAverageMicros();
-    if (averageMicros > 0 && intervalMicros > averageMicros * 3UL && intervalMicros > 250000UL) {
-        sampleIntervalLongGapCount++;
+    if (longGap) {
         lifetimeLongGapCount++;
     }
 }
@@ -619,6 +595,7 @@ void Scale::resetZeroQualification() {
 }
 
 void Scale::resetSampleCadenceStats() {
+    cadenceTracker.reset();
     lastSampleMicros = 0;
     lastSampleIntervalMicros = 0;
     sampleIntervalTotalMicros = 0;
@@ -637,40 +614,19 @@ void Scale::resetSampleCadenceStats() {
 }
 
 uint32_t Scale::getSampleIntervalAverageMicros() const {
-    if (sampleIntervalStatsCount == 0) {
-        return 0;
-    }
-    return static_cast<uint32_t>(sampleIntervalTotalMicros / sampleIntervalStatsCount);
+    return cadenceTracker.getAverageMicros();
 }
 
 float Scale::getDetectedSampleRateHz() const {
-    const uint32_t averageMicros = getSampleIntervalAverageMicros();
-    if (averageMicros == 0) {
-        return 0.0f;
-    }
-    return 1000000.0f / static_cast<float>(averageMicros);
+    return cadenceTracker.getRateHz();
 }
 
 String Scale::getDetectedHx711RateMode() const {
-    const float rateHz = getDetectedSampleRateHz();
-    if (rateHz >= 50.0f) {
-        return "80SPS";
-    }
-    if (rateHz >= 6.0f) {
-        return "10SPS";
-    }
-    return "UNKNOWN";
+    return String(cadenceTracker.getRateMode());
 }
 
 uint8_t Scale::getDetectedSampleRateRoundedHz() const {
-    const float rateHz = getDetectedSampleRateHz();
-    if (rateHz <= 0.0f) {
-        return 0;
-    }
-    if (rateHz >= 255.0f) {
-        return 255;
-    }
-    return static_cast<uint8_t>(roundf(rateHz));
+    return cadenceTracker.getRoundedRateHz();
 }
 
 bool Scale::hasRecentBump(unsigned long windowMs) const {
