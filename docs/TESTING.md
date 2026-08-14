@@ -4,7 +4,7 @@ Record the board, load cell, HX711 rate mode, battery size, and app used for eac
 
 ## 1. Boot and identity
 
-- Serial banner shows `WMB+ v0.2.0-beta.2`.
+- Serial banner shows `WMB+ v0.2.0-beta.4`.
 - Board shows `XIAO ESP32S3`.
 - BLE advertises as `WeighMyBru+`.
 - WiFi follows saved state and is disabled by default if disabled in settings.

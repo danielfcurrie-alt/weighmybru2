@@ -101,7 +101,7 @@ jobs:
         # Determine board suffix for file naming
         if [[ "${{ matrix.environment }}" == "esp32s3-supermini" ]]; then
           BOARD_SUFFIX="supermini"
-          BOARD_NAME="WeighMyBru² - ESP32-S3 Supermini"
+          BOARD_NAME="WMB+ - ESP32-S3 Supermini"
           LITTLEFS_OFFSET="0x310000"
         elif [[ "${{ matrix.environment }}" == "esp32s3-tinys3d" ]]; then
           BOARD_SUFFIX="tinys3d"
@@ -109,7 +109,7 @@ jobs:
           LITTLEFS_OFFSET="0x610000"
         else
           BOARD_SUFFIX="xiao"
-          BOARD_NAME="WeighMyBru² - XIAO ESP32S3"
+          BOARD_NAME="WMB+ - XIAO ESP32S3"
           LITTLEFS_OFFSET="0x610000"
         fi
 
@@ -172,7 +172,7 @@ jobs:
           "name": "$BOARD_NAME",
           "version": "$VERSION", 
           "home_assistant_domain": "weighmybru",
-          "new_install_prompt_erase": true,
+          "new_install_prompt_erase": false,
           "funding_url": "https://github.com/danielfcurrie-alt/weighmybru2",
           "builds": [
             {
@@ -238,7 +238,9 @@ jobs:
       id: version
       run: |
         VERSION=${GITHUB_REF#refs/tags/v}
+        BUILD_DATE=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
         echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+        echo "BUILD_DATE=$BUILD_DATE" >> $GITHUB_OUTPUT
         
     - name: Organize release files
       run: |
@@ -304,12 +306,12 @@ jobs:
           ### 📋 Requirements
           - ESP32-S3 Supermini, XIAO ESP32S3, or Unexpected Maker TinyS3[D] board
           - Load cell and HX711 amplifier
-          - See [README.md](https://github.com/danielfcurrie-alt/weighmybru2/blob/master/README.md) for beta notes and wiring references
+          - See [README.md](https://github.com/danielfcurrie-alt/weighmybru2/blob/v${{ steps.version.outputs.VERSION }}/README.md) for beta notes and wiring references
           
           ### 🔧 Build Information
           - Build: #${{ github.run_number }}
           - Commit: ${{ github.sha }}
-          - Date: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          - Date: ${{ steps.version.outputs.BUILD_DATE }}
         draft: false
         prerelease: true
       env:
