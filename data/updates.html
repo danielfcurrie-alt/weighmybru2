@@ -53,8 +53,12 @@
         </div>
 
         <p class="text-gray-400 text-sm mt-4">
-          Web OTA is local-network only. Keep the scale powered and close to WiFi during upload.
-          A successful update automatically restarts the scale.
+          WMB+ can continue to run as its own access point for local setup and manual OTA uploads.
+          Keep the scale powered and close to WiFi during upload. A successful update automatically restarts the scale.
+        </p>
+        <p class="text-yellow-300 text-sm mt-3">
+          To check GitHub for new WMB+ versions, first join the scale to a WiFi network with internet access from Settings.
+          Access-point-only mode can serve this page, but it cannot reach GitHub.
         </p>
         <p x-show="!ota.firmwareOtaSupported" class="text-yellow-400 text-sm mt-3">
           App firmware OTA requires the new dual-OTA partition table. If this device was flashed with the older single-app layout,
