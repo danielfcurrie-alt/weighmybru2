@@ -10,7 +10,7 @@ The headline improvement is real 80 SPS operation. On the reference 80 SPS HX711
 
 - Firmware name: `WMB+`
 - BLE name: `WeighMyBru+`
-- Version: `0.2.0-beta.4`
+- Version: `0.2.0-beta.5`
 - Primary tested board: Seeed Studio XIAO ESP32S3
 - Primary tested HX711 mode: 80 SPS hardware configuration
 
@@ -39,7 +39,7 @@ The headline improvement is real 80 SPS operation. On the reference 80 SPS HX711
 - USB-C serial weight capture.
 - StopMyBru HTTP webhook relay support for local Tasmota/Shelly-style devices.
 - StopMyBru target stop learning for grinder/brewer overshoot compensation.
-- Web update UI support. App OTA requires the dual-OTA factory image included in `0.2.0-beta.4`; current OTA is manual browser upload of downloaded release assets.
+- Web update UI support. App OTA requires the dual-OTA factory image included in `0.2.0-beta.5`; current OTA is manual browser upload of downloaded release assets.
 - WiFi disabled-by-default workflow.
 - Deeper pre-sleep peripheral shutdown.
 
@@ -57,8 +57,8 @@ The compatibility lanes stay conservative:
 - Charging/time-remaining estimates are experimental. WMB+ learns observed charge/discharge rates over time; TinyS3[D] fuel-gauge data should improve this once validated on real hardware.
 - XIAO ESP32S3 is the primary hardware-tested beta reference. SuperMini and TinyS3[D] assets are available for beta/development testing.
 - The originally published `0.2.0-beta.1` XIAO fallback asset used LittleFS at `0x310000` and appeared to use a legacy/single-app layout.
-- `0.2.0-beta.4` XIAO factory-full uses the dual-OTA layout with LittleFS at `0x610000`.
-- App firmware OTA requires the WMB+ dual-OTA partition table. Devices flashed with beta.1 or another legacy/single-app layout need a `0.2.0-beta.4` full factory flash before app OTA is available.
+- `0.2.0-beta.5` XIAO factory-full uses the dual-OTA layout with LittleFS at `0x610000`.
+- App firmware OTA requires the WMB+ dual-OTA partition table. Devices flashed with beta.1 or another legacy/single-app layout need a `0.2.0-beta.5` full factory flash before app OTA is available.
 - GitHub self-update is not implemented in this beta. Download the matching `-app.bin` or `-littlefs.bin` asset yourself, then upload it from the local Updates page.
 - HTTP webhook relay support requires WiFi to be connected to the same local network as the relay. Local `http://` URLs are supported; HTTPS is intentionally not part of the beta path.
 - StopMyBru target stop learning is based on settled scale weight after automatic target cutoff. It intentionally ignores large errors and manual OFF actions.

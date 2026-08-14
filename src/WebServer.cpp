@@ -139,8 +139,12 @@ static void handleOtaUpload(AsyncWebServerRequest *request,
             return;
         }
 
-        const size_t updateSize = otaUploadTotal > 0 ? otaUploadTotal : UPDATE_SIZE_UNKNOWN;
-        if (!Update.begin(updateSize, command)) {
+        // AsyncWebServer multipart uploads report the full HTTP body length,
+        // not just the uploaded .bin file length. LittleFS images may exactly
+        // fill the filesystem partition, so using request->contentLength()
+        // can make Update.begin() reject a valid file as "Bad Size Given".
+        // Let the Update library use the actual target partition size.
+        if (!Update.begin(UPDATE_SIZE_UNKNOWN, command)) {
             otaUploadFailed = true;
             otaLastMessage = String("Update begin failed: ") + Update.errorString();
             Update.printError(Serial);

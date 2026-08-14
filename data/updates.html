@@ -61,6 +61,37 @@
           <code>-app.bin</code> or <code>-littlefs.bin</code> file here. GitHub self-update from the scale is planned but not implemented yet.
           Access-point-only mode can serve this page and accept manual uploads.
         </p>
+        <p class="text-sm mt-3">
+          <a class="text-blue-400 hover:text-blue-300 underline"
+             href="https://github.com/danielfcurrie-alt/weighmybru2/releases"
+             target="_blank"
+             rel="noopener noreferrer">
+            Open WMB+ GitHub releases
+          </a>
+          <span class="text-gray-400 ml-2">Use the asset matching this board: <span x-text="boardAssetHint()"></span>.</span>
+        </p>
+        <div class="mt-4">
+          <button @click="checkGitHubReleases()"
+                  :disabled="releaseCheck.checking"
+                  class="bg-gray-600 hover:bg-button-green active:bg-green-900 disabled:opacity-40 disabled:cursor-not-allowed text-white px-4 py-2 rounded">
+            <span x-text="releaseCheck.checking ? 'Checking…' : 'Check GitHub releases'"></span>
+          </button>
+          <p class="text-xs text-gray-400 mt-2">
+            This check runs in your browser. If you are connected only to the scale access point and your browser has no internet, use the release link manually.
+          </p>
+          <p x-show="releaseCheck.error" class="text-sm text-red-400 mt-2" x-text="releaseCheck.error"></p>
+          <div x-show="releaseCheck.tag" class="text-sm text-gray-300 mt-3 space-y-1">
+            <p>Latest beta found: <a class="text-blue-400 underline" :href="releaseCheck.releaseUrl" target="_blank" rel="noopener noreferrer" x-text="releaseCheck.tag"></a></p>
+            <p x-show="releaseCheck.appUrl">
+              App firmware:
+              <a class="text-blue-400 underline" :href="releaseCheck.appUrl" target="_blank" rel="noopener noreferrer" x-text="releaseCheck.appName"></a>
+            </p>
+            <p x-show="releaseCheck.littlefsUrl">
+              Web UI / LittleFS:
+              <a class="text-blue-400 underline" :href="releaseCheck.littlefsUrl" target="_blank" rel="noopener noreferrer" x-text="releaseCheck.littlefsName"></a>
+            </p>
+          </div>
+        </div>
         <p x-show="!ota.firmwareOtaSupported" class="text-yellow-400 text-sm mt-3">
           App firmware OTA requires the new dual-OTA partition table. If this device was flashed with the older single-app layout,
           flash the factory image once over USB; future app updates can then happen from this page.
@@ -127,6 +158,16 @@ function updatesApp() {
     message: '',
     messageError: false,
     restartPending: false,
+    releaseCheck: {
+      checking: false,
+      error: '',
+      tag: '',
+      releaseUrl: '',
+      appName: '',
+      appUrl: '',
+      littlefsName: '',
+      littlefsUrl: ''
+    },
 
     init() {
       this.refresh();
@@ -149,6 +190,80 @@ function updatesApp() {
       const ref = target === 'firmware' ? this.$refs.firmwareFile : this.$refs.filesystemFile;
       if (!ref || !ref.files || ref.files.length === 0) return null;
       return ref.files[0];
+    },
+
+    boardAssetHint() {
+      const suffix = this.boardSuffix();
+      if (suffix === 'xiao') return 'xiao-app.bin or xiao-littlefs.bin';
+      if (suffix === 'tinys3d') return 'tinys3d-app.bin or tinys3d-littlefs.bin';
+      if (suffix === 'supermini') return 'supermini-app.bin or supermini-littlefs.bin';
+      return 'the app/littlefs asset for your exact board';
+    },
+
+    boardSuffix() {
+      const board = (this.device.board || '').toLowerCase();
+      if (board.includes('xiao')) return 'xiao';
+      if (board.includes('tinys3')) return 'tinys3d';
+      if (board.includes('super')) return 'supermini';
+      return '';
+    },
+
+    async checkGitHubReleases() {
+      const suffix = this.boardSuffix();
+      if (!suffix) {
+        this.releaseCheck.error = 'Unknown board. Open the release link manually and choose the asset for your exact board.';
+        return;
+      }
+
+      this.releaseCheck = {
+        checking: true,
+        error: '',
+        tag: '',
+        releaseUrl: '',
+        appName: '',
+        appUrl: '',
+        littlefsName: '',
+        littlefsUrl: ''
+      };
+
+      try {
+        const response = await fetch('https://api.github.com/repos/danielfcurrie-alt/weighmybru2/releases', {
+          headers: { 'Accept': 'application/vnd.github+json' }
+        });
+        if (!response.ok) throw new Error(`GitHub returned ${response.status}`);
+
+        const releases = await response.json();
+        const release = releases.find((item) =>
+          item && !item.draft && item.prerelease && /^v?0\.2\.0-beta\./.test(item.tag_name || '')
+        );
+        if (!release) throw new Error('No WMB+ beta release found');
+
+        const assets = release.assets || [];
+        const app = assets.find((asset) => asset.name && asset.name.endsWith(`-${suffix}-app.bin`));
+        const littlefs = assets.find((asset) => asset.name && asset.name.endsWith(`-${suffix}-littlefs.bin`));
+
+        this.releaseCheck = {
+          checking: false,
+          error: (!app || !littlefs) ? 'Release found, but matching board assets were not found. Open the release manually.' : '',
+          tag: release.tag_name || '',
+          releaseUrl: release.html_url || 'https://github.com/danielfcurrie-alt/weighmybru2/releases',
+          appName: app ? app.name : '',
+          appUrl: app ? app.browser_download_url : '',
+          littlefsName: littlefs ? littlefs.name : '',
+          littlefsUrl: littlefs ? littlefs.browser_download_url : ''
+        };
+      } catch (error) {
+        this.releaseCheck = {
+          checking: false,
+          error: `Could not check GitHub releases: ${error.message || error}`,
+          tag: '',
+          releaseUrl: '',
+          appName: '',
+          appUrl: '',
+          littlefsName: '',
+          littlefsUrl: ''
+        };
+      }
     },
 
     upload(target) {

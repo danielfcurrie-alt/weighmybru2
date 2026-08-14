@@ -1,38 +1,38 @@
 # Flashing WMB+ beta
 
-These instructions are for the WMB+ `0.2.0-beta.4` XIAO ESP32S3 build.
+These instructions are for the WMB+ `0.2.0-beta.5` XIAO ESP32S3 build.
 
 ## Release assets
 
 The release provides four primary XIAO firmware artifacts:
 
-- `wmb-plus-0.2.0-beta.4-xiao-app.bin`
+- `wmb-plus-0.2.0-beta.5-xiao-app.bin`
   - App image only.
   - Flash at `0x10000`.
   - Use when upgrading an existing compatible install.
 
-- `wmb-plus-0.2.0-beta.4-xiao-factory-full.bin`
+- `wmb-plus-0.2.0-beta.5-xiao-factory-full.bin`
   - Recommended merged factory image.
   - Flash at `0x0`.
   - Includes bootloader, partition table, app firmware, and LittleFS web UI filesystem assets.
   - Use for first-time beta installs and partition-table migration.
 
-- `wmb-plus-0.2.0-beta.4-xiao-factory-minimal.bin`
+- `wmb-plus-0.2.0-beta.5-xiao-factory-minimal.bin`
   - Advanced/recovery merged factory image.
   - Flash at `0x0`.
   - Includes bootloader, partition table, and app firmware.
   - Intentionally does not include web UI filesystem assets.
 
-- `wmb-plus-0.2.0-beta.4-xiao-littlefs.bin`
+- `wmb-plus-0.2.0-beta.5-xiao-littlefs.bin`
   - Web UI filesystem image.
-  - Flash at `0x610000` for XIAO `0.2.0-beta.4` dual-OTA.
+  - Flash at `0x610000` for XIAO `0.2.0-beta.5` dual-OTA.
   - Optional unless you want to update the web UI assets.
 
 Scale, BLE, USB serial, display, battery, and sleep features are firmware features and do not require a web UI filesystem update. The web dashboard, OTA pages, and StopMyBru browser UI do require LittleFS assets.
 
 ## OTA terminology
 
-WMB+ `0.2.0-beta.4` supports manual browser-upload OTA:
+WMB+ `0.2.0-beta.5` supports manual browser-upload OTA:
 
 1. Download the matching release asset yourself.
 2. Open the scale's local Updates page.
@@ -45,10 +45,10 @@ The first `factory-full.bin` USB flash is what installs the dual-OTA partition t
 ## App-only upgrade
 
 Use this only if the device already has a compatible ESP32-S3 bootloader and partition table.
-For web app OTA, the device must have the WMB+ dual-OTA partition table. If the device was flashed with the originally published `0.2.0-beta.1` fallback assets or another legacy/single-app layout, use the `0.2.0-beta.4` factory-full image once first.
+For web app OTA, the device must have the WMB+ dual-OTA partition table. If the device was flashed with the originally published `0.2.0-beta.1` fallback assets or another legacy/single-app layout, use the `0.2.0-beta.5` factory-full image once first.
 
 ```bash
-esptool.py --chip esp32s3 --port /dev/cu.usbmodemXXXX --baud 460800 write_flash 0x10000 wmb-plus-0.2.0-beta.4-xiao-app.bin
+esptool.py --chip esp32s3 --port /dev/cu.usbmodemXXXX --baud 460800 write_flash 0x10000 wmb-plus-0.2.0-beta.5-xiao-app.bin
 ```
 
 This does not erase NVS or calibration.
@@ -56,7 +56,7 @@ This does not erase NVS or calibration.
 ## Fresh install with recommended full merged image
 
 ```bash
-esptool.py --chip esp32s3 --port /dev/cu.usbmodemXXXX --baud 460800 write_flash 0x0 wmb-plus-0.2.0-beta.4-xiao-factory-full.bin
+esptool.py --chip esp32s3 --port /dev/cu.usbmodemXXXX --baud 460800 write_flash 0x0 wmb-plus-0.2.0-beta.5-xiao-factory-full.bin
 ```
 
 Use this for a clean firmware install on a XIAO ESP32S3. It installs the dual-OTA partition table required for future web app OTA and includes the LittleFS web UI.
@@ -64,7 +64,7 @@ Use this for a clean firmware install on a XIAO ESP32S3. It installs the dual-OT
 ## Advanced minimal merged image
 
 ```bash
-esptool.py --chip esp32s3 --port /dev/cu.usbmodemXXXX --baud 460800 write_flash 0x0 wmb-plus-0.2.0-beta.4-xiao-factory-minimal.bin
+esptool.py --chip esp32s3 --port /dev/cu.usbmodemXXXX --baud 460800 write_flash 0x0 wmb-plus-0.2.0-beta.5-xiao-factory-minimal.bin
 ```
 
 Use this only when you intentionally want to leave the LittleFS web UI filesystem untouched or unavailable.
@@ -74,10 +74,10 @@ Use this only when you intentionally want to leave the LittleFS web UI filesyste
 Use this only when you want to update the web UI filesystem assets:
 
 ```bash
-esptool.py --chip esp32s3 --port /dev/cu.usbmodemXXXX --baud 460800 write_flash 0x610000 wmb-plus-0.2.0-beta.4-xiao-littlefs.bin
+esptool.py --chip esp32s3 --port /dev/cu.usbmodemXXXX --baud 460800 write_flash 0x610000 wmb-plus-0.2.0-beta.5-xiao-littlefs.bin
 ```
 
-The XIAO `0.2.0-beta.4` dual-OTA partition table places LittleFS at `0x610000`. SuperMini dual-OTA places LittleFS at `0x310000`. Do not use the SuperMini address on a XIAO build.
+The XIAO `0.2.0-beta.5` dual-OTA partition table places LittleFS at `0x610000`. SuperMini dual-OTA places LittleFS at `0x310000`. Do not use the SuperMini address on a XIAO build.
 
 This does not erase NVS or calibration.
 
@@ -91,7 +91,7 @@ z
 
 Expected indicators:
 
-- Banner includes `WMB+ v0.2.0-beta.4`.
+- Banner includes `WMB+ v0.2.0-beta.5`.
 - Board is `XIAO ESP32S3`.
 - BLE name is `WeighMyBru+`.
 - `legacyFloat32Cadence=20Hz`.

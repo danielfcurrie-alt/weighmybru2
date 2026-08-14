@@ -46,7 +46,7 @@ Current GitHub repository status:
 
 Latest beta:
 
-- [WMB+ 0.2.0-beta.4 release](https://github.com/danielfcurrie-alt/weighmybru2/releases/tag/v0.2.0-beta.4)
+- [WMB+ 0.2.0-beta.5 release](https://github.com/danielfcurrie-alt/weighmybru2/releases/tag/v0.2.0-beta.5)
 
 Supported beta boards:
 
@@ -58,40 +58,40 @@ Release assets:
 
 XIAO ESP32S3:
 
-- `wmb-plus-0.2.0-beta.4-xiao-app.bin`
-- `wmb-plus-0.2.0-beta.4-xiao-factory-full.bin`
-- `wmb-plus-0.2.0-beta.4-xiao-factory-minimal.bin`
-- `wmb-plus-0.2.0-beta.4-xiao-littlefs.bin`
+- `wmb-plus-0.2.0-beta.5-xiao-app.bin`
+- `wmb-plus-0.2.0-beta.5-xiao-factory-full.bin`
+- `wmb-plus-0.2.0-beta.5-xiao-factory-minimal.bin`
+- `wmb-plus-0.2.0-beta.5-xiao-littlefs.bin`
 
 ESP32-S3 SuperMini:
 
-- `wmb-plus-0.2.0-beta.4-supermini-app.bin`
-- `wmb-plus-0.2.0-beta.4-supermini-factory-full.bin`
-- `wmb-plus-0.2.0-beta.4-supermini-factory-minimal.bin`
-- `wmb-plus-0.2.0-beta.4-supermini-littlefs.bin`
+- `wmb-plus-0.2.0-beta.5-supermini-app.bin`
+- `wmb-plus-0.2.0-beta.5-supermini-factory-full.bin`
+- `wmb-plus-0.2.0-beta.5-supermini-factory-minimal.bin`
+- `wmb-plus-0.2.0-beta.5-supermini-littlefs.bin`
 
 Unexpected Maker TinyS3[D]:
 
-- `wmb-plus-0.2.0-beta.4-tinys3d-app.bin`
-- `wmb-plus-0.2.0-beta.4-tinys3d-factory-full.bin`
-- `wmb-plus-0.2.0-beta.4-tinys3d-factory-minimal.bin`
-- `wmb-plus-0.2.0-beta.4-tinys3d-littlefs.bin`
+- `wmb-plus-0.2.0-beta.5-tinys3d-app.bin`
+- `wmb-plus-0.2.0-beta.5-tinys3d-factory-full.bin`
+- `wmb-plus-0.2.0-beta.5-tinys3d-factory-minimal.bin`
+- `wmb-plus-0.2.0-beta.5-tinys3d-littlefs.bin`
 
 Shared:
 
-- `wmb-plus-0.2.0-beta.4-sha256.txt`
+- `wmb-plus-0.2.0-beta.5-sha256.txt`
 
-For first-time beta installs or migration from `0.2.0-beta.1`, use `wmb-plus-0.2.0-beta.4-xiao-factory-full.bin` at `0x0`. It includes bootloader, dual-OTA partition table, app firmware, and LittleFS web UI.
+For first-time beta installs or migration from `0.2.0-beta.1`, use `wmb-plus-0.2.0-beta.5-xiao-factory-full.bin` at `0x0`. It includes bootloader, dual-OTA partition table, app firmware, and LittleFS web UI.
 
 For SuperMini installs, use the matching `supermini` asset names. Do not flash XIAO images onto a SuperMini or SuperMini images onto a XIAO. XIAO uses an 8MB factory image; SuperMini uses a 4MB factory image.
 
 Calibration should be preserved. The XIAO factory-full image writes the bootloader, partition table, app firmware, and LittleFS web UI, but it does not run `erase_flash` and does not overwrite the ESP32 NVS area at `0x9000` where WeighMyBru stores calibration. After flashing, verify with a known weight, especially on a newly built or unusual partition-layout device. Calibration can be lost if you explicitly run `erase_flash`, use a reset-NVS/factory-reset endpoint, or come from a nonstandard layout.
 
-Important: the originally published `0.2.0-beta.1` XIAO fallback assets used LittleFS at `0x310000` and appeared to use a legacy/single-app partition layout. `0.2.0-beta.4` is the corrected dual-OTA release.
+Important: the originally published `0.2.0-beta.1` XIAO fallback assets used LittleFS at `0x310000` and appeared to use a legacy/single-app partition layout. `0.2.0-beta.5` is the corrected dual-OTA release.
 
 ## OTA status in this beta
 
-WMB+ `0.2.0-beta.4` supports browser-upload OTA, not one-click GitHub self-update.
+WMB+ `0.2.0-beta.5` supports browser-upload OTA, not one-click GitHub self-update.
 
 - **First install / partition migration:** flash the matching `factory-full.bin` once over USB at `0x0`. This installs the bootloader, dual-OTA partition table, app firmware, and LittleFS web UI.
 - **After factory-full is installed:** the Updates page should show `Firmware OTA: Ready` and a `Next OTA partition` such as `app1`.
@@ -175,7 +175,7 @@ If you see a regression in Bean Conqueror, GaggiMate, or Gaggiuino compared with
 - [Tester checklist](docs/TESTING.md)
 - [USB serial protocol](docs/USB_SERIAL.md)
 - [WMB+ BLE protocol](docs/WMB_PLUS_PROTOCOL.md)
-- [Release notes](docs/RELEASE_NOTES_0.2.0-beta.4.md)
+- [Release notes](docs/RELEASE_NOTES_0.2.0-beta.5.md)
 
 ## Quick flash commands
 
@@ -188,19 +188,19 @@ Use these for the primary 8MB XIAO build. XIAO LittleFS is at `0x610000`.
 Recommended fresh install or migration from `0.2.0-beta.1`:
 
 ```bash
-esptool.py --chip esp32s3 --port /dev/cu.usbmodemXXXX --baud 460800 write_flash 0x0 wmb-plus-0.2.0-beta.4-xiao-factory-full.bin
+esptool.py --chip esp32s3 --port /dev/cu.usbmodemXXXX --baud 460800 write_flash 0x0 wmb-plus-0.2.0-beta.5-xiao-factory-full.bin
 ```
 
-App-only upgrade after the `0.2.0-beta.4` dual-OTA layout is already installed:
+App-only upgrade after the `0.2.0-beta.5` dual-OTA layout is already installed:
 
 ```bash
-esptool.py --chip esp32s3 --port /dev/cu.usbmodemXXXX --baud 460800 write_flash 0x10000 wmb-plus-0.2.0-beta.4-xiao-app.bin
+esptool.py --chip esp32s3 --port /dev/cu.usbmodemXXXX --baud 460800 write_flash 0x10000 wmb-plus-0.2.0-beta.5-xiao-app.bin
 ```
 
 Web UI / LittleFS-only update:
 
 ```bash
-esptool.py --chip esp32s3 --port /dev/cu.usbmodemXXXX --baud 460800 write_flash 0x610000 wmb-plus-0.2.0-beta.4-xiao-littlefs.bin
+esptool.py --chip esp32s3 --port /dev/cu.usbmodemXXXX --baud 460800 write_flash 0x610000 wmb-plus-0.2.0-beta.5-xiao-littlefs.bin
 ```
 
 ### ESP32-S3 SuperMini
@@ -210,36 +210,36 @@ Use these for the 4MB ESP32-S3 SuperMini / SuperMini-style build. SuperMini Litt
 Recommended fresh install:
 
 ```bash
-esptool.py --chip esp32s3 --port /dev/cu.usbmodemXXXX --baud 460800 write_flash 0x0 wmb-plus-0.2.0-beta.4-supermini-factory-full.bin
+esptool.py --chip esp32s3 --port /dev/cu.usbmodemXXXX --baud 460800 write_flash 0x0 wmb-plus-0.2.0-beta.5-supermini-factory-full.bin
 ```
 
-App-only upgrade after the `0.2.0-beta.4` dual-OTA layout is already installed:
+App-only upgrade after the `0.2.0-beta.5` dual-OTA layout is already installed:
 
 ```bash
-esptool.py --chip esp32s3 --port /dev/cu.usbmodemXXXX --baud 460800 write_flash 0x10000 wmb-plus-0.2.0-beta.4-supermini-app.bin
+esptool.py --chip esp32s3 --port /dev/cu.usbmodemXXXX --baud 460800 write_flash 0x10000 wmb-plus-0.2.0-beta.5-supermini-app.bin
 ```
 
 Web UI / LittleFS-only update:
 
 ```bash
-esptool.py --chip esp32s3 --port /dev/cu.usbmodemXXXX --baud 460800 write_flash 0x310000 wmb-plus-0.2.0-beta.4-supermini-littlefs.bin
+esptool.py --chip esp32s3 --port /dev/cu.usbmodemXXXX --baud 460800 write_flash 0x310000 wmb-plus-0.2.0-beta.5-supermini-littlefs.bin
 ```
 
 Minimal factory images are also published for advanced cases where you intentionally want to install firmware without updating the web UI filesystem. Most testers should use `factory-full`.
 
-XIAO `0.2.0-beta.4` uses two 3MB OTA app slots and places LittleFS at `0x610000`. SuperMini dual-OTA uses two 1.5MB OTA app slots and places LittleFS at `0x310000`. Do not cross-flash board assets. If your installed image reports a legacy/single-app layout, do not rely on app OTA until you install the matching `0.2.0-beta.4` full factory image.
+XIAO `0.2.0-beta.5` uses two 3MB OTA app slots and places LittleFS at `0x610000`. SuperMini dual-OTA uses two 1.5MB OTA app slots and places LittleFS at `0x310000`. Do not cross-flash board assets. If your installed image reports a legacy/single-app layout, do not rely on app OTA until you install the matching `0.2.0-beta.5` full factory image.
 
 ### Optional Codex install prompt
 
 If you want Codex or another coding agent to install from release assets with guardrails, use this prompt:
 
 ```text
-Install WMB+ v0.2.0-beta.4 from GitHub release assets for my board: <XIAO ESP32S3 or ESP32-S3 SuperMini>.
+Install WMB+ v0.2.0-beta.5 from GitHub release assets for my board: <XIAO ESP32S3 or ESP32-S3 SuperMini>.
 
 Release repo: https://github.com/danielfcurrie-alt/weighmybru2
-Release tag: v0.2.0-beta.4
+Release tag: v0.2.0-beta.5
 
-Download the matching factory-full asset and wmb-plus-0.2.0-beta.4-sha256.txt. Verify SHA-256 and image size before flashing:
+Download the matching factory-full asset and wmb-plus-0.2.0-beta.5-sha256.txt. Verify SHA-256 and image size before flashing:
 - XIAO factory-full must be 8,388,608 bytes.
 - SuperMini factory-full must be 4,194,304 bytes.
 
@@ -270,7 +270,7 @@ z
 
 Expected indicators:
 
-- `WMB+ v0.2.0-beta.4`
+- `WMB+ v0.2.0-beta.5`
 - `Board: XIAO ESP32S3`
 - BLE name `WeighMyBru+`
 - `legacyFloat32Cadence=20Hz`
@@ -394,8 +394,8 @@ Compatibility paths stay conservative:
 
 - Battery percentage is voltage-estimated on XIAO/SuperMini builds. TinyS3[D] development builds use the MAX17048 fuel gauge when present.
 - Charging/runtime estimates are experimental; WMB+ learns charge/discharge rates over time, but this is still voltage-based intelligence, not a dedicated fuel gauge.
-- XIAO ESP32S3 is the only primary beta-supported target in `0.2.0-beta.4`.
-- App firmware OTA requires the new dual-OTA partition table. Existing devices on a legacy/single-app layout need the `0.2.0-beta.4` full factory flash before relying on app OTA.
+- XIAO ESP32S3 is the only primary beta-supported target in `0.2.0-beta.5`.
+- App firmware OTA requires the new dual-OTA partition table. Existing devices on a legacy/single-app layout need the `0.2.0-beta.5` full factory flash before relying on app OTA.
 - Calibration is still per-device and must be verified by the builder.
 - 80 SPS requires the HX711 hardware rate pin/jumper to be configured correctly.
 - Tare and sleep inputs expect active-high digital touch sensor modules. The firmware enables `INPUT_PULLDOWN` on those pins; bare capacitive pads or open-drain sensors need appropriate external conditioning.
@@ -450,7 +450,7 @@ GaggiMate now fully supports WeighMyBru scale.
 
 ## Installation
 
-For WMB+ beta installs, start with the [flashing instructions](docs/FLASHING.md) and the current [GitHub release](https://github.com/danielfcurrie-alt/weighmybru2/releases/tag/v0.2.0-beta.4). Use the XIAO `factory-full` image for first install or migration from `0.2.0-beta.1`.
+For WMB+ beta installs, start with the [flashing instructions](docs/FLASHING.md) and the current [GitHub release](https://github.com/danielfcurrie-alt/weighmybru2/releases/tag/v0.2.0-beta.5). Use the XIAO `factory-full` image for first install or migration from `0.2.0-beta.1`.
 
 ```
   this project requires VSCode with PlatformIO extension installed
