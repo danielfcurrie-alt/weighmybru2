@@ -118,13 +118,37 @@
 
     // Scale calibration handlers
     tareBtn.addEventListener("click", async () => {
-      status.textContent = "Taring...";
-      const response = await fetch("/api/tare", { method: "POST" });
-      const result = await response.text();
-      status.textContent = result;
-      if (result.toLowerCase().includes("tared")) {
-        step1.classList.add("hidden");
-        step2.classList.remove("hidden");
+      tareBtn.disabled = true;
+      tareBtn.classList.add("opacity-50", "cursor-not-allowed");
+      status.className = "text-yellow-400 mb-4";
+      status.textContent = "Taring... keep the scale empty.";
+      message.textContent = "";
+
+      try {
+        const response = await fetch("/api/tare", { method: "POST" });
+        const result = await response.text();
+
+        if (!response.ok) {
+          status.className = "text-red-400 mb-4";
+          status.textContent = result || "Tare failed.";
+          tareBtn.disabled = false;
+          tareBtn.classList.remove("opacity-50", "cursor-not-allowed");
+          return;
+        }
+
+        status.textContent = "Tare accepted. Waiting for the delayed physical-parity tare to finish...";
+        setTimeout(() => {
+          step1.classList.add("hidden");
+          step2.classList.remove("hidden");
+          status.className = "text-green-400 mb-4";
+          status.textContent = "Tare complete. Place your known weight and enter its value.";
+          document.getElementById("knownWeight").focus();
+        }, 1800);
+      } catch (error) {
+        status.className = "text-red-400 mb-4";
+        status.textContent = `Tare request failed: ${error.message}`;
+        tareBtn.disabled = false;
+        tareBtn.classList.remove("opacity-50", "cursor-not-allowed");
       }
     });
 
