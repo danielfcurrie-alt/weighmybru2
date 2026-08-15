@@ -175,7 +175,16 @@ void FlowRate::pauseCalculation() {
 
 void FlowRate::resumeCalculation() {
     calculationPaused = false;
-    // Reset timing to avoid using old weight data
+    // Tare changes the reference point. Reset the flow history so the first
+    // post-tare sample cannot be compared with a pre-tare weight and publish a
+    // bogus flow spike.
+    for (int i = 0; i < FLOWRATE_AVG_WINDOW; i++) {
+        flowRateBuffer[i] = 0.0f;
+    }
+    bufferIndex = 0;
+    bufferCount = 0;
+    flowRate = 0.0f;
+    lastWeight = 0.0f;
     lastTime = millis();
     Serial.println("Flow rate calculation resumed");
 }
@@ -192,4 +201,3 @@ void FlowRate::clearFlowRateBuffer() {
     lastTime = 0;
     Serial.println("Flow rate buffer cleared for fresh start");
 }
-

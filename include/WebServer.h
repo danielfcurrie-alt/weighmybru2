@@ -11,10 +11,12 @@
 #include "DiagnosticEventLog.h"
 #include "BoardHardware.h"
 #include "BatteryDrainSession.h"
+#include "TouchSensor.h"
+#include "ScaleCommandQueue.h"
 
 extern float calibrationFactor;
 
-void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothScale, Display &display, BatteryMonitor &battery, SmbComms &smb, PowerManager &powerManager, DiagnosticEventLog &diagnosticEvents, BoardHardware &boardHardware, BatteryDrainSession &batteryDrainSession);
+void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothScale, Display &display, BatteryMonitor &battery, SmbComms &smb, PowerManager &powerManager, DiagnosticEventLog &diagnosticEvents, BoardHardware &boardHardware, BatteryDrainSession &batteryDrainSession, TouchSensor &touchSensor, ScaleCommandQueue &scaleCommandQueue);
 void startWebServer();
 void stopWebServer();
 

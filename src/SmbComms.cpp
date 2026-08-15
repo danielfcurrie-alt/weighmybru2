@@ -44,6 +44,8 @@ void SmbComms::begin() {
 
 // ============================================================
 void SmbComms::update() {
+    processPendingWebhookOff();
+
     if (_state != SmbPairingState::BROADCASTING) return;
 
     unsigned long now = millis();
@@ -152,6 +154,7 @@ void SmbComms::setWebhookConfig(bool enabled, const String& profile, const Strin
     _webhookOffUrl = offUrl;
     _webhookRelayOn = false;
     _webhookTargetCutSent = false;
+    _webhookOffPending = false;
     saveToNVS();
     Serial.printf("SMB webhook: saved enabled=%d profile=%s on=%u chars off=%u chars\n",
                   enabled ? 1 : 0,
@@ -166,6 +169,7 @@ bool SmbComms::triggerWebhookRelayOn(const char* reason) {
     cancelStopLearningObservation("webhook_on");
     _webhookRelayOn = true;
     _webhookTargetCutSent = false;
+    _webhookOffPending = false;
 
     if (_webhookOnUrl.length() == 0) {
         _webhookLastHttpCode = 0;
@@ -185,6 +189,7 @@ bool SmbComms::triggerWebhookRelayOff(const char* reason) {
         cancelStopLearningObservation(reason ? reason : "webhook_off");
     }
     _webhookRelayOn = false;
+    _webhookOffPending = false;
 
     if (_webhookOffUrl.length() == 0) {
         _webhookLastHttpCode = 0;
@@ -239,6 +244,19 @@ bool SmbComms::triggerWebhook(const String& url, const char* action, const char*
     return ok;
 }
 
+void SmbComms::processPendingWebhookOff() {
+    if (!_webhookOffPending) return;
+
+    const float cutWeight = _webhookPendingCutWeight;
+    const float effectiveSetpoint = _webhookPendingEffectiveSetpoint;
+    _webhookOffPending = false;
+
+    const bool stopped = triggerWebhookRelayOff("target_reached");
+    if (stopped) {
+        beginStopLearningObservation(cutWeight, effectiveSetpoint, "webhook");
+    }
+}
+
 void SmbComms::maybeTriggerWebhookTarget(float weight) {
     if (!_webhookEnabled || !_webhookRelayOn || _webhookTargetCutSent) return;
     const float effectiveSetpoint = getEffectiveSetpoint();
@@ -247,10 +265,12 @@ void SmbComms::maybeTriggerWebhookTarget(float weight) {
     _webhookTargetCutSent = true;
     Serial.printf("SMB webhook: effective target %.1fg reached at %.2fg (desired %.1fg, offset %.2fg); sending OFF webhook\n",
                   effectiveSetpoint, weight, _setpoint, _learnedStopOffset);
-    const bool stopped = triggerWebhookRelayOff("target_reached");
-    if (stopped) {
-        beginStopLearningObservation(weight, effectiveSetpoint, "webhook");
-    }
+    _webhookPendingCutWeight = weight;
+    _webhookPendingEffectiveSetpoint = effectiveSetpoint;
+    _webhookOffPending = true;
+    _webhookLastHttpCode = 0;
+    _webhookLastMessage = "OFF webhook queued for target cutoff";
+    _webhookLastAttemptMs = millis();
 }
 
 void SmbComms::beginStopLearningObservation(float cutWeight, float effectiveSetpoint, const char* source) {

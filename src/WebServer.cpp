@@ -6,6 +6,8 @@
 #include <esp_ota_ops.h>
 #include <esp_partition.h>
 #include <math.h>
+#include <ctype.h>
+#include <stdlib.h>
 #include "WebServer.h"
 #include "Scale.h"
 #include "WiFiManager.h"
@@ -38,6 +40,8 @@ static String otaLastFilename;
 
 static String jsonEscape(const String& input);
 static String jsonNumberOrNull(float value, unsigned int decimals = 3);
+static bool parseFiniteFloat(const String& input, float& output);
+static bool isSaneScaleCalibrationFactor(float value);
 
 static void restartAfterOta() {
     ESP.restart();
@@ -229,6 +233,43 @@ static String jsonNumberOrNull(float value, unsigned int decimals) {
     return String(value, decimals);
 }
 
+static bool parseFiniteFloat(const String& input, float& output) {
+    String trimmed = input;
+    trimmed.trim();
+    if (trimmed.length() == 0) {
+        return false;
+    }
+
+    char* end = nullptr;
+    const char* start = trimmed.c_str();
+    const float parsed = strtof(start, &end);
+    if (end == start) {
+        return false;
+    }
+
+    while (end != nullptr && *end != '\0') {
+        if (!isspace(static_cast<unsigned char>(*end))) {
+            return false;
+        }
+        ++end;
+    }
+
+    if (!isfinite(parsed)) {
+        return false;
+    }
+
+    output = parsed;
+    return true;
+}
+
+static bool isSaneScaleCalibrationFactor(float value) {
+    // Current supported WMB-style HX711/load-cell builds are normally in the
+    // hundreds to low thousands of counts/g. Keep the acceptance window wide so
+    // unusual cells are not blocked, but reject values that would obviously
+    // brick the next boot into raw-count output or nonsense scaling.
+    return isfinite(value) && value >= 10.0f && value <= 100000.0f;
+}
+
 int getCachedDecimals() {
     // Fast path - return immediately if already cached and recent
     if (cachedDecimals != -1 && (millis() - lastDecimalCacheTime < DECIMAL_CACHE_TIMEOUT)) {
@@ -321,7 +362,7 @@ AsyncWebServer server(80);
  * Response: {"weight":45.23,"flowrate":2.15}
  */
 
-void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothScale, Display &display, BatteryMonitor &battery, SmbComms &smb, PowerManager &powerManager, DiagnosticEventLog &diagnosticEvents, BoardHardware &boardHardware, BatteryDrainSession &batteryDrainSession) {
+void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothScale, Display &display, BatteryMonitor &battery, SmbComms &smb, PowerManager &powerManager, DiagnosticEventLog &diagnosticEvents, BoardHardware &boardHardware, BatteryDrainSession &batteryDrainSession, TouchSensor &touchSensor, ScaleCommandQueue &scaleCommandQueue) {
   if (!LittleFS.begin()) {
     Serial.println();
     Serial.println("=====================================");
@@ -895,43 +936,65 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
     request->send(200, "application/json", json);
   });
 
-  server.on("/api/tare", HTTP_POST, [&scale, &display, &flowRate](AsyncWebServerRequest *request){
-    scale.tare(20);
-    
-    // Reset timer when taring (prepare for fresh brew)
-    display.resetTimer();
-    
-    // Reset flow rate averaging for fresh brew measurement
-    flowRate.resetTimerAveraging();
-    
-    request->send(200, "text/plain", "Scale tared! Timer and flow rate reset for fresh brew.");
+  server.on("/api/tare", HTTP_POST, [&touchSensor](AsyncWebServerRequest *request){
+    touchSensor.requestTare("web");
+    request->send(202, "text/plain", "Tare scheduled through scale command path.");
   });
 
-  server.on("/api/set-calibrationfactor", HTTP_POST, [&scale](AsyncWebServerRequest *request){
-  if (request->hasParam("calibrationfactor", true)) {
-    String value = request->getParam("calibrationfactor", true)->value();
-    float calibrationFactor = value.toFloat();
-    Serial.printf("Updated calibration factor weight: %.2f\n", calibrationFactor);
-    request->send(200, "text/plain", "Calibration factor updated to " + value);
-    scale.set_scale(calibrationFactor); // Assuming you have a method to set the calibration factor in Scale class
-  } else {
-    request->send(400, "text/plain", "Missing 'calibrationfactor' parameter");
-  }
-});
+  server.on("/api/set-calibrationfactor", HTTP_POST, [&scaleCommandQueue](AsyncWebServerRequest *request){
+    if (!request->hasParam("calibrationfactor", true)) {
+      request->send(400, "text/plain", "Missing 'calibrationfactor' parameter");
+      return;
+    }
 
-  server.on("/api/calibrate", HTTP_POST, [&scale](AsyncWebServerRequest *request){
+    String value = request->getParam("calibrationfactor", true)->value();
+    float requestedCalibrationFactor = 0.0f;
+    if (!parseFiniteFloat(value, requestedCalibrationFactor) ||
+        !isSaneScaleCalibrationFactor(requestedCalibrationFactor)) {
+      Serial.printf("Rejected invalid calibration factor input: %s\n", value.c_str());
+      request->send(400, "text/plain", "Invalid calibration factor; value must be finite and between 10 and 100000");
+      return;
+    }
+
+    if (!scaleCommandQueue.requestSetCalibrationFactor(requestedCalibrationFactor, "web")) {
+      request->send(400, "text/plain", "Invalid calibration factor; value must be finite and between 10 and 100000");
+      return;
+    }
+
+    Serial.printf("Queued calibration factor update: %.6f\n", requestedCalibrationFactor);
+    request->send(202, "text/plain", "Calibration factor queued: " + String(requestedCalibrationFactor, 6));
+  });
+
+  server.on("/api/calibrate", HTTP_POST, [&scale, &scaleCommandQueue](AsyncWebServerRequest *request){
     if (request->hasParam("knownWeight", true)) {
       String value = request->getParam("knownWeight", true)->value();
-      float knownWeight = value.toFloat();
-      // Read raw value from the scale (uncalibrated)
-      long raw = scale.getRawValue();
-      if (knownWeight > 0 && raw != 0) {
+      float knownWeight = 0.0f;
+      if (!parseFiniteFloat(value, knownWeight) || knownWeight <= 0.0f) {
+        request->send(400, "text/plain", "Invalid known weight");
+        return;
+      }
+      // Use the cached raw value from the loop-owned acquisition path. Do not
+      // clock HX711 from the AsyncTCP web callback.
+      const bool hasCachedRaw = scale.hasLastRawValue();
+      long raw = scale.getLastRawValue();
+      if (hasCachedRaw && raw != 0) {
         float newCalibrationFactor = (float)raw / knownWeight;
-        scale.set_scale(newCalibrationFactor);
-        Serial.printf("Calibration complete. New factor: %.6f\n", newCalibrationFactor);
-        request->send(200, "text/plain", "Scale calibrated! New factor: " + String(newCalibrationFactor, 6));
+        if (!isSaneScaleCalibrationFactor(newCalibrationFactor)) {
+          Serial.printf("Rejected derived calibration factor %.6f from raw=%ld knownWeight=%.3f\n",
+                        newCalibrationFactor,
+                        raw,
+                        knownWeight);
+          request->send(400, "text/plain", "Derived calibration factor out of supported range");
+          return;
+        }
+        if (!scaleCommandQueue.requestSetCalibrationFactor(newCalibrationFactor, "web-calibrate")) {
+          request->send(400, "text/plain", "Derived calibration factor out of supported range");
+          return;
+        }
+        Serial.printf("Calibration queued. New factor: %.6f\n", newCalibrationFactor);
+        request->send(202, "text/plain", "Scale calibration queued! New factor: " + String(newCalibrationFactor, 6));
       } else {
-        request->send(400, "text/plain", "Invalid known weight or scale reading");
+        request->send(400, "text/plain", "No cached scale reading available yet");
       }
     } else {
       request->send(400, "text/plain", "Missing 'knownWeight' parameter");
@@ -947,7 +1010,8 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
     String json = "{";
     json += "\"connected\":" + String(scale.isHX711Connected() ? "true" : "false") + ",";
     json += "\"weight\":" + String(scale.getCurrentWeight(), 2) + ",";
-    json += "\"raw_value\":" + String(scale.getRawValue()) + ",";
+    json += "\"raw_value\":" + String(scale.getLastRawValue()) + ",";
+    json += "\"raw_value_cached\":" + String(scale.hasLastRawValue() ? "true" : "false") + ",";
     json += "\"calibration_factor\":" + String(scale.getCalibrationFactor(), 6) + ",";
     json += "\"sample_sequence\":" + String(scale.getSampleSequence()) + ",";
     json += "\"last_sample_ms\":" + String(scale.getLastSampleMillis()) + ",";
@@ -978,8 +1042,8 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
 
   server.on("/api/wifi-creds", HTTP_GET, [](AsyncWebServerRequest *request) {
     String ssid = getStoredSSID();
-    String password = getStoredPassword();
-    String json = "{\"ssid\":\"" + ssid + "\",\"password\":\"" + password + "\"}";
+    const bool hasPassword = getStoredPassword().length() > 0;
+    String json = "{\"ssid\":\"" + ssid + "\",\"password_configured\":" + String(hasPassword ? "true" : "false") + "}";
     request->send(200, "application/json", json);
   });
 
@@ -1253,36 +1317,77 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
     request->send(200, "application/json", json);
   });
 
-  server.on("/api/filter-settings", HTTP_POST, [&scale](AsyncWebServerRequest *request) {
+  server.on("/api/filter-settings", HTTP_POST, [&scaleCommandQueue](AsyncWebServerRequest *request) {
     String response = "{\"status\":\"success\",\"message\":\"";
     bool updated = false;
+    bool updateBrewingThreshold = false;
+    float brewingThreshold = 0.0f;
+    bool updateStabilityTimeout = false;
+    unsigned long stabilityTimeout = 0;
+    bool updateMedianSamples = false;
+    int medianSamples = 0;
+    bool updateAverageSamples = false;
+    int averageSamples = 0;
     
     if (request->hasParam("brewingThreshold", true)) {
-      float threshold = request->getParam("brewingThreshold", true)->value().toFloat();
-      scale.setBrewingThreshold(threshold);
+      if (!parseFiniteFloat(request->getParam("brewingThreshold", true)->value(), brewingThreshold)) {
+        request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"Invalid brewing threshold\"}");
+        return;
+      }
+      updateBrewingThreshold = true;
       response += "Brewing threshold updated. ";
       updated = true;
     }
     if (request->hasParam("stabilityTimeout", true)) {
-      unsigned long timeout = request->getParam("stabilityTimeout", true)->value().toInt();
-      scale.setStabilityTimeout(timeout);
+      String timeoutValue = request->getParam("stabilityTimeout", true)->value();
+      float parsedTimeout = 0.0f;
+      if (!parseFiniteFloat(timeoutValue, parsedTimeout) || parsedTimeout < 0.0f) {
+        request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"Invalid stability timeout\"}");
+        return;
+      }
+      stabilityTimeout = static_cast<unsigned long>(parsedTimeout);
+      updateStabilityTimeout = true;
       response += "Stability timeout updated. ";
       updated = true;
     }
     if (request->hasParam("medianSamples", true)) {
-      int samples = request->getParam("medianSamples", true)->value().toInt();
-      scale.setMedianSamples(samples);
+      String samplesValue = request->getParam("medianSamples", true)->value();
+      float parsedSamples = 0.0f;
+      if (!parseFiniteFloat(samplesValue, parsedSamples)) {
+        request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"Invalid median sample count\"}");
+        return;
+      }
+      medianSamples = static_cast<int>(parsedSamples);
+      updateMedianSamples = true;
       response += "Median samples updated. ";
       updated = true;
     }
     if (request->hasParam("averageSamples", true)) {
-      int samples = request->getParam("averageSamples", true)->value().toInt();
-      scale.setAverageSamples(samples);
+      String samplesValue = request->getParam("averageSamples", true)->value();
+      float parsedSamples = 0.0f;
+      if (!parseFiniteFloat(samplesValue, parsedSamples)) {
+        request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"Invalid average sample count\"}");
+        return;
+      }
+      averageSamples = static_cast<int>(parsedSamples);
+      updateAverageSamples = true;
       response += "Average samples updated. ";
       updated = true;
     }
     
     if (updated) {
+      if (!scaleCommandQueue.requestFilterSettings(updateBrewingThreshold,
+                                                   brewingThreshold,
+                                                   updateStabilityTimeout,
+                                                   stabilityTimeout,
+                                                   updateMedianSamples,
+                                                   medianSamples,
+                                                   updateAverageSamples,
+                                                   averageSamples,
+                                                   "web-filter")) {
+        request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"Invalid filter setting range\"}");
+        return;
+      }
       response += "\"}";
       request->send(200, "application/json", response);
     } else {
@@ -1312,7 +1417,7 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
   server.on("/api/settings", HTTP_GET, [&powerManager, &battery, &boardHardware](AsyncWebServerRequest *request) {
     // Get WiFi credentials (from cache)
     String ssid = getStoredSSID();
-    String password = getStoredPassword();
+    const bool hasPassword = getStoredPassword().length() > 0;
     
     // Get decimal setting (from cache)
     int decimals = getCachedDecimals();
@@ -1320,7 +1425,7 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
     // Combine into single JSON response including auto-sleep settings
     String json = "{";
     json += "\"ssid\":\"" + ssid + "\",";
-    json += "\"password\":\"" + password + "\",";
+    json += "\"password_configured\":" + String(hasPassword ? "true" : "false") + ",";
     json += "\"decimals\":" + String(decimals) + ",";
     json += "\"autoSleepEnabled\":" + String(powerManager.getAutoSleepEnabled() ? "true" : "false") + ",";
     json += "\"autoSleepTime\":" + String(powerManager.getAutoSleepTime()) + ",";

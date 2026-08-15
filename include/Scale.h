@@ -27,6 +27,8 @@ public:
     uint32_t getSampleIntervalStatsCount() const { return sampleIntervalStatsCount; }
     String getDetectedHx711RateMode() const;
     uint8_t getDetectedSampleRateRoundedHz() const;
+    long getLastRawValue() const { return lastRawValueCounts; }
+    bool hasLastRawValue() const { return hasLastRawValueCounts; }
     uint8_t getScaleQualityScore() const;
     uint8_t getLifetimeQualityScore() const;
     uint32_t getBumpCount() const { return bumpCount; }
@@ -89,6 +91,8 @@ private:
     uint32_t lastSampleIntervalMicros = 0;
     float lastRawSampleWeight = 0.0f;
     bool hasLastRawSampleWeight = false;
+    long lastRawValueCounts = 0;
+    bool hasLastRawValueCounts = false;
     uint32_t bumpCount = 0;
     unsigned long lastBumpMillis = 0;
     float lastBumpMagnitudeGrams = 0.0f;

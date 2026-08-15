@@ -697,11 +697,8 @@ void BluetoothScale::handleTareCommand() {
     if (touchSensor) {
         Serial.println("BluetoothScale: Scheduling BLE tare through physical tare path");
         touchSensor->requestTare("BLE");
-    } else if (scale) {
-        Serial.println("BluetoothScale: Touch tare path unavailable; falling back to default scale tare");
-        scale->tare();
     } else {
-        Serial.println("BluetoothScale: Cannot tare; scale is not available");
+        Serial.println("BluetoothScale: Cannot tare safely; touch/loop tare path is not available");
         return;
     }
 
@@ -715,18 +712,8 @@ void BluetoothScale::handleTareAndStartTimerCommand() {
     if (touchSensor) {
         Serial.println("BluetoothScale: Scheduling BLE atomic tare+start through physical tare path");
         touchSensor->requestTareAndStartTimer("BLE");
-    } else if (scale) {
-        Serial.println("BluetoothScale: Touch tare path unavailable; falling back to direct atomic tare+start");
-        scale->tare();
-        if (display) {
-            display->resetTimer();
-            display->startTimer();
-            Serial.println("BluetoothScale: Timer started after direct atomic tare fallback");
-        } else {
-            Serial.println("BluetoothScale: Timer start requested after tare, but display/timer is unavailable");
-        }
     } else {
-        Serial.println("BluetoothScale: Cannot atomic tare+start; scale is not available");
+        Serial.println("BluetoothScale: Cannot atomic tare+start safely; touch/loop tare path is not available");
         return;
     }
 

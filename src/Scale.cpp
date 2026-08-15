@@ -193,7 +193,6 @@ void Scale::tare(uint8_t times) {
     samplesInitialized = false;
 
     if (flowRatePtr != nullptr) {
-        delay(100);
         flowRatePtr->resumeCalculation();
     }
     return;
@@ -226,14 +225,18 @@ void Scale::tare(uint8_t times) {
     samplesInitialized = false;
     Serial.println("Smart filter reset to STABLE state");
     
-    // Resume flow rate calculation after a short delay to ensure stable readings
+    // Resume flow rate calculation from the new zero reference.
     if (flowRatePtr != nullptr) {
-        delay(100); // Short delay to let scale stabilize
         flowRatePtr->resumeCalculation();
     }
 }
 
 void Scale::set_scale(float factor) {
+    if (!isfinite(factor) || factor < 10.0f || factor > 100000.0f) {
+        Serial.printf("Rejected invalid scale calibration factor: %.6f\n", factor);
+        return;
+    }
+
     // Only save if the calibration factor actually changed
     if (calibrationFactor != factor) {
         calibrationFactor = factor;
@@ -403,6 +406,8 @@ void Scale::recordAcceptedSample(unsigned long sampleMillis, float rawReading, f
     recordMeasurementQuality(sampleMillis, rawReading, publicWeight);
     lastAcceptedRawReading = rawReading;
     hasLastAcceptedRawReading = true;
+    lastRawValueCounts = lroundf(rawReading * calibrationFactor);
+    hasLastRawValueCounts = true;
     persistQualityStatsIfNeeded(false);
 }
 

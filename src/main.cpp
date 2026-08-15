@@ -24,6 +24,7 @@
 #include "BoardHardware.h"
 #include "BatteryDrainSession.h"
 #include "SimulationProfiles.h"
+#include "ScaleCommandQueue.h"
 
 // Board-specific pin configuration
 uint8_t dataPin = HX711_DATA_PIN;     // HX711 Data pin
@@ -45,6 +46,7 @@ SmbComms smbComms;
 DiagnosticEventLog diagnosticEventLog;
 BoardHardware boardHardware;
 BatteryDrainSession batteryDrainSession;
+ScaleCommandQueue scaleCommandQueue;
 
 static constexpr uint32_t BATTERY_BENCH_LOG_INTERVAL_MS = 30000;
 static bool batteryBenchLoggingEnabled = true;
@@ -869,7 +871,7 @@ void setup() {
   powerManager.setRelayOnCallback( [](){ smbComms.sendRelayOn();  });
   powerManager.setRelayOffCallback([](){ smbComms.sendRelayOff(); });
 
-  setupWebServer(scale, flowRate, bluetoothScale, oledDisplay, batteryMonitor, smbComms, powerManager, diagnosticEventLog, boardHardware, batteryDrainSession);
+  setupWebServer(scale, flowRate, bluetoothScale, oledDisplay, batteryMonitor, smbComms, powerManager, diagnosticEventLog, boardHardware, batteryDrainSession, touchSensor, scaleCommandQueue);
   
   // CRITICAL: After full initialization, check if WiFi should be disabled
   // This exactly replicates the tare button scenario: WiFi started, then disabled
@@ -896,6 +898,10 @@ void loop() {
   static unsigned long lastDisplayUpdate = 0;
 
   handleSerialCommands();
+
+  // Apply measurement-state commands from async/web/BLE contexts on loopTask
+  // before the next acquisition attempt.
+  scaleCommandQueue.process(scale);
 
   // Let the HX711 ready signal define acquisition cadence. Downstream consumers
   // are updated exactly once per accepted public scale sample.

@@ -138,6 +138,9 @@ private:
     String  _webhookOffUrl;
     bool    _webhookRelayOn = false;
     bool    _webhookTargetCutSent = false;
+    bool    _webhookOffPending = false;
+    float   _webhookPendingCutWeight = 0.0f;
+    float   _webhookPendingEffectiveSetpoint = 0.0f;
     int     _webhookLastHttpCode = 0;
     String  _webhookLastMessage;
     unsigned long _webhookLastAttemptMs = 0;
@@ -156,6 +159,7 @@ private:
     bool registerPeer(const uint8_t* mac);
     void removePeer(const uint8_t* mac);
     bool triggerWebhook(const String& url, const char* action, const char* reason);
+    void processPendingWebhookOff();
     void maybeTriggerWebhookTarget(float weight);
     void beginStopLearningObservation(float cutWeight, float effectiveSetpoint, const char* source);
     void maybeCompleteStopLearningObservation(float weight);

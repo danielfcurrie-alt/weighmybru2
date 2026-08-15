@@ -20,6 +20,7 @@ bool Display::begin() {
 
     // Initialize I2C with custom pins
     Wire.begin(sdaPin, sclPin);
+    Wire.setClock(400000);
     
     // Test I2C connection first with timeout
     Serial.println("Testing I2C connection to display...");

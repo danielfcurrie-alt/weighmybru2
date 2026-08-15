@@ -10,3 +10,4 @@ build-output/
 *.bin
 *.elf
 *.map
+tailwindcss.exe
