@@ -237,6 +237,58 @@
         Quality: waiting for samples
       </div>
     </div>
+
+    <!-- System / Builder Details -->
+    <div class="bg-black-background rounded-xl p-3 mt-2">
+      <div class="flex items-center justify-between mb-2">
+        <h2 class="text-sm font-semibold text-gray-200">
+          <i class="fa fa-microchip mr-1" style="color: rgb(71, 168, 100);"></i>System
+        </h2>
+        <span id="systemBadge" class="text-xs text-gray-400">live</span>
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-xs">
+        <div class="flex justify-between border-b border-gray-800 py-1">
+          <span class="text-gray-400">Firmware</span>
+          <span id="systemFirmware" class="text-gray-200 text-right ml-2">Loading…</span>
+        </div>
+        <div class="flex justify-between border-b border-gray-800 py-1">
+          <span class="text-gray-400">Board / chip</span>
+          <span id="systemBoardChip" class="text-gray-200 text-right ml-2">Loading…</span>
+        </div>
+        <div class="flex justify-between border-b border-gray-800 py-1">
+          <span class="text-gray-400">Memory</span>
+          <span id="systemMemory" class="text-gray-200 text-right ml-2">Loading…</span>
+        </div>
+        <div class="flex justify-between border-b border-gray-800 py-1">
+          <span class="text-gray-400">Flash / app</span>
+          <span id="systemStorage" class="text-gray-200 text-right ml-2">Loading…</span>
+        </div>
+        <div class="flex justify-between border-b border-gray-800 py-1">
+          <span class="text-gray-400">Battery</span>
+          <span id="systemBattery" class="text-gray-200 text-right ml-2">Loading…</span>
+        </div>
+        <div class="flex justify-between border-b border-gray-800 py-1">
+          <span class="text-gray-400">Power</span>
+          <span id="systemPower" class="text-gray-200 text-right ml-2">Loading…</span>
+        </div>
+        <div class="flex justify-between border-b border-gray-800 py-1">
+          <span class="text-gray-400">HX711</span>
+          <span id="systemHx711" class="text-gray-200 text-right ml-2">Loading…</span>
+        </div>
+        <div class="flex justify-between border-b border-gray-800 py-1">
+          <span class="text-gray-400">BLE / WiFi</span>
+          <span id="systemBleWifi" class="text-gray-200 text-right ml-2">Loading…</span>
+        </div>
+        <div class="flex justify-between border-b border-gray-800 py-1">
+          <span class="text-gray-400">OTA</span>
+          <span id="systemOta" class="text-gray-200 text-right ml-2">Loading…</span>
+        </div>
+        <div class="flex justify-between border-b border-gray-800 py-1">
+          <span class="text-gray-400">Diagnostics</span>
+          <span id="systemDiagnostics" class="text-gray-200 text-right ml-2">Loading…</span>
+        </div>
+      </div>
+    </div>
     
     <!-- Status -->
     <div class="text-center">
@@ -247,6 +299,152 @@
 
 <script>
   let decimalPlaces = 1;
+  let deviceInfo = {};
+  let otaInfo = {};
+
+  function formatBytes(bytes) {
+    const value = Number(bytes);
+    if (!Number.isFinite(value) || value < 0) return 'unknown';
+    if (value >= 1048576) return `${(value / 1048576).toFixed(1)} MB`;
+    if (value >= 1024) return `${Math.round(value / 1024)} KB`;
+    return `${value} B`;
+  }
+
+  function formatPercent(value) {
+    const number = Number(value);
+    return Number.isFinite(number) ? `${number}%` : 'unknown';
+  }
+
+  function formatVoltage(value) {
+    const number = Number(value);
+    return Number.isFinite(number) ? `${number.toFixed(3)} V` : 'unknown';
+  }
+
+  function boolish(value) {
+    return value === true || value === 'true' || value === 1 || value === '1';
+  }
+
+  function setText(id, text) {
+    const element = document.getElementById(id);
+    if (element) element.textContent = text;
+  }
+
+  function updateSystemPanel(data) {
+    const firmware = data.device_version || deviceInfo.version || 'unknown';
+    const build = data.device_full_version || deviceInfo.full_version || firmware;
+    setText('systemFirmware', build);
+
+    const board = data.device_board || deviceInfo.board || 'unknown board';
+    const chip = deviceInfo.chip_model || 'ESP32-S3';
+    const cpu = deviceInfo.cpu_frequency || deviceInfo.cpu_frequency_mhz;
+    const chipBits = [`${board}`, `${chip}`];
+    if (cpu) chipBits.push(`${cpu} MHz`);
+    setText('systemBoardChip', chipBits.join(' · '));
+
+    const freeHeap = deviceInfo.free_heap;
+    const heapSize = deviceInfo.heap_size;
+    const freePsram = deviceInfo.free_psram;
+    const psramSize = deviceInfo.psram_size;
+    const memoryParts = [];
+    if (heapSize !== undefined) {
+      memoryParts.push(`heap ${formatBytes(freeHeap)} free / ${formatBytes(heapSize)}`);
+    } else if (freeHeap !== undefined) {
+      memoryParts.push(`heap ${formatBytes(freeHeap)} free`);
+    }
+    if (psramSize !== undefined && Number(psramSize) > 0) {
+      memoryParts.push(`PSRAM ${formatBytes(freePsram)} free / ${formatBytes(psramSize)}`);
+    } else if (freePsram !== undefined && Number(freePsram) > 0) {
+      memoryParts.push(`PSRAM ${formatBytes(freePsram)} free`);
+    } else {
+      memoryParts.push('PSRAM none');
+    }
+    setText('systemMemory', memoryParts.join(' · '));
+
+    const storageParts = [];
+    if (deviceInfo.flash_size !== undefined) storageParts.push(`flash ${formatBytes(deviceInfo.flash_size)}`);
+    if (deviceInfo.firmware_size !== undefined) storageParts.push(`app ${formatBytes(deviceInfo.firmware_size)}`);
+    if (otaInfo.filesystemSize !== undefined) storageParts.push(`fs ${formatBytes(otaInfo.filesystemSize)}`);
+    setText('systemStorage', storageParts.length ? storageParts.join(' · ') : 'unknown');
+
+    const batteryParts = [
+      data.battery_backend || 'battery',
+      formatVoltage(data.battery_voltage),
+      formatPercent(data.battery_percentage)
+    ];
+    if (data.battery_capacity_mah !== undefined) batteryParts.push(`${data.battery_capacity_mah} mAh`);
+    if (data.battery_learning_confidence) batteryParts.push(`learning ${data.battery_learning_confidence}`);
+    setText('systemBattery', batteryParts.join(' · '));
+
+    const chargingState = data.battery_charging_state || 'unknown';
+    const powerParts = [];
+    if (boolish(data.usb_only_power)) {
+      powerParts.push('USB only');
+    } else if (boolish(data.usb_power_present)) {
+      powerParts.push('USB present');
+    } else {
+      powerParts.push('battery');
+    }
+    if (boolish(data.battery_charging)) powerParts.push('charging');
+    if (chargingState && chargingState !== 'unknown') powerParts.push(chargingState);
+    if (data.battery_runtime_display) powerParts.push(`runtime ${data.battery_runtime_display}`);
+    setText('systemPower', powerParts.join(' · '));
+
+    const hxRate = Number(data.scale_detected_rate_hz);
+    const hxParts = [
+      data.scale_detected_rate_mode || 'UNKNOWN',
+      Number.isFinite(hxRate) ? `${hxRate.toFixed(1)} Hz` : 'waiting'
+    ];
+    if (data.scale_sample_sequence !== undefined) hxParts.push(`seq ${data.scale_sample_sequence}`);
+    setText('systemHx711', hxParts.join(' · '));
+
+    const bleWifiParts = [
+      boolish(data.bluetooth_connected) ? 'BLE connected' : 'BLE advertising',
+      data.wifi_signal_strength !== undefined ? `WiFi ${data.wifi_signal_strength} dBm` : 'WiFi off/AP'
+    ];
+    setText('systemBleWifi', bleWifiParts.join(' · '));
+
+    const otaParts = [];
+    if (otaInfo.runningPartition) otaParts.push(`running ${otaInfo.runningPartition}`);
+    if (otaInfo.nextPartition) otaParts.push(`next ${otaInfo.nextPartition}`);
+    if (otaInfo.firmwareOtaSupported !== undefined) otaParts.push(boolish(otaInfo.firmwareOtaSupported) ? 'firmware OTA ready' : 'firmware OTA unavailable');
+    if (otaInfo.filesystemOtaSupported !== undefined) otaParts.push(boolish(otaInfo.filesystemOtaSupported) ? 'fs OTA ready' : 'fs OTA unavailable');
+    setText('systemOta', otaParts.length ? otaParts.join(' · ') : 'unknown');
+
+    const diagParts = [];
+    if (data.diagnostic_event_count !== undefined && data.diagnostic_event_capacity !== undefined) {
+      diagParts.push(`${data.diagnostic_event_count}/${data.diagnostic_event_capacity} events`);
+    }
+    if (data.diagnostic_event_log_psram !== undefined) {
+      diagParts.push(boolish(data.diagnostic_event_log_psram) ? 'PSRAM log' : 'RAM log');
+    }
+    if (data.board_rgb_status_led_available !== undefined) {
+      diagParts.push(boolish(data.board_rgb_status_led_available) ? 'RGB available' : 'RGB none');
+    }
+    if (data.board_antenna_switch_available !== undefined) {
+      diagParts.push(boolish(data.board_antenna_switch_available) ? 'antenna switch' : 'fixed antenna');
+    }
+    setText('systemDiagnostics', diagParts.length ? diagParts.join(' · ') : 'no diagnostic data yet');
+  }
+
+  async function refreshStaticSystemInfo() {
+    try {
+      const response = await fetch('/api/device/info');
+      if (response.ok) {
+        deviceInfo = await response.json();
+      }
+    } catch (error) {
+      console.error('Device info fetch error:', error);
+    }
+
+    try {
+      const response = await fetch('/api/ota/status');
+      if (response.ok) {
+        otaInfo = await response.json();
+      }
+    } catch (error) {
+      console.error('OTA info fetch error:', error);
+    }
+  }
   
   // Chart.js configuration and data
   let weightFlowChart;
@@ -733,6 +931,9 @@
         
         // Update signal strength indicators
         updateSignalStrength(data);
+
+        // Update builder/system details from the live dashboard payload
+        updateSystemPanel(data);
         
         // Update timer display
         if (data.timer_display) {
@@ -834,6 +1035,8 @@
   
   // Run smart detection at a moderate cadence to adjust update frequency for brewing activity.
   setInterval(smartUpdate, 500); // Re-enabled without flooding the AP web server
+  refreshStaticSystemInfo().then(() => updateWeight());
+  setInterval(refreshStaticSystemInfo, 5000);
   updateWeight();
 
   // Signal strength update function

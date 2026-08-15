@@ -1144,7 +1144,10 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
     json += "\"chip_revision\":" + String(ESP.getChipRevision()) + ",";
     json += "\"cpu_frequency\":" + String(ESP.getCpuFreqMHz()) + ",";
     json += "\"flash_size\":" + String(ESP.getFlashChipSize()) + ",";
+    json += "\"heap_size\":" + String(ESP.getHeapSize()) + ",";
     json += "\"free_heap\":" + String(ESP.getFreeHeap()) + ",";
+    json += "\"psram_size\":" + String(ESP.getPsramSize()) + ",";
+    json += "\"free_psram\":" + String(ESP.getFreePsram()) + ",";
     json += "\"sdk_version\":\"" + String(ESP.getSdkVersion()) + "\"";
     json += "}";
     request->send(200, "application/json", json);
