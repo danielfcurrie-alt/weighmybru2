@@ -12,8 +12,9 @@
 #define WMB_PLUS_FIRMWARE_NAME "WMB+"
 #define WMB_PLUS_BLE_DEVICE_NAME "WeighMyBru+"
 #define WMB_PLUS_AP_SSID "WMBPlus-AP"
-#define WMB_PLUS_MDNS_HOSTNAME "wmbplus"
-#define WMB_PLUS_MDNS_URL "http://wmbplus.local"
+#define WMB_PLUS_MDNS_HOSTNAME "wmb"
+#define WMB_PLUS_MDNS_URL "http://wmb.local"
+#define WMB_PLUS_LEGACY_MDNS_URL "http://wmbplus.local"
 
 // Automatic build info (filled by build system)
 #ifndef WEIGHMYBRU_BUILD_NUMBER

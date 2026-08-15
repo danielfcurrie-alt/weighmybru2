@@ -421,6 +421,7 @@ void setupWiFiForced() {
         Serial.println("Beacon Interval: 200ms (increased for power savings)");
         Serial.println("Connect to '" + String(ap_ssid) + "' to configure WiFi");
         Serial.println("Access: http://192.168.4.1 or " + String(WMB_PLUS_MDNS_URL));
+        Serial.println("Legacy bookmark: " + String(WMB_PLUS_LEGACY_MDNS_URL));
         Serial.println("========================================");
         
         // Setup mDNS for AP mode
@@ -435,6 +436,21 @@ void setupmDNS() {
     if (MDNS.begin(WMB_PLUS_MDNS_HOSTNAME)) {
         Serial.println("mDNS responder started/updated");
         Serial.println("Access the scale at: " + String(WMB_PLUS_MDNS_URL));
+
+        IPAddress mdnsAddress = WiFi.status() == WL_CONNECTED ? WiFi.localIP() : WiFi.softAPIP();
+        mdns_ip_addr_t legacyAddress = {};
+        legacyAddress.addr.type = ESP_IPADDR_TYPE_V4;
+        legacyAddress.addr.u_addr.ip4.addr = static_cast<uint32_t>(mdnsAddress);
+        legacyAddress.next = nullptr;
+        if (mdns_hostname_exists("wmbplus")) {
+            mdns_delegate_hostname_remove("wmbplus");
+        }
+        esp_err_t legacyHostResult = mdns_delegate_hostname_add("wmbplus", &legacyAddress);
+        if (legacyHostResult == ESP_OK) {
+            Serial.println("Legacy mDNS alias: " + String(WMB_PLUS_LEGACY_MDNS_URL));
+        } else {
+            Serial.printf("Legacy mDNS alias failed: %s\n", esp_err_to_name(legacyHostResult));
+        }
         
         // Add service to MDNS-SD
         MDNS.addService("http", "tcp", 80);
@@ -624,6 +640,7 @@ void switchToAPMode() {
         Serial.println("IP: " + WiFi.softAPIP().toString());
         Serial.println("Config URL: http://192.168.4.1");
         Serial.println("mDNS: " + String(WMB_PLUS_MDNS_URL));
+        Serial.println("Legacy bookmark: " + String(WMB_PLUS_LEGACY_MDNS_URL));
         Serial.println("Max Clients: 2 (optimized for battery)");
         Serial.println("==================");;
         

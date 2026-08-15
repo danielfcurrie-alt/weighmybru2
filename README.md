@@ -83,6 +83,8 @@ Shared:
 
 For first-time beta installs or migration from `0.2.0-beta.1`, use the matching `factory-full.bin` for the exact board at `0x0`. It includes bootloader, dual-OTA partition table, app firmware, and LittleFS web UI.
 
+After flashing, the dashboard is available at `http://192.168.4.1` in access-point mode. When mDNS works on the client device/network, `http://wmb.local` is the primary short URL and `http://wmbplus.local` is kept as a legacy alias.
+
 For SuperMini installs, use the matching `supermini` asset names. Do not flash XIAO images onto a SuperMini or SuperMini images onto a XIAO. XIAO uses an 8MB factory image; SuperMini uses a 4MB factory image.
 
 If you are not sure which board you have, stop before flashing. Identify the board visually first:
@@ -337,7 +339,7 @@ Battery benchmark data is also available at `/api/battery/benchmark`. Reset the 
 The firmware defaults to a 700 mAh battery capacity setting. If your build uses a different pack, set the capacity on the Settings page or with:
 
 ```bash
-curl -X POST http://wmbplus.local/api/battery/capacity \
+curl -X POST http://wmb.local/api/battery/capacity \
   -H 'Content-Type: application/x-www-form-urlencoded' \
   --data 'capacityMah=1000'
 ```
@@ -347,7 +349,7 @@ Capacity does not change the voltage-to-percent curve. It lets WMB+ convert lear
 Critical battery sleep is configurable from the Settings page or with:
 
 ```bash
-curl -X POST http://wmbplus.local/api/battery/settings \
+curl -X POST http://wmb.local/api/battery/settings \
   -H 'Content-Type: application/x-www-form-urlencoded' \
   --data 'capacityMah=700&criticalShutdownEnabled=true&criticalShutdownVoltage=3.45&criticalShutdownPercent=7'
 ```

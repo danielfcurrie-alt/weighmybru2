@@ -7,7 +7,7 @@
   <link rel="icon" type="image/png" href="/favicon.png">
   <link rel="stylesheet" href="/output.css">
   <script src="/js/alpine.min.js" defer></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js"></script>
+  <script src="/chart.min.js"></script>
   <link rel="stylesheet" href="/css/all.min.css">
   
   <!-- RESPONSIVE LAYOUT CSS -->
@@ -592,11 +592,19 @@
       .catch(err => console.error("Timer reset failed:", err));
   }
 
+  let dashboardFetchInFlight = false;
+  let dashboardLastSuccessMs = 0;
+
   function updateWeight() {
+    if (dashboardFetchInFlight) {
+      return;
+    }
+    dashboardFetchInFlight = true;
     // Use combined endpoint for better performance
     fetch('/api/dashboard')
       .then(response => response.json())
       .then(data => {
+        dashboardLastSuccessMs = Date.now();
         let weight = parseFloat(data.weight);
         let flowrate = parseFloat(data.flowrate);
         
@@ -755,10 +763,13 @@
           }
         }
       })
-      .catch(err => console.error("Dashboard fetch error:", err));
+      .catch(err => console.error("Dashboard fetch error:", err))
+      .finally(() => {
+        dashboardFetchInFlight = false;
+      });
   }
 
-  let updateInterval = 100; // Start with 100ms (10x per second)
+  let updateInterval = 500; // Start with 500ms to keep the ESP web server responsive
   let lastWeight = 0;
   let isBrewingActive = false;
   let manualBrewMode = false;
@@ -771,15 +782,15 @@
     if (manualBrewMode) {
       btn.textContent = 'Exit Brew Mode';
       btn.className = 'bg-red-600 hover:bg-red-700 py-2 rounded-lg text-sm font-semibold';
-      status.textContent = 'Manual Brew Mode: Fast Updates (20/sec)';
+      status.textContent = 'Manual Brew Mode: Fast Updates (5/sec)';
       clearInterval(updateTimer);
-      updateTimer = setInterval(updateWeight, 50); // 20x per second
+      updateTimer = setInterval(updateWeight, 200); // 5x per second
     } else {
       btn.textContent = 'Brew Mode';
       btn.className = 'bg-blue-600 hover:bg-blue-700 py-2 rounded-lg text-sm font-semibold';
       status.textContent = 'Auto Mode: Smart Updates';
       clearInterval(updateTimer);
-      updateTimer = setInterval(updateWeight, 200); // Back to normal
+      updateTimer = setInterval(updateWeight, 500); // Back to normal
       isBrewingActive = false;
     }
   }
@@ -799,31 +810,30 @@
         if (weightChange > 0.5) {
           if (!isBrewingActive) {
             isBrewingActive = true;
-            document.getElementById('updateStatus').textContent = 'Auto Brew Detected: Fast Updates (20/sec)';
+            document.getElementById('updateStatus').textContent = 'Auto Brew Detected: Fast Updates (5/sec)';
             clearInterval(updateTimer);
-            updateTimer = setInterval(updateWeight, 50); // 20x per second during brewing
+            updateTimer = setInterval(updateWeight, 200); // 5x per second during brewing
           }
         } else {
           if (isBrewingActive) {
             isBrewingActive = false;
             document.getElementById('updateStatus').textContent = 'Auto Mode: Normal Updates (5/sec)';
             clearInterval(updateTimer);
-            updateTimer = setInterval(updateWeight, 200); // 5x per second when idle
+            updateTimer = setInterval(updateWeight, 500); // 2x per second when idle
           }
         }
         
         lastWeight = currentWeight;
-        updateWeight(); // Always update the display
       })
       .catch(err => console.error("Smart update error:", err));
   }
 
-  // Start with faster updates for real-time brewing experience
-  let updateTimer = setInterval(updateWeight, 100); // 100ms (10/sec) for real-time updates
-  document.getElementById('updateStatus').textContent = 'Real-time Mode: Fast Updates (10/sec)';
+  // Keep the dashboard responsive; BLE/USB carry high-rate data.
+  let updateTimer = setInterval(updateWeight, 500); // 2/sec for dashboard responsiveness
+  document.getElementById('updateStatus').textContent = 'Dashboard Mode: Stable Updates (2/sec)';
   
-  // Run smart detection every 200ms to adjust update frequency for brewing activity
-  setInterval(smartUpdate, 200); // Re-enabled for intelligent brewing detection
+  // Run smart detection at a moderate cadence to adjust update frequency for brewing activity.
+  setInterval(smartUpdate, 500); // Re-enabled without flooding the AP web server
   updateWeight();
 
   // Signal strength update function
