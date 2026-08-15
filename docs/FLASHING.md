@@ -1,10 +1,20 @@
 # Flashing WMB+ beta
 
-These instructions are for the WMB+ `0.2.0-beta.5` XIAO ESP32S3 build.
+These instructions are for WMB+ `0.2.0-beta.5` beta release assets.
+
+Do not guess the board. Pick the asset family that matches the physical board:
+
+| Board | Asset family | Factory-full size | LittleFS offset |
+| --- | --- | ---: | ---: |
+| Seeed Studio XIAO ESP32S3 | `xiao` | 8,388,608 bytes | `0x610000` |
+| ESP32-S3 SuperMini / SuperMini-style board | `supermini` | 4,194,304 bytes | `0x310000` |
+| Unexpected Maker TinyS3[D] | `tinys3d` | 8,388,608 bytes | `0x610000` |
+
+If you are unsure whether the board is XIAO, SuperMini, or TinyS3[D], stop and identify it visually before flashing. `esptool flash_id` is still useful to confirm ESP32-S3 and flash size, but it cannot always identify the board model by itself.
 
 ## Release assets
 
-The release provides four primary XIAO firmware artifacts:
+The release provides matching firmware artifacts for each supported beta board. The examples below use XIAO names; replace `xiao` with `supermini` or `tinys3d` only when that is the actual board.
 
 - `wmb-plus-0.2.0-beta.5-xiao-app.bin`
   - App image only.
@@ -47,6 +57,8 @@ The first `factory-full.bin` USB flash is what installs the dual-OTA partition t
 Use this only if the device already has a compatible ESP32-S3 bootloader and partition table.
 For web app OTA, the device must have the WMB+ dual-OTA partition table. If the device was flashed with the originally published `0.2.0-beta.1` fallback assets or another legacy/single-app layout, use the `0.2.0-beta.5` factory-full image once first.
 
+Replace `xiao` with the correct board asset family only after confirming the board. For first install or unknown partition layout, prefer the matching `factory-full.bin` at `0x0` instead of app-only.
+
 ```bash
 esptool.py --chip esp32s3 --port /dev/cu.usbmodemXXXX --baud 460800 write_flash 0x10000 wmb-plus-0.2.0-beta.5-xiao-app.bin
 ```
@@ -55,11 +67,25 @@ This does not erase NVS or calibration.
 
 ## Fresh install with recommended full merged image
 
+Use the matching `factory-full.bin` for the exact board. This is the preferred first-install path because it installs the bootloader, partition table, app firmware, and LittleFS web UI together.
+
+XIAO:
+
 ```bash
 esptool.py --chip esp32s3 --port /dev/cu.usbmodemXXXX --baud 460800 write_flash 0x0 wmb-plus-0.2.0-beta.5-xiao-factory-full.bin
 ```
 
-Use this for a clean firmware install on a XIAO ESP32S3. It installs the dual-OTA partition table required for future web app OTA and includes the LittleFS web UI.
+SuperMini:
+
+```bash
+esptool.py --chip esp32s3 --port /dev/cu.usbmodemXXXX --baud 460800 write_flash 0x0 wmb-plus-0.2.0-beta.5-supermini-factory-full.bin
+```
+
+TinyS3[D]:
+
+```bash
+esptool.py --chip esp32s3 --port /dev/cu.usbmodemXXXX --baud 460800 write_flash 0x0 wmb-plus-0.2.0-beta.5-tinys3d-factory-full.bin
+```
 
 ## Advanced minimal merged image
 

@@ -81,11 +81,19 @@ Shared:
 
 - `wmb-plus-0.2.0-beta.5-sha256.txt`
 
-For first-time beta installs or migration from `0.2.0-beta.1`, use `wmb-plus-0.2.0-beta.5-xiao-factory-full.bin` at `0x0`. It includes bootloader, dual-OTA partition table, app firmware, and LittleFS web UI.
+For first-time beta installs or migration from `0.2.0-beta.1`, use the matching `factory-full.bin` for the exact board at `0x0`. It includes bootloader, dual-OTA partition table, app firmware, and LittleFS web UI.
 
 For SuperMini installs, use the matching `supermini` asset names. Do not flash XIAO images onto a SuperMini or SuperMini images onto a XIAO. XIAO uses an 8MB factory image; SuperMini uses a 4MB factory image.
 
-Calibration should be preserved. The XIAO factory-full image writes the bootloader, partition table, app firmware, and LittleFS web UI, but it does not run `erase_flash` and does not overwrite the ESP32 NVS area at `0x9000` where WeighMyBru stores calibration. After flashing, verify with a known weight, especially on a newly built or unusual partition-layout device. Calibration can be lost if you explicitly run `erase_flash`, use a reset-NVS/factory-reset endpoint, or come from a nonstandard layout.
+If you are not sure which board you have, stop before flashing. Identify the board visually first:
+
+- **Seeed Studio XIAO ESP32S3:** use only `xiao` assets.
+- **ESP32-S3 SuperMini / SuperMini-style board:** use only `supermini` assets.
+- **Unexpected Maker TinyS3[D]:** use only `tinys3d` assets.
+
+`esptool flash_id` can confirm that the chip is an ESP32-S3 and show flash size, but it cannot always identify the board model by itself. When in doubt, send a board photo or ask before choosing an image.
+
+Calibration should be preserved. The matching factory-full image writes the bootloader, partition table, app firmware, and LittleFS web UI, but it does not run `erase_flash` and does not overwrite the ESP32 NVS area at `0x9000` where WeighMyBru stores calibration. After flashing, verify with a known weight, especially on a newly built or unusual partition-layout device. Calibration can be lost if you explicitly run `erase_flash`, use a reset-NVS/factory-reset endpoint, or come from a nonstandard layout.
 
 Important: the originally published `0.2.0-beta.1` XIAO fallback assets used LittleFS at `0x310000` and appeared to use a legacy/single-app partition layout. `0.2.0-beta.5` is the corrected dual-OTA release.
 
@@ -251,7 +259,11 @@ XIAO `0.2.0-beta.5` uses two 3MB OTA app slots and places LittleFS at `0x610000`
 If you want Codex or another coding agent to install from release assets with guardrails, use this prompt:
 
 ```text
-Install WMB+ v0.2.0-beta.5 from GitHub release assets for my board: <XIAO ESP32S3 or ESP32-S3 SuperMini>.
+Install WMB+ v0.2.0-beta.5 from GitHub release assets for my board.
+
+Board: <XIAO ESP32S3, ESP32-S3 SuperMini, or TinyS3[D]>.
+
+If the board is not explicitly identified, stop and ask me for a board photo or board name before choosing an asset.
 
 Release repo: https://github.com/danielfcurrie-alt/weighmybru2
 Release tag: v0.2.0-beta.5
@@ -259,16 +271,18 @@ Release tag: v0.2.0-beta.5
 Download the matching factory-full asset and wmb-plus-0.2.0-beta.5-sha256.txt. Verify SHA-256 and image size before flashing:
 - XIAO factory-full must be 8,388,608 bytes.
 - SuperMini factory-full must be 4,194,304 bytes.
+- TinyS3[D] factory-full must be 8,388,608 bytes.
 
 Use factory-full for first install or partition migration. This creates the dual-OTA partition layout required for later browser-upload OTA.
 Do not use the app-only asset for first install from stock/unknown partition layouts.
 
-Detect the ESP32-S3 serial port and flash size with esptool flash_id.
+Detect the ESP32-S3 serial port and flash size with esptool flash_id. Use flash_id as a safety check, not as the only board identifier. If detected flash size conflicts with the selected factory-full size, stop.
 
 Safety rules:
 - Do not run erase_flash.
 - Do not build from source.
 - Do not use assets for the other board.
+- Do not guess XIAO vs SuperMini from file names or defaults.
 - Stop and ask before write_flash.
 
 After I confirm, flash the matching factory-full image at 0x0. Then open serial at 115200 and report firmware version, BLE name, LittleFS/web status, running partition, next OTA partition, Firmware OTA readiness, HX711 rate, battery, and calibration factor.
