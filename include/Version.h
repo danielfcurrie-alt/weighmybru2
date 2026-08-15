@@ -5,7 +5,7 @@
 #define WEIGHMYBRU_VERSION_MAJOR 0
 #define WEIGHMYBRU_VERSION_MINOR 2
 #define WEIGHMYBRU_VERSION_PATCH 0
-#define WEIGHMYBRU_VERSION_PRERELEASE "beta.5"  // "", "beta", "rc1", etc.
+#define WEIGHMYBRU_VERSION_PRERELEASE "beta.6"  // "", "beta", "rc1", etc.
 
 // User-facing firmware identity. Keep internal WEIGHMYBRU_* symbols stable so
 // upstream code can merge cleanly, but present this build as WMB+.

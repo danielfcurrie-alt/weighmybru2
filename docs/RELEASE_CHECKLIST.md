@@ -19,6 +19,8 @@ Use this checklist before creating any public WMB+ beta tag.
 - Build SuperMini LittleFS: `pio run -e esp32s3-supermini -t buildfs`.
 - Build TinyS3[D] app firmware: `pio run -e esp32s3-tinys3d`.
 - Build TinyS3[D] LittleFS: `pio run -e esp32s3-tinys3d -t buildfs`.
+- Build local release assets without publishing: `./tools/build-release-assets.sh <version>`.
+- Confirm the local asset builder verifies factory-full image sizes and LittleFS offsets before any GitHub release is created.
 
 ## Release-blocking OTA smoke test
 
