@@ -934,6 +934,11 @@
 
         // Update builder/system details from the live dashboard payload
         updateSystemPanel(data);
+
+        // Use the existing dashboard payload for brew auto-detection. Do not
+        // poll /api/weight-fast separately; duplicate dashboard polling showed
+        // up as measurable cadence stalls during 80 SPS ScaleBench recordings.
+        smartUpdate(weight);
         
         // Update timer display
         if (data.timer_display) {
@@ -996,47 +1001,39 @@
     }
   }
   
-  function smartUpdate() {
+  function smartUpdate(currentWeight) {
     // Skip auto detection if manual mode is active
     if (manualBrewMode) return;
-    
-    // Check if brewing is likely active (weight changing rapidly)
-    fetch('/api/weight-fast') // Use fast endpoint for detection
-      .then(response => response.text())
-      .then(data => {
-        let currentWeight = parseFloat(data);
-        let weightChange = Math.abs(currentWeight - lastWeight);
-        
-        // If weight is changing fast (more than 0.5g in 100ms), we're likely brewing
-        if (weightChange > 0.5) {
-          if (!isBrewingActive) {
-            isBrewingActive = true;
-            document.getElementById('updateStatus').textContent = 'Auto Brew Detected: Fast Updates (5/sec)';
-            clearInterval(updateTimer);
-            updateTimer = setInterval(updateWeight, 200); // 5x per second during brewing
-          }
-        } else {
-          if (isBrewingActive) {
-            isBrewingActive = false;
-            document.getElementById('updateStatus').textContent = 'Auto Mode: Normal Updates (5/sec)';
-            clearInterval(updateTimer);
-            updateTimer = setInterval(updateWeight, 500); // 2x per second when idle
-          }
-        }
-        
-        lastWeight = currentWeight;
-      })
-      .catch(err => console.error("Smart update error:", err));
+    if (!Number.isFinite(currentWeight)) return;
+
+    let weightChange = Math.abs(currentWeight - lastWeight);
+
+    // If weight is changing fast, we're likely brewing.
+    if (weightChange > 0.5) {
+      if (!isBrewingActive) {
+        isBrewingActive = true;
+        document.getElementById('updateStatus').textContent = 'Auto Brew Detected: Fast Updates (5/sec)';
+        clearInterval(updateTimer);
+        updateTimer = setInterval(updateWeight, 200); // 5x per second during brewing
+      }
+    } else {
+      if (isBrewingActive) {
+        isBrewingActive = false;
+        document.getElementById('updateStatus').textContent = 'Auto Mode: Normal Updates (2/sec)';
+        clearInterval(updateTimer);
+        updateTimer = setInterval(updateWeight, 500); // 2x per second when idle
+      }
+    }
+
+    lastWeight = currentWeight;
   }
 
   // Keep the dashboard responsive; BLE/USB carry high-rate data.
   let updateTimer = setInterval(updateWeight, 500); // 2/sec for dashboard responsiveness
   document.getElementById('updateStatus').textContent = 'Dashboard Mode: Stable Updates (2/sec)';
   
-  // Run smart detection at a moderate cadence to adjust update frequency for brewing activity.
-  setInterval(smartUpdate, 500); // Re-enabled without flooding the AP web server
   refreshStaticSystemInfo().then(() => updateWeight());
-  setInterval(refreshStaticSystemInfo, 5000);
+  setInterval(refreshStaticSystemInfo, 60000);
   updateWeight();
 
   // Signal strength update function
