@@ -14,194 +14,544 @@
   <link rel="stylesheet" href="/output.css">
   <link rel="stylesheet" href="/css/all.min.css">
   <style>
-    :root { color-scheme: dark; }
-    body { min-height: 100vh; }
+    :root {
+      color-scheme: dark;
+      --bg: #070a0c;
+      --bg-2: #0d1717;
+      --surface: rgba(22, 27, 30, 0.88);
+      --surface-strong: rgba(34, 41, 45, 0.92);
+      --surface-soft: rgba(255, 255, 255, 0.055);
+      --line: rgba(255, 255, 255, 0.10);
+      --line-soft: rgba(255, 255, 255, 0.065);
+      --text: #f4f7f5;
+      --muted: #9ba7a1;
+      --accent: #4fd178;
+      --accent-strong: #37b865;
+      --danger: #ef4444;
+      --warning: #f0b84b;
+      --shadow: 0 22px 70px rgba(0, 0, 0, 0.45);
+    }
+    * { box-sizing: border-box; }
+    html { min-height: 100%; background: var(--bg); }
+    body {
+      min-height: 100vh;
+      margin: 0;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 20% -10%, rgba(79, 209, 120, 0.16), transparent 34rem),
+        radial-gradient(circle at 105% 8%, rgba(57, 170, 145, 0.14), transparent 30rem),
+        linear-gradient(180deg, var(--bg-2), var(--bg) 46%, #050607);
+      -webkit-font-smoothing: antialiased;
+      text-rendering: geometricPrecision;
+    }
+    a { color: inherit; text-decoration: none; }
     .safe-pad { padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
-    .app-shell { max-width: 440px; }
-    .card { background: #1f2937; border: 1px solid rgba(107, 114, 128, 0.35); }
-    .panel { background: #111827; border: 1px solid rgba(75, 85, 99, 0.42); }
-    .button { min-height: 48px; touch-action: manipulation; border-radius: 16px; font-weight: 700; }
-    .header-icon { width: 64px; height: 64px; border-radius: 18px; object-fit: cover; }
-    .preset-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
-    .nav-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-    .action-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-    .metrics-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-    .tab-active { background: #47a864; color: white; }
-    .tab-idle { background: #111827; color: #d1d5db; }
+    .app-shell {
+      width: min(100%, 456px);
+      margin: 0 auto;
+      padding: 18px 16px 22px;
+    }
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 2px 2px 8px;
+    }
+    .brand-lockup {
+      display: flex;
+      align-items: center;
+      min-width: 0;
+      gap: 12px;
+    }
+    .header-icon {
+      width: 54px;
+      height: 54px;
+      border-radius: 17px;
+      object-fit: cover;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.18), 0 16px 34px rgba(0,0,0,0.32);
+    }
+    .app-title {
+      font-size: 30px;
+      line-height: 0.98;
+      font-weight: 820;
+      letter-spacing: -0.045em;
+    }
+    .app-subtitle {
+      margin-top: 5px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.2;
+      max-width: 230px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 32px;
+      padding: 0 12px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,0.08);
+      color: var(--text);
+      font-size: 12px;
+      font-weight: 760;
+      white-space: nowrap;
+    }
+    .status-pill.ok { background: rgba(79, 209, 120, 0.18); color: #caffda; border-color: rgba(79, 209, 120, 0.35); }
+    .status-pill.warn { background: rgba(240, 184, 75, 0.18); color: #ffe3aa; border-color: rgba(240, 184, 75, 0.32); }
+    .status-pill.bad { background: rgba(239, 68, 68, 0.20); color: #ffd1d1; border-color: rgba(239, 68, 68, 0.36); }
+    .status-pill.idle { background: rgba(255,255,255,0.075); color: #d7ded9; }
+    .segmented {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 4px;
+      padding: 4px;
+      margin: 8px 0 16px;
+      border-radius: 22px;
+      background: rgba(0, 0, 0, 0.30);
+      border: 1px solid var(--line-soft);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.045);
+    }
+    .button {
+      min-height: 50px;
+      border: 0;
+      touch-action: manipulation;
+      border-radius: 18px;
+      font-weight: 800;
+      letter-spacing: -0.01em;
+      transition: transform 120ms ease, background 120ms ease, opacity 120ms ease;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .button:active { transform: scale(0.985); }
+    .button:disabled { opacity: 0.55; }
+    .tab-active {
+      background: linear-gradient(180deg, #65df8d, var(--accent-strong));
+      color: #06210f;
+      box-shadow: 0 10px 26px rgba(55, 184, 101, 0.20);
+    }
+    .tab-idle { background: transparent; color: #b7c3bd; }
+    .screen-grid { display: grid; gap: 14px; }
+    .stack { display: grid; gap: 14px; }
+    .card {
+      position: relative;
+      overflow: hidden;
+      border-radius: 30px;
+      background: linear-gradient(180deg, var(--surface-strong), var(--surface));
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+    }
+    .card::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background: linear-gradient(180deg, rgba(255,255,255,0.08), transparent 34%);
+      opacity: 0.55;
+    }
+    .card-content { position: relative; z-index: 1; padding: 20px; }
+    .hero-card { min-height: 260px; }
+    .hero-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .eyebrow {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 760;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .weight-line {
+      display: flex;
+      align-items: flex-end;
+      margin-top: 10px;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -0.07em;
+    }
+    .weight-value { font-size: clamp(68px, 19vw, 104px); line-height: 0.86; font-weight: 850; }
+    .weight-unit { margin-left: 7px; margin-bottom: 9px; color: var(--muted); font-size: 25px; font-weight: 780; letter-spacing: -0.03em; }
+    .flow-stack { text-align: right; min-width: 94px; }
+    .flow-value { margin-top: 9px; font-size: 32px; line-height: 1; font-weight: 820; font-variant-numeric: tabular-nums; letter-spacing: -0.035em; }
+    .flow-unit { color: var(--muted); font-size: 12px; font-weight: 700; }
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 22px;
+    }
+    .metric-chip {
+      min-height: 76px;
+      padding: 12px;
+      border-radius: 21px;
+      background: var(--surface-soft);
+      border: 1px solid var(--line-soft);
+    }
+    .metric-label { color: var(--muted); font-size: 11px; font-weight: 720; }
+    .metric-value { margin-top: 6px; font-size: 22px; line-height: 1.05; font-weight: 820; font-variant-numeric: tabular-nums; letter-spacing: -0.035em; }
+    .status-line {
+      margin-top: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: #c8d2cc;
+      font-size: 13px;
+      line-height: 1.35;
+    }
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex: 0 0 auto;
+      background: var(--accent);
+      box-shadow: 0 0 18px rgba(79, 209, 120, 0.68);
+    }
+    .action-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .secondary-button {
+      background: rgba(255,255,255,0.09);
+      color: var(--text);
+      border: 1px solid var(--line);
+    }
+    .primary-button {
+      background: linear-gradient(180deg, #62db89, #35ae5d);
+      color: #061f0e;
+      box-shadow: 0 12px 26px rgba(53, 174, 93, 0.20);
+    }
+    .danger-button {
+      background: linear-gradient(180deg, #f26767, #ce2f2f);
+      color: white;
+      box-shadow: 0 12px 26px rgba(206, 47, 47, 0.22);
+    }
+    .stop-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+    .section-title { font-size: 24px; font-weight: 840; letter-spacing: -0.04em; }
+    .section-subtitle { margin-top: 3px; color: var(--muted); font-size: 12px; line-height: 1.3; }
+    .target-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1.2fr) minmax(112px, 0.8fr);
+      gap: 10px;
+    }
+    .field-card, .panel {
+      padding: 13px;
+      border-radius: 22px;
+      background: rgba(0, 0, 0, 0.22);
+      border: 1px solid var(--line-soft);
+    }
+    .field-label { color: var(--muted); font-size: 11px; font-weight: 760; }
+    .target-input-wrap {
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+      margin-top: 3px;
+    }
+    .target-input {
+      width: 100%;
+      min-width: 0;
+      border: 0;
+      outline: 0;
+      background: transparent;
+      color: var(--text);
+      font-size: 38px;
+      line-height: 1;
+      font-weight: 840;
+      letter-spacing: -0.06em;
+      font-variant-numeric: tabular-nums;
+    }
+    .unit-muted { color: var(--muted); font-weight: 800; }
+    .preset-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+    .preset-button {
+      min-height: 43px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.075);
+      color: #d7e0dc;
+      border: 1px solid var(--line-soft);
+      font-size: 14px;
+      font-weight: 800;
+    }
+    .message-line {
+      min-height: 18px;
+      margin-top: 12px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+    .advanced-list { display: grid; gap: 0; }
+    .data-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 13px 0;
+      border-bottom: 1px solid var(--line-soft);
+      font-size: 14px;
+    }
+    .data-row:last-child { border-bottom: 0; }
+    .data-label { color: var(--muted); }
+    .data-value { text-align: right; font-weight: 720; }
+    .install-card { background: linear-gradient(135deg, rgba(79, 209, 120, 0.16), rgba(255,255,255,0.06)); }
+    .install-icon {
+      width: 30px;
+      height: 30px;
+      color: var(--accent);
+      stroke-width: 2.2;
+      flex: 0 0 auto;
+    }
+    .install-copy { color: #cbd5cf; font-size: 13px; line-height: 1.45; }
+    .nav-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+      padding-bottom: 3px;
+    }
+    .nav-button {
+      min-height: 58px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      border-radius: 20px;
+      background: rgba(255,255,255,0.07);
+      border: 1px solid var(--line-soft);
+      color: #d8e0dc;
+      font-size: 11px;
+      font-weight: 760;
+    }
+    .nav-button svg {
+      width: 18px;
+      height: 18px;
+      color: var(--accent);
+      stroke-width: 2.3;
+    }
     .hidden-hard { display: none !important; }
+    input[type=number] { appearance: textfield; -moz-appearance: textfield; }
     input[type=number]::-webkit-inner-spin-button,
-    input[type=number]::-webkit-outer-spin-button { opacity: 1; }
+    input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+    @media (prefers-reduced-motion: reduce) {
+      .button { transition: none; }
+      .button:active { transform: none; }
+    }
     @media (min-width: 900px) {
-      .app-shell { max-width: 980px; }
-      .desktop-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 420px); gap: 16px; align-items: start; }
-      .header-icon { width: 56px; height: 56px; }
+      .app-shell { width: min(100%, 980px); padding: 22px; }
+      .screen-grid { grid-template-columns: minmax(0, 1fr) minmax(320px, 420px); gap: 16px; align-items: start; }
+      .header-icon { width: 58px; height: 58px; }
+      .hero-card { min-height: 318px; }
+      .weight-value { font-size: 118px; }
+      .nav-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 370px) {
+      .app-shell { padding-left: 12px; padding-right: 12px; }
+      .weight-value { font-size: 62px; }
+      .target-row { grid-template-columns: 1fr; }
+      .metrics-grid { gap: 6px; }
+      .metric-chip { padding: 10px; }
+      .metric-value { font-size: 18px; }
     }
   </style>
 </head>
-<body class="bg-black-background text-white font-sans">
-  <main class="safe-pad app-shell mx-auto px-4 py-4 space-y-4">
-    <header class="flex items-center justify-between gap-3">
-      <a href="/" aria-label="Dashboard" class="flex items-center gap-3 min-w-0">
+<body class="font-sans">
+  <main class="safe-pad app-shell">
+    <header class="topbar">
+      <a href="/" aria-label="Dashboard" class="brand-lockup">
         <img src="/icons/wmb-plus-192.png" alt="" class="header-icon flex-shrink-0">
         <div class="min-w-0">
-          <h1 class="text-2xl font-bold leading-tight">WMB+</h1>
-          <p id="headerSubtext" class="text-xs text-gray-400 truncate">Scale · StopMyBru · OTA</p>
+          <h1 class="app-title">WMB+</h1>
+          <p id="headerSubtext" class="app-subtitle">Scale · StopMyBru · OTA</p>
         </div>
       </a>
-      <span id="connectionPill" class="px-3 py-1 rounded-full text-xs bg-gray-700 text-gray-200 whitespace-nowrap">Connecting</span>
+      <span id="connectionPill" class="status-pill idle">Connecting</span>
     </header>
 
-    <section class="grid grid-cols-2 gap-2 p-1 rounded-2xl bg-black-select">
+    <section class="segmented" aria-label="View mode">
       <button id="simpleTab" onclick="setViewMode('simple')" class="button tab-active">Simple</button>
       <button id="advancedTab" onclick="setViewMode('advanced')" class="button tab-idle">More Data</button>
     </section>
 
-    <div class="desktop-grid">
-      <div class="space-y-4">
-        <section class="card rounded-3xl p-5">
-          <div class="flex items-start justify-between gap-3">
+    <div class="screen-grid">
+      <div class="stack">
+        <section class="card hero-card">
+          <div class="card-content">
+            <div class="hero-top">
             <div>
-              <p class="text-sm text-gray-400">Live weight</p>
-          <div class="text-5xl font-bold tracking-tight leading-none">
-            <span id="weight">—</span><span class="text-2xl text-gray-400 ml-1">g</span>
-          </div>
+              <p class="eyebrow">Live weight</p>
+              <div class="weight-line">
+                <span id="weight" class="weight-value">—</span><span class="weight-unit">g</span>
+              </div>
             </div>
-            <div class="text-right">
-              <p class="text-sm text-gray-400">Flow</p>
-              <p class="text-3xl font-semibold leading-tight">
-                <span id="flow">—</span><span class="text-sm text-gray-400 ml-1">g/s</span>
-              </p>
-            </div>
-          </div>
-      <div class="metrics-grid mt-5">
-            <div class="panel rounded-2xl p-3">
-              <p class="text-xs text-gray-400">Battery</p>
-              <p id="battery" class="text-xl font-semibold">—</p>
-            </div>
-            <div class="panel rounded-2xl p-3">
-              <p class="text-xs text-gray-400">Cadence</p>
-              <p id="cadence" class="text-xl font-semibold">—</p>
-            </div>
-            <div class="panel rounded-2xl p-3">
-              <p class="text-xs text-gray-400">Quality</p>
-              <p id="quality" class="text-xl font-semibold">—</p>
+            <div class="flow-stack">
+              <p class="eyebrow">Flow</p>
+              <p class="flow-value"><span id="flow">—</span></p>
+              <p class="flow-unit">g/s</p>
             </div>
           </div>
-          <p id="statusText" class="text-xs text-gray-400 mt-4">Waiting for scale data…</p>
+            <div class="metrics-grid">
+            <div class="metric-chip">
+              <p class="metric-label">Battery</p>
+              <p id="battery" class="metric-value">—</p>
+            </div>
+            <div class="metric-chip">
+              <p class="metric-label">Cadence</p>
+              <p id="cadence" class="metric-value">—</p>
+            </div>
+            <div class="metric-chip">
+              <p class="metric-label">Quality</p>
+              <p id="quality" class="metric-value">—</p>
+            </div>
+          </div>
+            <p class="status-line"><span class="status-dot"></span><span id="statusText">Waiting for scale data…</span></p>
+          </div>
         </section>
 
-    <section class="action-grid">
-          <button id="tareButton" onclick="tareScale()" class="button bg-gray-700 hover:bg-gray-600 active:bg-gray-500">
+        <section class="action-grid">
+          <button id="tareButton" onclick="tareScale()" class="button secondary-button">
             <i class="fa fa-balance-scale mr-1"></i>Tare
           </button>
-          <button id="wakeLockButton" onclick="toggleWakeLock()" class="button bg-gray-700 hover:bg-gray-600 active:bg-gray-500">
+          <button id="wakeLockButton" onclick="toggleWakeLock()" class="button secondary-button">
             Keep Awake
           </button>
         </section>
 
-        <section class="card rounded-3xl p-5 space-y-4">
-          <div class="flex items-center justify-between gap-3">
+        <section class="card">
+          <div class="card-content">
+          <div class="stop-header">
             <div>
-              <h2 class="text-xl font-semibold">StopMyBru</h2>
-              <p id="smbSubtitle" class="text-xs text-gray-400">Target stop controls</p>
+              <h2 class="section-title">StopMyBru</h2>
+              <p id="smbSubtitle" class="section-subtitle">Target stop controls</p>
             </div>
-            <span id="relayPill" class="px-3 py-1 rounded-full text-xs bg-gray-700 text-gray-200 whitespace-nowrap">Idle</span>
+            <span id="relayPill" class="status-pill idle">Idle</span>
           </div>
 
-          <div class="action-grid">
-            <label class="block">
-              <span class="text-xs text-gray-400">Target</span>
-              <div class="flex items-center mt-1 bg-black-background rounded-2xl border border-gray-700 px-3">
+          <div class="target-row">
+            <label class="field-card">
+              <span class="field-label">Target</span>
+              <div class="target-input-wrap">
                 <input id="targetInput" type="number" min="0" max="2000" step="0.1" value="36.0"
-                       class="w-full bg-transparent text-white text-3xl font-semibold py-2 focus:outline-none">
-                <span class="text-gray-400">g</span>
+                       class="target-input">
+                <span class="unit-muted">g</span>
               </div>
             </label>
-            <div class="panel rounded-2xl p-3">
-              <p class="text-xs text-gray-400">Cutoff</p>
-              <p id="effectiveTarget" class="text-2xl font-semibold">—</p>
+            <div class="panel">
+              <p class="field-label">Cutoff</p>
+              <p id="effectiveTarget" class="metric-value">—</p>
             </div>
           </div>
 
           <div class="preset-grid" aria-label="Target presets">
-            <button onclick="setPresetTarget(18)" class="button bg-black-select hover:bg-gray-700 text-sm">18g</button>
-            <button onclick="setPresetTarget(30)" class="button bg-black-select hover:bg-gray-700 text-sm">30g</button>
-            <button onclick="setPresetTarget(36)" class="button bg-black-select hover:bg-gray-700 text-sm">36g</button>
-            <button onclick="setPresetTarget(40)" class="button bg-black-select hover:bg-gray-700 text-sm">40g</button>
+            <button onclick="setPresetTarget(18)" class="preset-button">18g</button>
+            <button onclick="setPresetTarget(30)" class="preset-button">30g</button>
+            <button onclick="setPresetTarget(36)" class="preset-button">36g</button>
+            <button onclick="setPresetTarget(40)" class="preset-button">40g</button>
           </div>
 
-          <button onclick="saveTarget()" class="button w-full bg-button-green hover:bg-green-700 active:bg-green-800">
+          <button onclick="saveTarget()" class="button primary-button w-full mt-3">
             Save Target
           </button>
 
-          <div class="action-grid">
-            <button onclick="relayOn()" class="button bg-red-700 hover:bg-red-600 active:bg-red-800">
+          <div class="action-grid mt-3">
+            <button onclick="relayOn()" class="button danger-button">
               Relay ON
             </button>
-            <button onclick="relayOff()" class="button bg-gray-700 hover:bg-gray-600 active:bg-gray-500">
+            <button onclick="relayOff()" class="button secondary-button">
               Relay OFF
             </button>
           </div>
 
-          <p id="smbMessage" class="text-xs text-gray-400"></p>
+          <p id="smbMessage" class="message-line"></p>
+          </div>
         </section>
       </div>
 
-      <aside class="space-y-4">
-        <section id="advancedPanel" class="card rounded-3xl p-5 space-y-4 hidden-hard">
-          <div class="flex items-center justify-between">
-            <h2 class="text-xl font-semibold">More Data</h2>
-            <button onclick="shareStatus()" class="text-sm text-green-400 hover:text-green-300">Share</button>
+      <aside class="stack">
+        <section id="advancedPanel" class="card hidden-hard">
+          <div class="card-content">
+          <div class="stop-header">
+            <h2 class="section-title">More Data</h2>
+            <button onclick="shareStatus()" class="status-pill ok">Share</button>
           </div>
-          <div class="space-y-2 text-sm">
-            <div class="flex justify-between gap-3 border-b border-gray-700 pb-2">
-              <span class="text-gray-400">Firmware</span>
-              <span id="advFirmware" class="text-right">—</span>
+          <div class="advanced-list">
+            <div class="data-row">
+              <span class="data-label">Firmware</span>
+              <span id="advFirmware" class="data-value">—</span>
             </div>
-            <div class="flex justify-between gap-3 border-b border-gray-700 pb-2">
-              <span class="text-gray-400">Board</span>
-              <span id="advBoard" class="text-right">—</span>
+            <div class="data-row">
+              <span class="data-label">Board</span>
+              <span id="advBoard" class="data-value">—</span>
             </div>
-            <div class="flex justify-between gap-3 border-b border-gray-700 pb-2">
-              <span class="text-gray-400">Power</span>
-              <span id="advPower" class="text-right">—</span>
+            <div class="data-row">
+              <span class="data-label">Power</span>
+              <span id="advPower" class="data-value">—</span>
             </div>
-            <div class="flex justify-between gap-3 border-b border-gray-700 pb-2">
-              <span class="text-gray-400">WiFi/BLE</span>
-              <span id="advConnectivity" class="text-right">—</span>
+            <div class="data-row">
+              <span class="data-label">WiFi/BLE</span>
+              <span id="advConnectivity" class="data-value">—</span>
             </div>
-            <div class="flex justify-between gap-3 border-b border-gray-700 pb-2">
-              <span class="text-gray-400">Stop learning</span>
-              <span id="advLearning" class="text-right">—</span>
+            <div class="data-row">
+              <span class="data-label">Stop learning</span>
+              <span id="advLearning" class="data-value">—</span>
             </div>
-            <div class="flex justify-between gap-3">
-              <span class="text-gray-400">Last result</span>
-              <span id="advLastResult" class="text-right">—</span>
+            <div class="data-row">
+              <span class="data-label">Last result</span>
+              <span id="advLastResult" class="data-value">—</span>
             </div>
+          </div>
           </div>
         </section>
 
-        <section id="installCard" class="card rounded-3xl p-5 space-y-3">
-          <div class="flex items-center justify-between gap-3">
+        <section id="installCard" class="card install-card">
+          <div class="card-content">
+          <div class="stop-header">
             <div>
-              <h2 class="text-lg font-semibold">Install on this device</h2>
-              <p class="text-xs text-gray-400">Add WMB+ to your home screen for quick access.</p>
+              <h2 class="section-title" style="font-size: 21px;">Install WMB+</h2>
+              <p class="section-subtitle">Home-screen access to tare, target stop, calibration, settings, and updates.</p>
             </div>
-            <i class="fa fa-mobile-alt text-2xl text-green-400"></i>
+            <svg class="install-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+              <rect x="8" y="3" width="8" height="18" rx="2.2"></rect>
+              <path d="M11 18h2M12 7v7M9.8 9.2 12 7l2.2 2.2" stroke-linecap="round" stroke-linejoin="round"></path>
+            </svg>
           </div>
-          <button id="installButton" onclick="installWebApp()" class="hidden-hard button w-full bg-button-green hover:bg-green-700">
+          <button id="installButton" onclick="installWebApp()" class="hidden-hard button primary-button w-full">
             Install WMB+
           </button>
-          <div id="installInstructions" class="text-sm text-gray-300 leading-relaxed">
+          <div id="installInstructions" class="install-copy">
             iPhone/iPad: tap Share, then <strong>Add to Home Screen</strong>. Android/desktop Chrome: use browser menu, then <strong>Install app</strong> or <strong>Add to Home screen</strong>.
+          </div>
           </div>
         </section>
 
-        <nav class="nav-grid pb-4 text-center text-sm">
-          <a href="/smb.html" class="bg-black-select rounded-2xl py-3">Full StopMyBru</a>
-          <a href="/calibration.html" class="bg-black-select rounded-2xl py-3">Calibration</a>
-          <a href="/settings.html" class="bg-black-select rounded-2xl py-3">Settings</a>
-          <a href="/updates.html" class="bg-black-select rounded-2xl py-3">Updates</a>
+        <nav class="nav-grid" aria-label="WMB+ tools">
+          <a href="/smb.html" class="nav-button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+              <path d="M7 4v7M17 4v7M5 11h14M8 11v3a4 4 0 0 0 8 0v-3M12 18v2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span>Stop</span>
+          </a>
+          <a href="/calibration.html" class="nav-button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+              <path d="M12 4v16M6 7h12M6 7l-3 6h6L6 7ZM18 7l-3 6h6l-3-6ZM9 20h6" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span>Calibrate</span>
+          </a>
+          <a href="/settings.html" class="nav-button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+              <path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8ZM4 12h2M18 12h2M12 4v2M12 18v2M6.3 6.3l1.4 1.4M16.3 16.3l1.4 1.4M17.7 6.3l-1.4 1.4M7.7 16.3l-1.4 1.4" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span>Settings</span>
+          </a>
+          <a href="/updates.html" class="nav-button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+              <path d="M12 4v12M7 9l5-5 5 5M5 20h14" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span>Updates</span>
+          </a>
         </nav>
       </aside>
     </div>
@@ -225,13 +575,8 @@
     const el = document.getElementById(id);
     if (!el) return;
     el.textContent = text;
-    const colors = {
-      ok: 'bg-green-700 text-white',
-      warn: 'bg-yellow-700 text-white',
-      bad: 'bg-red-700 text-white',
-      idle: 'bg-gray-700 text-gray-200'
-    };
-    el.className = `px-3 py-1 rounded-full text-xs ${colors[mode] || colors.idle}`;
+    const normalized = ['ok', 'warn', 'bad', 'idle'].includes(mode) ? mode : 'idle';
+    el.className = `status-pill ${normalized}`;
   }
 
   function formatNumber(value, digits) {
