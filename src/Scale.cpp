@@ -27,6 +27,9 @@ constexpr float PLAUSIBILITY_CONFIRM_TOLERANCE_FRACTION = 0.25f;
 constexpr uint8_t PLAUSIBILITY_CONFIRM_SAMPLE_COUNT = 2;
 constexpr unsigned long PLAUSIBILITY_CANDIDATE_TIMEOUT_MS = 250;
 constexpr unsigned long PLAUSIBILITY_SUPPRESS_AFTER_TARE_MS = 500;
+constexpr uint8_t HIGH_RATE_TARE_SAMPLE_CAP =
+    WMBP_HIGH_RATE_TARE_SAMPLES < 1 ? 1 :
+    (WMBP_HIGH_RATE_TARE_SAMPLES > 20 ? 20 : WMBP_HIGH_RATE_TARE_SAMPLES);
 
 float clampFloat(float value, float minValue, float maxValue) {
     if (value < minValue) {
@@ -191,7 +194,6 @@ void Scale::tare(uint8_t times) {
     lastBrewingActivity = 0;
     currentWeight = 0.0f;
     lastStableWeight = 0.0f;
-    sampleSequence++;
     lastSampleMillis = millis();
     lastSampleMicros = 0;
     hasLastRawSampleWeight = false;
@@ -227,7 +229,6 @@ void Scale::tare(uint8_t times) {
     lastBrewingActivity = 0;
     currentWeight = 0.0f;
     lastStableWeight = 0.0f;
-    sampleSequence++;
     lastSampleMillis = millis();
     lastSampleMicros = 0;
     hasLastRawSampleWeight = false;
@@ -513,12 +514,18 @@ bool Scale::popAcquiredRawSample(int32_t& rawCounts, uint32_t& sampleMicros, uin
 }
 
 bool Scale::performRawTare(uint8_t times, uint32_t timeoutMs) {
-    const uint8_t targetSamples = times == 0 ? 1 : times;
+    uint8_t targetSamples = times == 0 ? 1 : times;
     int64_t total = 0;
     uint8_t samples = 0;
     const unsigned long startMillis = millis();
 #if WMBP_ACQUISITION_TASK
     if (hx711Acquisition.isStarted()) {
+        // Runtime tare runs on loopTask. Keep the averaging window short enough
+        // that USB/BLE/public sample publishing does not show a visible gap
+        // while the high-priority raw acquisition task continues uninterrupted.
+        if (targetSamples > HIGH_RATE_TARE_SAMPLE_CAP) {
+            targetSamples = HIGH_RATE_TARE_SAMPLE_CAP;
+        }
         hx711Acquisition.clearSamples();
         while (samples < targetSamples && millis() - startMillis < timeoutMs) {
             int32_t rawCounts = 0;

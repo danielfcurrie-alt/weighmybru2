@@ -945,6 +945,11 @@ void loop() {
   // before the next acquisition attempt.
   scaleCommandQueue.process(scale);
 
+  // Execute pending tare before sampling/publishing. Otherwise tare can advance
+  // the public sequence after this loop has already selected a fresh sample,
+  // producing a non-contiguous USB/BLE public stream around midstream tare.
+  touchSensor.update();
+
   // Let the HX711 ready signal define acquisition cadence. Downstream consumers
   // are updated exactly once per accepted public scale sample.
   float weight = scale.getWeight();
@@ -964,7 +969,6 @@ void loop() {
 
 #if WMBP_WOKWI_RUNTIME_HARNESS
   batteryMonitor.update();
-  touchSensor.update();
   if (freshScaleSample) {
     printUsbWeightSample(weight);
   }
@@ -989,9 +993,6 @@ void loop() {
   // Drive StopMyBru pairing state machine
   smbComms.update();
 
-  // Update touch sensor
-  touchSensor.update();
-  
   // Update power manager
   powerManager.setAutoSleepInhibited(batteryMonitor.isUsbPowerPresent(), "usb_power");
   powerManager.update();
