@@ -40,7 +40,12 @@ static String otaLastFilename;
 static String cachedDeviceInfoJson;
 static String cachedOtaIdleStatusJson;
 static String cachedDashboardJson[2];
+static String cachedBatteryJson[2];
+static String cachedDiagnosticsSelfTestJson[2];
+static String cachedFilterDebugJson[2];
+static String cachedSettingsJson[2];
 static volatile uint8_t cachedDashboardActiveIndex = 0;
+static volatile uint8_t cachedRuntimeApiActiveIndex = 0;
 static unsigned long lastDashboardCacheUpdateMs = 0;
 static constexpr unsigned long DASHBOARD_CACHE_INTERVAL_MS = 1000;
 
@@ -537,11 +542,170 @@ static String buildDashboardJson(Scale &scale,
   return json;
 }
 
+static String cachedJsonOrWarming(const String cache[2], uint8_t activeIndex) {
+  return cache[activeIndex].length() > 0
+      ? cache[activeIndex]
+      : String("{\"status\":\"warming\"}");
+}
+
+static String buildBatteryJson(BatteryMonitor &battery) {
+  String json;
+  json.reserve(2200);
+  json += "{";
+  json += "\"voltage\":" + String(battery.getBatteryVoltage(), 3);
+  json += ",\"percentage\":" + String(battery.getBatteryPercentage());
+  json += ",\"raw_percentage\":" + String(battery.getRawBatteryPercentage());
+  json += ",\"capacity_mah\":" + String(battery.getBatteryCapacityMah());
+  json += ",\"backend\":\"" + battery.getBatteryBackend() + "\"";
+  json += ",\"fuel_gauge\":" + String(battery.hasFuelGauge() ? "true" : "false");
+  json += ",\"fuel_gauge_soc\":" + String(battery.getFuelGaugeStateOfCharge(), 2);
+  json += ",\"usb_power_present\":" + String(battery.isUsbPowerPresent() ? "true" : "false");
+  json += ",\"usb_only_power\":" + String(battery.isUsbOnlyPower() ? "true" : "false");
+  json += ",\"status\":\"" + battery.getBatteryStatus() + "\"";
+  json += ",\"segments\":" + String(battery.getBatterySegments());
+  json += ",\"low_battery\":" + String(battery.isLowBattery() ? "true" : "false");
+  json += ",\"critical_battery\":" + String(battery.isCriticalBattery() ? "true" : "false");
+  json += ",\"charging\":" + String(battery.isCharging() ? "true" : "false");
+  json += ",\"charging_state\":\"" + battery.getChargingState() + "\"";
+  json += ",\"critical_shutdown_enabled\":" + String(battery.isCriticalShutdownEnabled() ? "true" : "false");
+  json += ",\"critical_shutdown_voltage\":" + String(battery.getCriticalShutdownVoltage(), 2);
+  json += ",\"critical_shutdown_percent\":" + String(static_cast<unsigned int>(battery.getCriticalShutdownPercent()));
+  json += ",\"critical_recovery_voltage\":" + String(battery.getCriticalRecoveryVoltage(), 2);
+  json += ",\"critical_recovery_percent\":" + String(static_cast<unsigned int>(battery.getCriticalRecoveryPercent()));
+  json += ",\"critical_shutdown_active\":" + String(battery.shouldForceCriticalSleep() ? "true" : "false");
+  int runtimeMinutes = battery.getEstimatedRuntimeMinutesRemaining();
+  json += ",\"runtime_estimate_available\":" + String(runtimeMinutes >= 0 ? "true" : "false");
+  json += ",\"runtime_minutes_remaining\":";
+  json += runtimeMinutes >= 0 ? String(runtimeMinutes) : "null";
+  json += ",\"runtime_display\":\"" + formatRuntimeEstimate(runtimeMinutes) + "\"";
+  json += ",\"runtime_confidence\":\"" + battery.getRuntimeEstimateConfidence() + "\"";
+  json += ",\"runtime_observation_minutes\":" + String(battery.getRuntimeObservationMinutes());
+  json += ",\"discharge_rate_percent_per_hour\":" + String(battery.getDischargeRatePercentPerHour(), 3);
+  json += ",\"discharge_current_ma\":" + String(battery.getEstimatedDischargeCurrentMa(), 2);
+  json += ",\"learned_discharge_rate_percent_per_hour\":" + String(battery.getLearnedDischargeRatePercentPerHour(), 3);
+  json += ",\"learned_discharge_current_ma\":" + String(battery.getLearnedDischargeCurrentMa(), 2);
+  json += ",\"learned_discharge_observations\":" + String(battery.getLearnedDischargeObservations());
+  int minutesTo80 = battery.getEstimatedMinutesTo80();
+  int minutesTo100 = battery.getEstimatedMinutesTo100();
+  json += ",\"charge_estimate_available\":" + String((minutesTo80 >= 0 || minutesTo100 >= 0) ? "true" : "false");
+  json += ",\"minutes_to_80\":";
+  json += minutesTo80 >= 0 ? String(minutesTo80) : "null";
+  json += ",\"minutes_to_80_display\":\"" + formatRuntimeEstimate(minutesTo80) + "\"";
+  json += ",\"minutes_to_100\":";
+  json += minutesTo100 >= 0 ? String(minutesTo100) : "null";
+  json += ",\"minutes_to_100_display\":\"" + formatRuntimeEstimate(minutesTo100) + "\"";
+  json += ",\"charge_confidence\":\"" + battery.getChargeEstimateConfidence() + "\"";
+  json += ",\"charge_observation_minutes\":" + String(battery.getChargeObservationMinutes());
+  json += ",\"charge_rate_percent_per_hour\":" + String(battery.getChargeRatePercentPerHour(), 3);
+  json += ",\"charge_current_ma\":" + String(battery.getEstimatedChargeCurrentMa(), 2);
+  json += ",\"learned_charge_rate_percent_per_hour\":" + String(battery.getLearnedChargeRatePercentPerHour(), 3);
+  json += ",\"learned_charge_current_ma\":" + String(battery.getLearnedChargeCurrentMa(), 2);
+  json += ",\"learned_charge_observations\":" + String(battery.getLearnedChargeObservations());
+  json += ",\"battery_learning_confidence\":\"" + battery.getBatteryLearningConfidence() + "\"";
+  json += ",\"calibration_offset\":" + String(battery.getCalibrationOffset(), 3);
+  json += "}";
+  return json;
+}
+
+static String buildDiagnosticsSelfTestJson(Scale &scale,
+                                           Display &display,
+                                           BatteryMonitor &battery,
+                                           BluetoothScale &bluetoothScale,
+                                           DiagnosticEventLog &diagnosticEvents,
+                                           BoardHardware &boardHardware) {
+  String json;
+  json.reserve(2400);
+  json += "{";
+  json += "\"firmware\":\"" + String(WMB_PLUS_FIRMWARE_NAME) + "\",";
+  json += "\"version\":\"" + String(WEIGHMYBRU_VERSION_STRING) + "\",";
+  json += "\"full_version\":\"" + String(WEIGHMYBRU_FULL_VERSION) + "\",";
+  json += "\"board\":\"" + String(WEIGHMYBRU_BOARD_NAME) + "\",";
+  json += "\"chip_model\":\"" + String(ESP.getChipModel()) + "\",";
+  json += "\"cpu_frequency_mhz\":" + String(ESP.getCpuFreqMHz()) + ",";
+  json += "\"free_heap\":" + String(ESP.getFreeHeap()) + ",";
+  json += "\"heap_size\":" + String(ESP.getHeapSize()) + ",";
+  json += "\"free_psram\":" + String(ESP.getFreePsram()) + ",";
+  json += "\"psram_size\":" + String(ESP.getPsramSize()) + ",";
+  json += "\"scale_connected\":" + String(scale.isHX711Connected() ? "true" : "false") + ",";
+  json += "\"display_connected\":" + String(display.isConnected() ? "true" : "false") + ",";
+  json += "\"ble_connected\":" + String(bluetoothScale.isConnected() ? "true" : "false") + ",";
+  json += "\"battery_valid\":" + String(battery.hasValidReading() ? "true" : "false") + ",";
+  json += "\"battery_backend\":\"" + battery.getBatteryBackend() + "\",";
+  json += "\"battery_percentage\":" + String(battery.getBatteryPercentage()) + ",";
+  json += "\"battery_voltage\":" + String(battery.getBatteryVoltage(), 3) + ",";
+  json += "\"fuel_gauge\":" + String(battery.hasFuelGauge() ? "true" : "false") + ",";
+  json += "\"usb_power_present\":" + String(battery.isUsbPowerPresent() ? "true" : "false") + ",";
+  json += "\"usb_only_power\":" + String(battery.isUsbOnlyPower() ? "true" : "false") + ",";
+  json += "\"hx711_rate_hz\":" + String(scale.getDetectedSampleRateHz(), 2) + ",";
+  json += "\"hx711_rate_mode\":\"" + scale.getDetectedHx711RateMode() + "\",";
+  json += "\"scale_quality\":" + String(scale.getScaleQualityScore()) + ",";
+  json += "\"lifetime_quality\":" + String(scale.getLifetimeQualityScore()) + ",";
+  json += "\"diagnostic_events\":" + diagnosticEvents.toJson(8) + ",";
+  json += "\"board_hardware\":" + boardHardware.toJson();
+  json += "}";
+  return json;
+}
+
+static String buildFilterDebugJson(Scale &scale) {
+  String json;
+  json.reserve(512);
+  json += "{";
+  json += "\"filterState\":\"" + scale.getFilterState() + "\",";
+  json += "\"brewingThreshold\":" + String(scale.getBrewingThreshold(), 2) + ",";
+  json += "\"stabilityTimeout\":" + String(scale.getStabilityTimeout()) + ",";
+  json += "\"medianSamples\":" + String(scale.getMedianSamples()) + ",";
+  json += "\"averageSamples\":" + String(scale.getAverageSamples()) + ",";
+  json += "\"zeroClamped\":" + String(scale.isZeroClamped() ? "true" : "false") + ",";
+  json += "\"autoZeroActive\":" + String(scale.isAutoZeroActive() ? "true" : "false") + ",";
+  json += "\"autoZeroCorrection\":" + String(scale.getAutoZeroCorrectionGrams(), 3) + ",";
+  json += "\"recentGlitch\":" + String(scale.hasRecentGlitch() ? "true" : "false") + ",";
+  json += "\"glitchCount\":" + String(scale.getGlitchCount()) + ",";
+  json += "\"currentWeight\":" + String(scale.getCurrentWeight(), 1);
+  json += "}";
+  return json;
+}
+
+static String buildSettingsJson(PowerManager &powerManager,
+                                BatteryMonitor &battery,
+                                BoardHardware &boardHardware) {
+  String ssid = getStoredSSID();
+  const bool hasPassword = getStoredPassword().length() > 0;
+  const int decimals = getCachedDecimals();
+
+  String json;
+  json.reserve(900);
+  json += "{";
+  json += "\"ssid\":\"" + ssid + "\",";
+  json += "\"password_configured\":" + String(hasPassword ? "true" : "false") + ",";
+  json += "\"decimals\":" + String(decimals) + ",";
+  json += "\"autoSleepEnabled\":" + String(powerManager.getAutoSleepEnabled() ? "true" : "false") + ",";
+  json += "\"autoSleepTime\":" + String(powerManager.getAutoSleepTime()) + ",";
+  json += "\"autoSleepDrift\":" + String(powerManager.getAutoSleepDrift(), 1) + ",";
+  json += "\"autoSleepInhibited\":" + String(powerManager.getAutoSleepInhibited() ? "true" : "false") + ",";
+  json += "\"autoSleepInhibitReason\":\"" + powerManager.getAutoSleepInhibitReason() + "\",";
+  json += "\"usbPowerPresent\":" + String(battery.isUsbPowerPresent() ? "true" : "false") + ",";
+  json += "\"usbOnlyPower\":" + String(battery.isUsbOnlyPower() ? "true" : "false") + ",";
+  json += "\"batteryCapacityMah\":" + String(battery.getBatteryCapacityMah()) + ",";
+  json += "\"criticalShutdownEnabled\":" + String(battery.isCriticalShutdownEnabled() ? "true" : "false") + ",";
+  json += "\"criticalShutdownVoltage\":" + String(battery.getCriticalShutdownVoltage(), 2) + ",";
+  json += "\"criticalShutdownPercent\":" + String(static_cast<unsigned int>(battery.getCriticalShutdownPercent())) + ",";
+  json += "\"criticalRecoveryVoltage\":" + String(battery.getCriticalRecoveryVoltage(), 2) + ",";
+  json += "\"criticalRecoveryPercent\":" + String(static_cast<unsigned int>(battery.getCriticalRecoveryPercent())) + ",";
+  json += "\"boardRgbStatusLedAvailable\":" + String(boardHardware.hasRgbStatusLed() ? "true" : "false") + ",";
+  json += "\"boardRgbStatusLedEnabled\":" + String(boardHardware.isRgbStatusLedEnabled() ? "true" : "false") + ",";
+  json += "\"boardRgbStatusLedBrightness\":" + String(boardHardware.getRgbStatusLedBrightness()) + ",";
+  json += "\"boardAntennaSwitchAvailable\":" + String(boardHardware.hasAntennaSwitch() ? "true" : "false") + ",";
+  json += "\"boardExternalAntennaSelected\":" + String(boardHardware.isExternalAntennaSelected() ? "true" : "false");
+  json += "}";
+  return json;
+}
+
 void updateDashboardCache(Scale &scale,
                           FlowRate &flowRate,
                           BluetoothScale &bluetoothScale,
                           Display &display,
                           BatteryMonitor &battery,
+                          PowerManager &powerManager,
                           DiagnosticEventLog &diagnosticEvents,
                           BoardHardware &boardHardware) {
   const unsigned long now = millis();
@@ -560,6 +724,22 @@ void updateDashboardCache(Scale &scale,
       diagnosticEvents,
       boardHardware);
   cachedDashboardActiveIndex = inactiveIndex;
+
+  const uint8_t runtimeInactiveIndex = cachedRuntimeApiActiveIndex == 0 ? 1 : 0;
+  cachedBatteryJson[runtimeInactiveIndex] = buildBatteryJson(battery);
+  cachedDiagnosticsSelfTestJson[runtimeInactiveIndex] = buildDiagnosticsSelfTestJson(
+      scale,
+      display,
+      battery,
+      bluetoothScale,
+      diagnosticEvents,
+      boardHardware);
+  cachedFilterDebugJson[runtimeInactiveIndex] = buildFilterDebugJson(scale);
+  cachedSettingsJson[runtimeInactiveIndex] = buildSettingsJson(
+      powerManager,
+      battery,
+      boardHardware);
+  cachedRuntimeApiActiveIndex = runtimeInactiveIndex;
   lastDashboardCacheUpdateMs = now;
 }
 
@@ -592,15 +772,12 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
   getCachedDecimals();        // This will cache the decimal setting
   getStoredSSID();            // This will cache WiFi credentials
 
-  updateDashboardCache(scale, flowRate, bluetoothScale, display, battery, diagnosticEvents, boardHardware);
+  updateDashboardCache(scale, flowRate, bluetoothScale, display, battery, powerManager, diagnosticEvents, boardHardware);
 
   // Register API route first. Serve a loop-owned cached dashboard snapshot so
   // browser/PWA polling cannot make AsyncTCP walk live HX711/battery state.
   server.on("/api/dashboard", HTTP_GET, [](AsyncWebServerRequest *request) {
-    const String json = cachedDashboardJson[cachedDashboardActiveIndex].length() > 0
-        ? cachedDashboardJson[cachedDashboardActiveIndex]
-        : String("{\"status\":\"warming\"}");
-    request->send(200, "application/json", json);
+    request->send(200, "application/json", cachedJsonOrWarming(cachedDashboardJson, cachedDashboardActiveIndex));
   });
 
   // Timer control endpoints
@@ -703,62 +880,10 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
     }
   });
 
-  // Battery monitoring endpoint (general status)
-  server.on("/api/battery", HTTP_GET, [&battery](AsyncWebServerRequest *request) {
-    String json = "{";
-    json += "\"voltage\":" + String(battery.getBatteryVoltage(), 3);
-    json += ",\"percentage\":" + String(battery.getBatteryPercentage());
-    json += ",\"raw_percentage\":" + String(battery.getRawBatteryPercentage());
-    json += ",\"capacity_mah\":" + String(battery.getBatteryCapacityMah());
-    json += ",\"backend\":\"" + battery.getBatteryBackend() + "\"";
-    json += ",\"fuel_gauge\":" + String(battery.hasFuelGauge() ? "true" : "false");
-    json += ",\"fuel_gauge_soc\":" + String(battery.getFuelGaugeStateOfCharge(), 2);
-    json += ",\"usb_power_present\":" + String(battery.isUsbPowerPresent() ? "true" : "false");
-    json += ",\"usb_only_power\":" + String(battery.isUsbOnlyPower() ? "true" : "false");
-    json += ",\"status\":\"" + battery.getBatteryStatus() + "\"";
-    json += ",\"segments\":" + String(battery.getBatterySegments());
-    json += ",\"low_battery\":" + String(battery.isLowBattery() ? "true" : "false");
-    json += ",\"critical_battery\":" + String(battery.isCriticalBattery() ? "true" : "false");
-    json += ",\"charging\":" + String(battery.isCharging() ? "true" : "false");
-    json += ",\"charging_state\":\"" + battery.getChargingState() + "\"";
-    json += ",\"critical_shutdown_enabled\":" + String(battery.isCriticalShutdownEnabled() ? "true" : "false");
-    json += ",\"critical_shutdown_voltage\":" + String(battery.getCriticalShutdownVoltage(), 2);
-    json += ",\"critical_shutdown_percent\":" + String(static_cast<unsigned int>(battery.getCriticalShutdownPercent()));
-    json += ",\"critical_recovery_voltage\":" + String(battery.getCriticalRecoveryVoltage(), 2);
-    json += ",\"critical_recovery_percent\":" + String(static_cast<unsigned int>(battery.getCriticalRecoveryPercent()));
-    json += ",\"critical_shutdown_active\":" + String(battery.shouldForceCriticalSleep() ? "true" : "false");
-    int runtimeMinutes = battery.getEstimatedRuntimeMinutesRemaining();
-    json += ",\"runtime_estimate_available\":" + String(runtimeMinutes >= 0 ? "true" : "false");
-    json += ",\"runtime_minutes_remaining\":";
-    json += runtimeMinutes >= 0 ? String(runtimeMinutes) : "null";
-    json += ",\"runtime_display\":\"" + formatRuntimeEstimate(runtimeMinutes) + "\"";
-    json += ",\"runtime_confidence\":\"" + battery.getRuntimeEstimateConfidence() + "\"";
-    json += ",\"runtime_observation_minutes\":" + String(battery.getRuntimeObservationMinutes());
-    json += ",\"discharge_rate_percent_per_hour\":" + String(battery.getDischargeRatePercentPerHour(), 3);
-    json += ",\"discharge_current_ma\":" + String(battery.getEstimatedDischargeCurrentMa(), 2);
-    json += ",\"learned_discharge_rate_percent_per_hour\":" + String(battery.getLearnedDischargeRatePercentPerHour(), 3);
-    json += ",\"learned_discharge_current_ma\":" + String(battery.getLearnedDischargeCurrentMa(), 2);
-    json += ",\"learned_discharge_observations\":" + String(battery.getLearnedDischargeObservations());
-    int minutesTo80 = battery.getEstimatedMinutesTo80();
-    int minutesTo100 = battery.getEstimatedMinutesTo100();
-    json += ",\"charge_estimate_available\":" + String((minutesTo80 >= 0 || minutesTo100 >= 0) ? "true" : "false");
-    json += ",\"minutes_to_80\":";
-    json += minutesTo80 >= 0 ? String(minutesTo80) : "null";
-    json += ",\"minutes_to_80_display\":\"" + formatRuntimeEstimate(minutesTo80) + "\"";
-    json += ",\"minutes_to_100\":";
-    json += minutesTo100 >= 0 ? String(minutesTo100) : "null";
-    json += ",\"minutes_to_100_display\":\"" + formatRuntimeEstimate(minutesTo100) + "\"";
-    json += ",\"charge_confidence\":\"" + battery.getChargeEstimateConfidence() + "\"";
-    json += ",\"charge_observation_minutes\":" + String(battery.getChargeObservationMinutes());
-    json += ",\"charge_rate_percent_per_hour\":" + String(battery.getChargeRatePercentPerHour(), 3);
-    json += ",\"charge_current_ma\":" + String(battery.getEstimatedChargeCurrentMa(), 2);
-    json += ",\"learned_charge_rate_percent_per_hour\":" + String(battery.getLearnedChargeRatePercentPerHour(), 3);
-    json += ",\"learned_charge_current_ma\":" + String(battery.getLearnedChargeCurrentMa(), 2);
-    json += ",\"learned_charge_observations\":" + String(battery.getLearnedChargeObservations());
-    json += ",\"battery_learning_confidence\":\"" + battery.getBatteryLearningConfidence() + "\"";
-    json += ",\"calibration_offset\":" + String(battery.getCalibrationOffset(), 3);
-    json += "}";
-    request->send(200, "application/json", json);
+  // Battery monitoring endpoint (general status). Serve the loop-owned cache so
+  // AsyncTCP does not race BatteryMonitor's mutable String fields while polling.
+  server.on("/api/battery", HTTP_GET, [](AsyncWebServerRequest *request) {
+    request->send(200, "application/json", cachedJsonOrWarming(cachedBatteryJson, cachedRuntimeApiActiveIndex));
   });
 
   server.on("/api/battery/capacity", HTTP_POST, [&battery](AsyncWebServerRequest *request) {
@@ -1240,36 +1365,8 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
     request->send(200, "application/json", cachedDeviceInfoJson);
   });
 
-  server.on("/api/diagnostics/self-test", HTTP_GET, [&scale, &display, &battery, &bluetoothScale, &diagnosticEvents, &boardHardware](AsyncWebServerRequest *request) {
-    String json = "{";
-    json += "\"firmware\":\"" + String(WMB_PLUS_FIRMWARE_NAME) + "\",";
-    json += "\"version\":\"" + String(WEIGHMYBRU_VERSION_STRING) + "\",";
-    json += "\"full_version\":\"" + String(WEIGHMYBRU_FULL_VERSION) + "\",";
-    json += "\"board\":\"" + String(WEIGHMYBRU_BOARD_NAME) + "\",";
-    json += "\"chip_model\":\"" + String(ESP.getChipModel()) + "\",";
-    json += "\"cpu_frequency_mhz\":" + String(ESP.getCpuFreqMHz()) + ",";
-    json += "\"free_heap\":" + String(ESP.getFreeHeap()) + ",";
-    json += "\"heap_size\":" + String(ESP.getHeapSize()) + ",";
-    json += "\"free_psram\":" + String(ESP.getFreePsram()) + ",";
-    json += "\"psram_size\":" + String(ESP.getPsramSize()) + ",";
-    json += "\"scale_connected\":" + String(scale.isHX711Connected() ? "true" : "false") + ",";
-    json += "\"display_connected\":" + String(display.isConnected() ? "true" : "false") + ",";
-    json += "\"ble_connected\":" + String(bluetoothScale.isConnected() ? "true" : "false") + ",";
-    json += "\"battery_valid\":" + String(battery.hasValidReading() ? "true" : "false") + ",";
-    json += "\"battery_backend\":\"" + battery.getBatteryBackend() + "\",";
-    json += "\"battery_percentage\":" + String(battery.getBatteryPercentage()) + ",";
-    json += "\"battery_voltage\":" + String(battery.getBatteryVoltage(), 3) + ",";
-    json += "\"fuel_gauge\":" + String(battery.hasFuelGauge() ? "true" : "false") + ",";
-    json += "\"usb_power_present\":" + String(battery.isUsbPowerPresent() ? "true" : "false") + ",";
-    json += "\"usb_only_power\":" + String(battery.isUsbOnlyPower() ? "true" : "false") + ",";
-    json += "\"hx711_rate_hz\":" + String(scale.getDetectedSampleRateHz(), 2) + ",";
-    json += "\"hx711_rate_mode\":\"" + scale.getDetectedHx711RateMode() + "\",";
-    json += "\"scale_quality\":" + String(scale.getScaleQualityScore()) + ",";
-    json += "\"lifetime_quality\":" + String(scale.getLifetimeQualityScore()) + ",";
-    json += "\"diagnostic_events\":" + diagnosticEvents.toJson(8) + ",";
-    json += "\"board_hardware\":" + boardHardware.toJson();
-    json += "}";
-    request->send(200, "application/json", json);
+  server.on("/api/diagnostics/self-test", HTTP_GET, [](AsyncWebServerRequest *request) {
+    request->send(200, "application/json", cachedJsonOrWarming(cachedDiagnosticsSelfTestJson, cachedRuntimeApiActiveIndex));
   });
 
   server.on("/api/diagnostics/events", HTTP_GET, [&diagnosticEvents](AsyncWebServerRequest *request) {
@@ -1485,59 +1582,14 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
     }
   });
 
-  // Filter debug endpoint - shows current filter state
-  server.on("/api/filter-debug", HTTP_GET, [&scale](AsyncWebServerRequest *request) {
-    String json = "{";
-    json += "\"filterState\":\"" + scale.getFilterState() + "\",";
-    json += "\"brewingThreshold\":" + String(scale.getBrewingThreshold(), 2) + ",";
-    json += "\"stabilityTimeout\":" + String(scale.getStabilityTimeout()) + ",";
-    json += "\"medianSamples\":" + String(scale.getMedianSamples()) + ",";
-    json += "\"averageSamples\":" + String(scale.getAverageSamples()) + ",";
-    json += "\"zeroClamped\":" + String(scale.isZeroClamped() ? "true" : "false") + ",";
-    json += "\"autoZeroActive\":" + String(scale.isAutoZeroActive() ? "true" : "false") + ",";
-    json += "\"autoZeroCorrection\":" + String(scale.getAutoZeroCorrectionGrams(), 3) + ",";
-    json += "\"recentGlitch\":" + String(scale.hasRecentGlitch() ? "true" : "false") + ",";
-    json += "\"glitchCount\":" + String(scale.getGlitchCount()) + ",";
-    json += "\"currentWeight\":" + String(scale.getCurrentWeight(), 1);
-    json += "}";
-    request->send(200, "application/json", json);
+  // Filter debug endpoint - shows current filter state from the loop-owned cache.
+  server.on("/api/filter-debug", HTTP_GET, [](AsyncWebServerRequest *request) {
+    request->send(200, "application/json", cachedJsonOrWarming(cachedFilterDebugJson, cachedRuntimeApiActiveIndex));
   });
 
   // Combined settings endpoint for faster loading
-  server.on("/api/settings", HTTP_GET, [&powerManager, &battery, &boardHardware](AsyncWebServerRequest *request) {
-    // Get WiFi credentials (from cache)
-    String ssid = getStoredSSID();
-    const bool hasPassword = getStoredPassword().length() > 0;
-    
-    // Get decimal setting (from cache)
-    int decimals = getCachedDecimals();
-    
-    // Combine into single JSON response including auto-sleep settings
-    String json = "{";
-    json += "\"ssid\":\"" + ssid + "\",";
-    json += "\"password_configured\":" + String(hasPassword ? "true" : "false") + ",";
-    json += "\"decimals\":" + String(decimals) + ",";
-    json += "\"autoSleepEnabled\":" + String(powerManager.getAutoSleepEnabled() ? "true" : "false") + ",";
-    json += "\"autoSleepTime\":" + String(powerManager.getAutoSleepTime()) + ",";
-    json += "\"autoSleepDrift\":" + String(powerManager.getAutoSleepDrift(), 1) + ",";
-    json += "\"autoSleepInhibited\":" + String(powerManager.getAutoSleepInhibited() ? "true" : "false") + ",";
-    json += "\"autoSleepInhibitReason\":\"" + powerManager.getAutoSleepInhibitReason() + "\",";
-    json += "\"usbPowerPresent\":" + String(battery.isUsbPowerPresent() ? "true" : "false") + ",";
-    json += "\"usbOnlyPower\":" + String(battery.isUsbOnlyPower() ? "true" : "false") + ",";
-    json += "\"batteryCapacityMah\":" + String(battery.getBatteryCapacityMah()) + ",";
-    json += "\"criticalShutdownEnabled\":" + String(battery.isCriticalShutdownEnabled() ? "true" : "false") + ",";
-    json += "\"criticalShutdownVoltage\":" + String(battery.getCriticalShutdownVoltage(), 2) + ",";
-    json += "\"criticalShutdownPercent\":" + String(static_cast<unsigned int>(battery.getCriticalShutdownPercent())) + ",";
-    json += "\"criticalRecoveryVoltage\":" + String(battery.getCriticalRecoveryVoltage(), 2) + ",";
-    json += "\"criticalRecoveryPercent\":" + String(static_cast<unsigned int>(battery.getCriticalRecoveryPercent())) + ",";
-    json += "\"boardRgbStatusLedAvailable\":" + String(boardHardware.hasRgbStatusLed() ? "true" : "false") + ",";
-    json += "\"boardRgbStatusLedEnabled\":" + String(boardHardware.isRgbStatusLedEnabled() ? "true" : "false") + ",";
-    json += "\"boardRgbStatusLedBrightness\":" + String(boardHardware.getRgbStatusLedBrightness()) + ",";
-    json += "\"boardAntennaSwitchAvailable\":" + String(boardHardware.hasAntennaSwitch() ? "true" : "false") + ",";
-    json += "\"boardExternalAntennaSelected\":" + String(boardHardware.isExternalAntennaSelected() ? "true" : "false");
-    json += "}";
-    
-    request->send(200, "application/json", json);
+  server.on("/api/settings", HTTP_GET, [](AsyncWebServerRequest *request) {
+    request->send(200, "application/json", cachedJsonOrWarming(cachedSettingsJson, cachedRuntimeApiActiveIndex));
   });
 
   // Emergency NVS reset endpoint (use with caution)

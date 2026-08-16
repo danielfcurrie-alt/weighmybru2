@@ -1009,6 +1009,7 @@ void loop() {
       bluetoothScale,
       oledDisplay,
       batteryMonitor,
+      powerManager,
       diagnosticEventLog,
       boardHardware);
 
