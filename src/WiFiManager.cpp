@@ -65,9 +65,100 @@ const char* ap_password = "";
 static bool wifiEnabled = true; // WiFi enabled by default
 static bool wifiEnabledCached = false;
 static wifi_mode_t previousWiFiMode = WIFI_OFF; // Store previous mode when disabling WiFi
+static String lastStaBSSID = "";
+static int lastStaChannel = 0;
+static int lastStaConnectRSSI = -100;
 
 unsigned long startAttemptTime = 0;
 const unsigned long timeout = 10000; // 10 seconds
+
+static String macStringFromBytes(const uint8_t* mac) {
+    char buffer[18] = {0};
+    snprintf(buffer,
+             sizeof(buffer),
+             "%02X:%02X:%02X:%02X:%02X:%02X",
+             mac[0],
+             mac[1],
+             mac[2],
+             mac[3],
+             mac[4],
+             mac[5]);
+    return String(buffer);
+}
+
+static bool findStrongestAPForSSID(const char* ssid,
+                                   uint8_t bestBSSID[6],
+                                   int32_t& bestChannel,
+                                   int32_t& bestRSSI) {
+    if (!ssid || strlen(ssid) == 0) {
+        return false;
+    }
+
+    Serial.println("Scanning mesh APs for SSID: " + String(ssid));
+    int networksFound = WiFi.scanNetworks(false, true);
+    if (networksFound <= 0) {
+        Serial.println("No AP scan results available; falling back to normal WiFi.begin");
+        WiFi.scanDelete();
+        return false;
+    }
+
+    bool found = false;
+    bestRSSI = -127;
+    bestChannel = 0;
+
+    for (int i = 0; i < networksFound; i++) {
+        if (WiFi.SSID(i) != String(ssid)) {
+            continue;
+        }
+
+        int32_t rssi = WiFi.RSSI(i);
+        uint8_t* bssid = WiFi.BSSID(i);
+        Serial.printf("  candidate %s ch=%d rssi=%d dBm\n",
+                      WiFi.BSSIDstr(i).c_str(),
+                      WiFi.channel(i),
+                      rssi);
+
+        if (!found || rssi > bestRSSI) {
+            found = true;
+            bestRSSI = rssi;
+            bestChannel = WiFi.channel(i);
+            if (bssid) {
+                memcpy(bestBSSID, bssid, 6);
+            }
+        }
+    }
+
+    WiFi.scanDelete();
+
+    if (!found) {
+        Serial.println("No matching AP found for stored SSID; falling back to normal WiFi.begin");
+        return false;
+    }
+
+    lastStaBSSID = macStringFromBytes(bestBSSID);
+    lastStaChannel = bestChannel;
+    lastStaConnectRSSI = bestRSSI;
+    Serial.printf("Selected strongest AP: %s ch=%d rssi=%d dBm\n",
+                  lastStaBSSID.c_str(),
+                  bestChannel,
+                  bestRSSI);
+    return true;
+}
+
+static void beginSTAConnectionToBestAP(const char* ssid, const char* password) {
+    uint8_t bestBSSID[6] = {0};
+    int32_t bestChannel = 0;
+    int32_t bestRSSI = -127;
+
+    if (findStrongestAPForSSID(ssid, bestBSSID, bestChannel, bestRSSI)) {
+        WiFi.begin(ssid, password, bestChannel, bestBSSID, true);
+    } else {
+        lastStaBSSID = "";
+        lastStaChannel = 0;
+        lastStaConnectRSSI = -100;
+        WiFi.begin(ssid, password);
+    }
+}
 
 void checkFilesystemStatus() {
     if (filesystemChecked) {
@@ -318,7 +409,7 @@ void setupWiFiForced() {
         }
         
         startAttemptTime = millis();
-        WiFi.begin(ssid, password);
+        beginSTAConnectionToBestAP(ssid, password);
         
         // Wait for connection with reasonable timeout
         int connectionAttempts = 0;
@@ -507,7 +598,7 @@ void maintainWiFi() {
                 
                 if (strlen(ssid) > 0) {
                     Serial.println("Attempting to reconnect to: " + String(ssid));
-                    WiFi.begin(ssid, password);
+                    beginSTAConnectionToBestAP(ssid, password);
                     
                     // Wait briefly for reconnection - reduced timeout for faster fallback
                     int attempts = 0;
@@ -573,7 +664,7 @@ bool attemptSTAConnection(const char* ssid, const char* password) {
     
     // Attempt connection with new credentials
     startAttemptTime = millis();
-    WiFi.begin(ssid, password);
+    beginSTAConnectionToBestAP(ssid, password);
     
     // Wait for connection with reasonable timeout
     int connectionAttempts = 0;
@@ -788,6 +879,10 @@ String getWiFiConnectionInfo() {
         info += "\"signal_strength\":" + String(WiFi.RSSI()) + ",";
         info += "\"signal_quality\":\"" + getWiFiSignalQuality() + "\",";
         info += "\"channel\":" + String(WiFi.channel()) + ",";
+        info += "\"bssid\":\"" + WiFi.BSSIDstr() + "\",";
+        info += "\"selected_bssid\":\"" + lastStaBSSID + "\",";
+        info += "\"selected_channel\":" + String(lastStaChannel) + ",";
+        info += "\"selected_rssi\":" + String(lastStaConnectRSSI) + ",";
         info += "\"tx_power\":" + String(WiFi.getTxPower()) + ",";
         info += "\"ip\":\"" + WiFi.localIP().toString() + "\",";
         info += "\"gateway\":\"" + WiFi.gatewayIP().toString() + "\",";
@@ -829,7 +924,8 @@ String scanWiFiNetworks() {
             json += "\"ssid\":\"" + WiFi.SSID(i) + "\",";
             json += "\"rssi\":" + String(WiFi.RSSI(i)) + ",";
             json += "\"encryption\":" + String(WiFi.encryptionType(i)) + ",";
-            json += "\"channel\":" + String(WiFi.channel(i));
+            json += "\"channel\":" + String(WiFi.channel(i)) + ",";
+            json += "\"bssid\":\"" + WiFi.BSSIDstr(i) + "\"";
             json += "}";
         }
         
