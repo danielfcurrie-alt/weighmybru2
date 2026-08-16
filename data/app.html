@@ -569,7 +569,25 @@
 
   function setText(id, value) {
     const el = document.getElementById(id);
-    if (el) el.textContent = value;
+    if (!el) return;
+    const next = String(value ?? '');
+    if (el.textContent !== next) el.textContent = next;
+  }
+
+  function hasActiveTextSelection() {
+    const selection = window.getSelection?.();
+    return Boolean(selection && !selection.isCollapsed && String(selection).length > 0);
+  }
+
+  function isTextEntryActive() {
+    const el = document.activeElement;
+    if (!el) return false;
+    const tag = el.tagName?.toLowerCase();
+    return tag === 'input' || tag === 'textarea' || el.isContentEditable;
+  }
+
+  function shouldPauseLiveRefresh() {
+    return hasActiveTextSelection() || isTextEntryActive();
   }
 
   function setPill(id, text, mode) {
@@ -655,6 +673,7 @@
   }
 
   async function updateDashboard() {
+    if (shouldPauseLiveRefresh()) return;
     if (dashboardInFlight) return;
     dashboardInFlight = true;
     try {
@@ -692,6 +711,7 @@
   }
 
   async function updateStopMyBru() {
+    if (shouldPauseLiveRefresh()) return;
     if (smbInFlight) return;
     smbInFlight = true;
     try {

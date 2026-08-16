@@ -359,7 +359,25 @@
 
   function setText(id, text) {
     const element = document.getElementById(id);
-    if (element) element.textContent = text;
+    if (!element) return;
+    const next = String(text ?? '');
+    if (element.textContent !== next) element.textContent = next;
+  }
+
+  function hasActiveTextSelection() {
+    const selection = window.getSelection?.();
+    return Boolean(selection && !selection.isCollapsed && String(selection).length > 0);
+  }
+
+  function isTextEntryActive() {
+    const element = document.activeElement;
+    if (!element) return false;
+    const tag = element.tagName?.toLowerCase();
+    return tag === 'input' || tag === 'textarea' || element.isContentEditable;
+  }
+
+  function shouldPauseLiveRefresh() {
+    return hasActiveTextSelection() || isTextEntryActive();
   }
 
   function updateSystemPanel(data) {
@@ -827,6 +845,9 @@
   let dashboardLastSuccessMs = 0;
 
   function updateWeight() {
+    if (shouldPauseLiveRefresh()) {
+      return;
+    }
     if (dashboardFetchInFlight) {
       return;
     }

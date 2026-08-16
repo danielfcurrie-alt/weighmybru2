@@ -392,73 +392,71 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
   getStoredSSID();            // This will cache WiFi credentials
 
   // Register API route first
-  server.on("/api/dashboard", HTTP_GET, [&scale, &flowRate, &display, &battery, &bluetoothScale, &diagnosticEvents, &boardHardware, &batteryDrainSession](AsyncWebServerRequest *request) {
-    String json = "{";
-    json += "\"weight\":" + String(scale.getCurrentWeight(), 2) + ",";
-    json += "\"flowrate\":" + String(flowRate.getFlowRate(), 1) + ",";
-    json += "\"scale_connected\":" + String(scale.isHX711Connected() ? "true" : "false") + ",";
+  server.on("/api/dashboard", HTTP_GET, [&scale, &flowRate, &display, &battery, &bluetoothScale, &diagnosticEvents, &boardHardware](AsyncWebServerRequest *request) {
+    // Keep this endpoint deliberately lean: it is polled by the dashboard/PWA
+    // while HX711 acquisition is running at up to 80 SPS. Heavier battery
+    // learning, drain-test, and diagnostic detail lives on slower endpoints
+    // such as /api/battery/benchmark, /api/device/info, and /api/diagnostics/*.
+    String json;
+    json.reserve(2200);
+    json += "{";
+
+    const float currentWeight = scale.getCurrentWeight();
+    const float currentFlow = flowRate.getFlowRate();
+    const bool hx711Connected = scale.isHX711Connected();
+    const float hx711RateHz = scale.getDetectedSampleRateHz();
+    const String hx711RateMode = scale.getDetectedHx711RateMode();
+    const int scaleQuality = scale.getScaleQualityScore();
+    const int lifetimeQuality = scale.getLifetimeQualityScore();
+
+    json += "\"weight\":" + String(currentWeight, 2) + ",";
+    json += "\"flowrate\":" + String(currentFlow, 1) + ",";
+    json += "\"scale_connected\":" + String(hx711Connected ? "true" : "false") + ",";
+    json += "\"hx711_connected\":" + String(hx711Connected ? "true" : "false") + ",";
     json += "\"filter_state\":\"" + scale.getFilterState() + "\",";
     json += "\"scale_sample_sequence\":" + String(scale.getSampleSequence()) + ",";
     json += "\"scale_last_sample_ms\":" + String(scale.getLastSampleMillis()) + ",";
-    json += "\"scale_detected_rate_hz\":" + String(scale.getDetectedSampleRateHz(), 2) + ",";
-    json += "\"scale_detected_rate_mode\":\"" + scale.getDetectedHx711RateMode() + "\",";
+    json += "\"scale_detected_rate_hz\":" + String(hx711RateHz, 2) + ",";
+    json += "\"hx711_rate_hz\":" + String(hx711RateHz, 2) + ",";
+    json += "\"scale_detected_rate_mode\":\"" + hx711RateMode + "\",";
+    json += "\"hx711_rate_mode\":\"" + hx711RateMode + "\",";
     json += "\"scale_avg_interval_us\":" + String(scale.getSampleIntervalAverageMicros()) + ",";
     json += "\"scale_min_interval_us\":" + String(scale.getSampleIntervalMinMicros()) + ",";
     json += "\"scale_max_interval_us\":" + String(scale.getSampleIntervalMaxMicros()) + ",";
     json += "\"scale_long_gap_count\":" + String(scale.getSampleIntervalLongGapCount()) + ",";
     json += "\"scale_cadence_stats_count\":" + String(scale.getSampleIntervalStatsCount()) + ",";
-    json += "\"scale_quality_score\":" + String(scale.getScaleQualityScore()) + ",";
-    json += "\"scale_lifetime_quality_score\":" + String(scale.getLifetimeQualityScore()) + ",";
+    json += "\"scale_quality_score\":" + String(scaleQuality) + ",";
+    json += "\"firmware_quality\":" + String(scaleQuality) + ",";
+    json += "\"scale_lifetime_quality_score\":" + String(lifetimeQuality) + ",";
     json += "\"scale_bump_count\":" + String(scale.getBumpCount()) + ",";
     json += "\"scale_recent_bump\":" + String(scale.hasRecentBump() ? "true" : "false") + ",";
-    json += "\"scale_last_bump_ms\":" + String(scale.getLastBumpMillis()) + ",";
-    json += "\"scale_last_bump_magnitude_g\":" + String(scale.getLastBumpMagnitudeGrams(), 2) + ",";
     json += "\"scale_glitch_count\":" + String(scale.getGlitchCount()) + ",";
     json += "\"scale_recent_glitch\":" + String(scale.hasRecentGlitch() ? "true" : "false") + ",";
-    json += "\"scale_last_glitch_ms\":" + String(scale.getLastGlitchMillis()) + ",";
-    json += "\"scale_last_glitch_magnitude_g\":" + String(scale.getLastGlitchMagnitudeGrams(), 2) + ",";
-    json += "\"scale_lifetime_samples\":" + String(scale.getLifetimeSampleCount()) + ",";
-    json += "\"scale_lifetime_long_gaps\":" + String(scale.getLifetimeLongGapCount()) + ",";
-    json += "\"scale_lifetime_bumps\":" + String(scale.getLifetimeBumpCount()) + ",";
-    json += "\"scale_lifetime_glitches\":" + String(scale.getLifetimeGlitchCount()) + ",";
-    
-    // Always show unified mode
     json += "\"mode\":\"UNIFIED\",";
-    
-    // Add timer information
-    unsigned long elapsedTime = display.getElapsedTime();
-    if (elapsedTime > 0 || display.isTimerRunning()) {
-      unsigned long minutes = elapsedTime / 60000;
-      unsigned long seconds = (elapsedTime % 60000) / 1000;
-      unsigned long milliseconds = elapsedTime % 1000;
-      json += "\"timer_running\":" + String(display.isTimerRunning() ? "true" : "false") + ",";
-      json += "\"timer_elapsed\":" + String(elapsedTime) + ",";
-      json += "\"timer_display\":\"" + String(minutes) + ":" + 
-              (seconds < 10 ? "0" : "") + String(seconds) + "." + 
-              (milliseconds < 100 ? (milliseconds < 10 ? "00" : "0") : "") + String(milliseconds) + "\",";
-      
-      // Add timer average flow rate
-      if (flowRate.hasTimerAverage()) {
-        json += "\"timer_avg_flowrate\":" + String(flowRate.getTimerAverageFlowRate(), 2);
-      } else {
-        json += "\"timer_avg_flowrate\":null";
-      }
+
+    const unsigned long elapsedTime = display.getElapsedTime();
+    const unsigned long minutes = elapsedTime / 60000;
+    const unsigned long seconds = (elapsedTime % 60000) / 1000;
+    const unsigned long milliseconds = elapsedTime % 1000;
+    json += "\"timer_running\":" + String(display.isTimerRunning() ? "true" : "false") + ",";
+    json += "\"timer_elapsed\":" + String(elapsedTime) + ",";
+    json += "\"timer_display\":\"" + String(minutes) + ":" +
+            (seconds < 10 ? "0" : "") + String(seconds) + "." +
+            (milliseconds < 100 ? (milliseconds < 10 ? "00" : "0") : "") + String(milliseconds) + "\",";
+    if (flowRate.hasTimerAverage()) {
+      json += "\"timer_avg_flowrate\":" + String(flowRate.getTimerAverageFlowRate(), 2);
     } else {
-      json += "\"timer_running\":false,";
-      json += "\"timer_elapsed\":0,";
-      json += "\"timer_display\":\"0:00.000\",";
       json += "\"timer_avg_flowrate\":null";
     }
-    
-    // Add battery information
+
     json += ",\"battery_voltage\":" + String(battery.getBatteryVoltage(), 2);
     json += ",\"battery_percentage\":" + String(battery.getBatteryPercentage());
     json += ",\"battery_raw_percentage\":" + String(battery.getRawBatteryPercentage());
     json += ",\"battery_capacity_mah\":" + String(battery.getBatteryCapacityMah());
     json += ",\"battery_backend\":\"" + battery.getBatteryBackend() + "\"";
     json += ",\"battery_fuel_gauge\":" + String(battery.hasFuelGauge() ? "true" : "false");
-    json += ",\"battery_fuel_gauge_soc\":" + String(battery.getFuelGaugeStateOfCharge(), 2);
     json += ",\"usb_power_present\":" + String(battery.isUsbPowerPresent() ? "true" : "false");
+    json += ",\"usb_present\":" + String(battery.isUsbPowerPresent() ? "true" : "false");
     json += ",\"usb_only_power\":" + String(battery.isUsbOnlyPower() ? "true" : "false");
     json += ",\"battery_status\":\"" + battery.getBatteryStatus() + "\"";
     json += ",\"battery_segments\":" + String(battery.getBatterySegments());
@@ -466,65 +464,20 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
     json += ",\"battery_critical\":" + String(battery.isCriticalBattery() ? "true" : "false");
     json += ",\"battery_charging\":" + String(battery.isCharging() ? "true" : "false");
     json += ",\"battery_charging_state\":\"" + battery.getChargingState() + "\"";
-    json += ",\"battery_critical_shutdown_enabled\":" + String(battery.isCriticalShutdownEnabled() ? "true" : "false");
-    json += ",\"battery_critical_shutdown_voltage\":" + String(battery.getCriticalShutdownVoltage(), 2);
-    json += ",\"battery_critical_shutdown_percent\":" + String(static_cast<unsigned int>(battery.getCriticalShutdownPercent()));
-    json += ",\"battery_critical_recovery_voltage\":" + String(battery.getCriticalRecoveryVoltage(), 2);
-    json += ",\"battery_critical_recovery_percent\":" + String(static_cast<unsigned int>(battery.getCriticalRecoveryPercent()));
-    json += ",\"battery_critical_shutdown_active\":" + String(battery.shouldForceCriticalSleep() ? "true" : "false");
-    int dashboardRuntimeMinutes = battery.getEstimatedRuntimeMinutesRemaining();
-    json += ",\"battery_runtime_estimate_available\":" + String(dashboardRuntimeMinutes >= 0 ? "true" : "false");
-    json += ",\"battery_runtime_minutes_remaining\":";
-    json += dashboardRuntimeMinutes >= 0 ? String(dashboardRuntimeMinutes) : "null";
-    json += ",\"battery_runtime_display\":\"" + formatRuntimeEstimate(dashboardRuntimeMinutes) + "\"";
-    json += ",\"battery_runtime_confidence\":\"" + battery.getRuntimeEstimateConfidence() + "\"";
-    json += ",\"battery_runtime_observation_minutes\":" + String(battery.getRuntimeObservationMinutes());
-    json += ",\"battery_discharge_rate_percent_per_hour\":" + String(battery.getDischargeRatePercentPerHour(), 3);
-    json += ",\"battery_discharge_current_ma\":" + String(battery.getEstimatedDischargeCurrentMa(), 2);
-    int dashboardMinutesTo80 = battery.getEstimatedMinutesTo80();
-    int dashboardMinutesTo100 = battery.getEstimatedMinutesTo100();
-    json += ",\"battery_charge_estimate_available\":" + String((dashboardMinutesTo80 >= 0 || dashboardMinutesTo100 >= 0) ? "true" : "false");
-    json += ",\"battery_minutes_to_80\":";
-    json += dashboardMinutesTo80 >= 0 ? String(dashboardMinutesTo80) : "null";
-    json += ",\"battery_minutes_to_80_display\":\"" + formatRuntimeEstimate(dashboardMinutesTo80) + "\"";
-    json += ",\"battery_minutes_to_100\":";
-    json += dashboardMinutesTo100 >= 0 ? String(dashboardMinutesTo100) : "null";
-    json += ",\"battery_minutes_to_100_display\":\"" + formatRuntimeEstimate(dashboardMinutesTo100) + "\"";
-    json += ",\"battery_charge_confidence\":\"" + battery.getChargeEstimateConfidence() + "\"";
-    json += ",\"battery_charge_observation_minutes\":" + String(battery.getChargeObservationMinutes());
-    json += ",\"battery_charge_rate_percent_per_hour\":" + String(battery.getChargeRatePercentPerHour(), 3);
-    json += ",\"battery_charge_current_ma\":" + String(battery.getEstimatedChargeCurrentMa(), 2);
-    json += ",\"battery_learned_discharge_rate_percent_per_hour\":" + String(battery.getLearnedDischargeRatePercentPerHour(), 3);
-    json += ",\"battery_learned_charge_rate_percent_per_hour\":" + String(battery.getLearnedChargeRatePercentPerHour(), 3);
-    json += ",\"battery_learned_discharge_current_ma\":" + String(battery.getLearnedDischargeCurrentMa(), 2);
-    json += ",\"battery_learned_charge_current_ma\":" + String(battery.getLearnedChargeCurrentMa(), 2);
-    json += ",\"battery_learned_discharge_observations\":" + String(battery.getLearnedDischargeObservations());
-    json += ",\"battery_learned_charge_observations\":" + String(battery.getLearnedChargeObservations());
-    json += ",\"battery_learning_confidence\":\"" + battery.getBatteryLearningConfidence() + "\"";
-    json += ",\"battery_drain_session\":\"" + String(batteryDrainSession.getLabel()) + "\"";
-    json += ",\"battery_drain_session_minutes\":" + String(batteryDrainSession.getElapsedMinutes(), 1);
-    json += ",\"battery_drain_delta_voltage\":" + jsonNumberOrNull(batteryDrainSession.getDeltaVoltage(), 3);
-    json += ",\"battery_drain_delta_raw_percentage\":" + String(batteryDrainSession.getDeltaRawPercent());
-    json += ",\"battery_drain_voltage_mv_per_hour\":" + jsonNumberOrNull(batteryDrainSession.getVoltageMillivoltsPerHour(), 2);
-    json += ",\"battery_drain_raw_percent_per_hour\":" + String(batteryDrainSession.getRawPercentPerHour(), 3);
-    json += ",\"battery_drain_trend\":\"" + String(batteryDrainSession.getTrend()) + "\"";
-    json += ",\"battery_drain_confidence\":\"" + String(batteryDrainSession.getConfidence()) + "\"";
+
     json += ",\"diagnostic_event_count\":" + String(diagnosticEvents.count());
     json += ",\"diagnostic_event_capacity\":" + String(diagnosticEvents.capacity());
     json += ",\"diagnostic_event_log_psram\":" + String(diagnosticEvents.isPsramBacked() ? "true" : "false");
     json += ",\"board_rgb_status_led_available\":" + String(boardHardware.hasRgbStatusLed() ? "true" : "false");
-    json += ",\"board_rgb_status_led_enabled\":" + String(boardHardware.isRgbStatusLedEnabled() ? "true" : "false");
-    json += ",\"board_rgb_status_led_brightness\":" + String(boardHardware.getRgbStatusLedBrightness());
     json += ",\"board_antenna_switch_available\":" + String(boardHardware.hasAntennaSwitch() ? "true" : "false");
-    json += ",\"board_external_antenna_selected\":" + String(boardHardware.isExternalAntennaSelected() ? "true" : "false");
-    
-    // Add signal strength information
-    json += ",\"wifi_signal_strength\":" + String(getWiFiSignalStrength());
+
+    const bool wifiConnected = WiFi.status() == WL_CONNECTED;
+    json += ",\"wifi_connected\":" + String(wifiConnected ? "true" : "false");
+    json += ",\"wifi_signal_strength\":" + String(wifiConnected ? WiFi.RSSI() : 0);
     json += ",\"wifi_signal_quality\":\"" + getWiFiSignalQuality() + "\"";
     json += ",\"bluetooth_connected\":" + String(bluetoothScale.isConnected() ? "true" : "false");
     json += ",\"bluetooth_signal_strength\":" + String(bluetoothScale.getBluetoothSignalStrength());
-    
-    // Add device version information
+
     json += ",\"device_version\":\"" + String(WEIGHMYBRU_VERSION_STRING) + "\"";
     json += ",\"device_board\":\"" + String(WEIGHMYBRU_BOARD_NAME) + "\"";
     json += ",\"device_build_date\":\"" + String(WEIGHMYBRU_BUILD_DATE) + "\"";
@@ -532,7 +485,7 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
     json += ",\"device_build_number\":" + String(WEIGHMYBRU_BUILD_NUMBER);
     json += ",\"device_commit_hash\":\"" + String(WEIGHMYBRU_COMMIT_HASH) + "\"";
     json += ",\"device_full_version\":\"" + String(WEIGHMYBRU_FULL_VERSION) + "\"";
-    
+
     json += "}";
     request->send(200, "application/json", json);
   });
