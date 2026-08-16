@@ -27,7 +27,7 @@
       "name": "StopMyBru",
       "short_name": "Stop",
       "description": "Open StopMyBru target stop controls.",
-      "url": "/smb.html",
+      "url": "/app.html?view=stop",
       "icons": [{ "src": "/icons/wmb-plus-192.png", "sizes": "192x192" }]
     },
     {
@@ -42,6 +42,13 @@
       "short_name": "Updates",
       "description": "Open firmware and web UI updates.",
       "url": "/updates.html",
+      "icons": [{ "src": "/icons/wmb-plus-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "More Data",
+      "short_name": "Data",
+      "description": "Open WMB+ live diagnostics.",
+      "url": "/app.html?view=data",
       "icons": [{ "src": "/icons/wmb-plus-192.png", "sizes": "192x192" }]
     }
   ]
