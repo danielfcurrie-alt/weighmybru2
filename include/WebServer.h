@@ -17,6 +17,7 @@
 extern float calibrationFactor;
 
 void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothScale, Display &display, BatteryMonitor &battery, SmbComms &smb, PowerManager &powerManager, DiagnosticEventLog &diagnosticEvents, BoardHardware &boardHardware, BatteryDrainSession &batteryDrainSession, TouchSensor &touchSensor, ScaleCommandQueue &scaleCommandQueue);
+void updateDashboardCache(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothScale, Display &display, BatteryMonitor &battery, DiagnosticEventLog &diagnosticEvents, BoardHardware &boardHardware);
 void startWebServer();
 void stopWebServer();
 

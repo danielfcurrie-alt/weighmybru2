@@ -948,6 +948,14 @@ void loop() {
   recordRuntimeDiagnosticEvents();
   enforceRuntimeCriticalBatterySleep();
   boardHardware.updateStatus(currentBoardStatus());
+  updateDashboardCache(
+      scale,
+      flowRate,
+      bluetoothScale,
+      oledDisplay,
+      batteryMonitor,
+      diagnosticEventLog,
+      boardHardware);
 
   // Emit lightweight battery/runtime benchmark telemetry for old-vs-new
   // drain comparisons. This is serial-only and does not write persistent state.

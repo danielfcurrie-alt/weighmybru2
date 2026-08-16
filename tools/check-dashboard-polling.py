@@ -6,8 +6,8 @@ simulation build proves the 80 SPS path still compiles; this script catches the
 specific web-dashboard mistakes that caused periodic acquisition stalls:
 
 - duplicate weight polling via /api/weight-fast
-- static system/OTA refresh every few seconds
-- dashboard live polling faster than the budgeted cadence
+- idle dashboard polling
+- static system/OTA refresh intervals
 """
 
 from __future__ import annotations
@@ -20,10 +20,6 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DASHBOARD = REPO_ROOT / "data" / "index.html"
 
-MIN_DASHBOARD_POLL_MS = 500
-MIN_STATIC_INFO_POLL_MS = 60_000
-
-
 def fail(message: str) -> None:
     print(f"dashboard polling check failed: {message}", file=sys.stderr)
     raise SystemExit(1)
@@ -35,40 +31,24 @@ def main() -> None:
     if "fetch('/api/weight-fast')" in text or 'fetch("/api/weight-fast")' in text:
         fail("dashboard must not poll /api/weight-fast separately; reuse /api/dashboard")
 
-    dashboard_intervals = [
-        int(value)
-        for value in re.findall(r"setInterval\(\s*updateWeight\s*,\s*(\d+)\s*\)", text)
-    ]
-    if not dashboard_intervals:
-        fail("no updateWeight polling interval found")
-    too_fast = [value for value in dashboard_intervals if value < MIN_DASHBOARD_POLL_MS]
-    if too_fast:
-        fail(
-            "updateWeight interval below "
-            f"{MIN_DASHBOARD_POLL_MS} ms: {', '.join(map(str, too_fast))}"
-        )
+    update_weight_intervals = re.findall(r"setInterval\(\s*updateWeight\b", text)
+    if update_weight_intervals:
+        fail("idle dashboard must not poll updateWeight; refresh is manual")
 
-    static_intervals = [
+    if re.search(r"setInterval\(\s*refreshStaticSystemInfo\b", text):
+        fail("idle dashboard must not poll static system info; refresh is manual")
+
+    low_priority_intervals = [
         int(value)
         for value in re.findall(
-            r"setInterval\(\s*refreshStaticSystemInfo\s*,\s*(\d+)\s*\)",
+            r"setInterval\(\s*\(\)\s*=>\s*updateWeight\(\{recording:\s*true\}\)\s*,\s*(\d+)\s*\)",
             text,
         )
     ]
-    if not static_intervals:
-        fail("no refreshStaticSystemInfo polling interval found")
-    too_fast_static = [value for value in static_intervals if value < MIN_STATIC_INFO_POLL_MS]
-    if too_fast_static:
-        fail(
-            "static system/OTA refresh interval below "
-            f"{MIN_STATIC_INFO_POLL_MS} ms: {', '.join(map(str, too_fast_static))}"
-        )
+    if low_priority_intervals and min(low_priority_intervals) < 2000:
+        fail("recording refresh interval must stay at or above 2000 ms")
 
-    print(
-        "Dashboard polling check passed "
-        f"(updateWeight intervals={dashboard_intervals}, "
-        f"static intervals={static_intervals})"
-    )
+    print("Dashboard polling check passed (idle manual refresh, recording low-priority)")
 
 
 if __name__ == "__main__":

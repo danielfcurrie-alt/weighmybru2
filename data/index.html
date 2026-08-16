@@ -211,7 +211,10 @@
     </div>
 
     <!-- Action Buttons -->
-    <div class="grid grid-cols-2 gap-2 mt-2">
+    <div class="grid grid-cols-3 gap-2 mt-2">
+      <button onclick="updateWeight({manual: true})" class="bg-gray-700 hover:bg-gray-600 py-2 rounded-lg text-sm font-semibold">
+        <i class="fa fa-sync-alt mr-1"></i>Refresh
+      </button>
       <button onclick="tareScale()" class="bg-gray-700 hover:bg-gray-600 py-2 rounded-lg text-sm font-semibold">
         Tare
       </button>
@@ -309,6 +312,7 @@
     <!-- Status -->
     <div class="text-center">
       <div id="updateStatus" class="text-xs text-gray-400"></div>
+      <div id="lastRefreshStatus" class="text-xs text-gray-500 mt-1">Last refreshed: never</div>
     </div>
 
     <!-- Installable Web App -->
@@ -847,6 +851,8 @@
         console.log("Timer started:", data);
         // Start graph recording when timer starts
         isGraphRecording = true;
+        startLowPriorityLiveUpdates();
+        updateWeight({manual: true});
         console.log("Graph recording started");
       })
       .catch(err => console.error("Timer start failed:", err));
@@ -859,6 +865,8 @@
         console.log("Timer stopped:", data);
         // Stop graph recording when timer stops
         isGraphRecording = false;
+        stopLowPriorityLiveUpdates();
+        updateWeight({manual: true});
         console.log("Graph recording stopped");
       })
       .catch(err => console.error("Timer stop failed:", err));
@@ -871,7 +879,9 @@
         console.log("Timer reset:", data);
         // Reset graph when timer resets
         isGraphRecording = false;
+        stopLowPriorityLiveUpdates();
         clearChartData();
+        updateWeight({manual: true});
         console.log("Graph cleared and recording stopped");
       })
       .catch(err => console.error("Timer reset failed:", err));
@@ -879,8 +889,9 @@
 
   let dashboardFetchInFlight = false;
   let dashboardLastSuccessMs = 0;
+  let updateTimer = null;
 
-  function updateWeight() {
+  function updateWeight(options = {}) {
     if (shouldPauseLiveRefresh()) {
       return;
     }
@@ -893,6 +904,11 @@
       .then(response => response.json())
       .then(data => {
         dashboardLastSuccessMs = Date.now();
+        const lastRefreshStatus = document.getElementById('lastRefreshStatus');
+        if (lastRefreshStatus) {
+          lastRefreshStatus.innerText =
+            `Last refreshed: ${new Date(dashboardLastSuccessMs).toLocaleString()}`;
+        }
         let weight = parseFloat(data.weight);
         let flowrate = parseFloat(data.flowrate);
         
@@ -1069,6 +1085,22 @@
   let lastWeight = 0;
   let isBrewingActive = false;
   let manualBrewMode = false;
+
+  function startLowPriorityLiveUpdates() {
+    if (updateTimer) {
+      return;
+    }
+    updateTimer = setInterval(() => updateWeight({recording: true}), 2000);
+    document.getElementById('updateStatus').textContent = 'Recording Mode: Low-priority updates (2 sec)';
+  }
+
+  function stopLowPriorityLiveUpdates() {
+    if (updateTimer) {
+      clearInterval(updateTimer);
+      updateTimer = null;
+    }
+    document.getElementById('updateStatus').textContent = 'Manual Mode: tap Refresh for a new snapshot';
+  }
   
   function toggleBrewMode() {
     manualBrewMode = !manualBrewMode;
@@ -1078,15 +1110,11 @@
     if (manualBrewMode) {
       btn.textContent = 'Exit Brew Mode';
       btn.className = 'bg-red-600 hover:bg-red-700 py-2 rounded-lg text-sm font-semibold';
-      status.textContent = 'Manual Brew Mode: Stable Updates (1/sec)';
-      clearInterval(updateTimer);
-      updateTimer = setInterval(updateWeight, 1000); // 1x per second; BLE/USB carry high-rate data
+      status.textContent = 'Manual Brew Mode: tap Start for low-priority recording updates';
     } else {
       btn.textContent = 'Brew Mode';
       btn.className = 'bg-blue-600 hover:bg-blue-700 py-2 rounded-lg text-sm font-semibold';
-      status.textContent = 'Auto Mode: Smart Updates';
-      clearInterval(updateTimer);
-      updateTimer = setInterval(updateWeight, 1000); // Back to normal
+      status.textContent = 'Manual Mode: tap Refresh for a new snapshot';
       isBrewingActive = false;
     }
   }
@@ -1102,29 +1130,23 @@
     if (weightChange > 0.5) {
       if (!isBrewingActive) {
         isBrewingActive = true;
-        document.getElementById('updateStatus').textContent = 'Auto Brew Detected: Stable Updates (1/sec)';
-        clearInterval(updateTimer);
-        updateTimer = setInterval(updateWeight, 1000); // 1x per second; BLE/USB carry high-rate data during brewing
+        document.getElementById('updateStatus').textContent = 'Brew activity seen. Tap Start for recording updates.';
       }
     } else {
       if (isBrewingActive) {
         isBrewingActive = false;
-        document.getElementById('updateStatus').textContent = 'Auto Mode: Normal Updates (1/sec)';
-        clearInterval(updateTimer);
-        updateTimer = setInterval(updateWeight, 1000); // 1x per second; BLE/USB carry high-rate data when idle
+        document.getElementById('updateStatus').textContent = 'Manual Mode: tap Refresh for a new snapshot';
       }
     }
 
     lastWeight = currentWeight;
   }
 
-  // Keep the dashboard responsive; BLE/USB carry high-rate data.
-  let updateTimer = setInterval(updateWeight, 1000); // 1/sec; BLE/USB carry high-rate data
-  document.getElementById('updateStatus').textContent = 'Dashboard Mode: Stable Updates (1/sec)';
+  // Idle dashboard is static by design. BLE/USB carry high-rate data; the web
+  // UI only polls during explicit recording so it cannot damage 80 SPS cadence.
+  document.getElementById('updateStatus').textContent = 'Manual Mode: tap Refresh for a new snapshot';
   
-  refreshStaticSystemInfo().then(() => updateWeight());
-  setInterval(refreshStaticSystemInfo, 60000);
-  updateWeight();
+  refreshStaticSystemInfo().then(() => updateWeight({manual: true}));
 
   // Signal strength update function
   function updateSignalStrength(data) {
