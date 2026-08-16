@@ -400,6 +400,7 @@ void diagnoseEEPROMPerformance() {
 }
 
 AsyncWebServer server(80);
+static bool webServerRunning = false;
 
 /*
  * API Endpoints for External Brewing Systems (e.g., GaggiMate):
@@ -1907,23 +1908,36 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
     request->send(LittleFS, "/webfonts/fa-regular-400.woff2", "font/woff2");
   });
 
-  // Only start the web server if WiFi is enabled
+  // Only start the web server if WiFi is enabled. AsyncWebServer::begin()
+  // is not idempotent, so keep listener lifecycle explicit.
   if (isWiFiEnabled()) {
-    server.begin();
-    Serial.println("Web server started - accessible via WiFi");
+    startWebServer();
+    Serial.println("Web server accessible via WiFi");
   } else {
     Serial.println("Web server NOT started - WiFi is disabled for battery saving");
   }
 }
 
 void startWebServer() {
-  if (isWiFiEnabled()) {
-    server.begin();
-    Serial.println("Web server started");
+  if (!isWiFiEnabled()) {
+    Serial.println("Web server NOT started - WiFi is disabled");
+    return;
   }
+  if (webServerRunning) {
+    Serial.println("Web server already running");
+    return;
+  }
+  server.begin();
+  webServerRunning = true;
+  Serial.println("Web server started");
 }
 
 void stopWebServer() {
+  if (!webServerRunning) {
+    Serial.println("Web server already stopped");
+    return;
+  }
   server.end();
+  webServerRunning = false;
   Serial.println("Web server stopped");
 }
