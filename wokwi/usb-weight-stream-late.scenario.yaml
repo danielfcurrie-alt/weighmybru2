@@ -1,0 +1,8 @@
+name: WMB+ USB weight stream late enable
+version: 1
+author: WMB+
+steps:
+  - delay: 15000ms
+  - write-serial: "w\n"
+  - wait-serial: 'WMBP_WEIGHT_V1_HEADER'
+  - delay: 20000ms

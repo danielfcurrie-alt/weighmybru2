@@ -98,6 +98,208 @@ python3 tools/runtime-cadence-smoke.py \
   --no-fail
 ```
 
+## 5b. Wokwi runtime smoke test
+
+Wokwi is the automated firmware-runtime layer between fast native tests and real-device smoke testing. It runs the ESP32-S3 firmware in a simulated XIAO environment with HX711/OLED wiring and captures serial output. Use it to catch firmware-loop, serial-stream, scenario, and API-shape regressions before flashing the real reference scale.
+
+Install prerequisites:
+
+```bash
+curl -L https://wokwi.com/ci/install.sh | sh
+export WOKWI_CLI_TOKEN=your-token-here
+```
+
+Run the default XIAO 80 SPS simulation:
+
+```bash
+tools/run-wokwi-runtime-smoke.sh
+```
+
+Or choose a specific PlatformIO simulation environment:
+
+```bash
+tools/run-wokwi-runtime-smoke.sh esp32s3-xiao-sim-glitch
+```
+
+Run the Beta 7 DOUT-interrupt build in the same simulated 80 SPS profile:
+
+```bash
+tools/run-wokwi-runtime-smoke.sh esp32s3-xiao-sim-80sps-dout-interrupt
+```
+
+Run the Beta 7 DOUT-interrupt build against the WMB+ custom HX711 Wokwi chip
+instead of firmware simulation mode:
+
+```bash
+tools/run-wokwi-runtime-smoke.sh esp32s3-xiao-wokwi-hx711-dout-interrupt
+```
+
+This environment disables critical-battery sleep only in the Wokwi harness,
+because Wokwi does not model the XIAO battery ADC/divider accurately. Do not use
+it for tester firmware. The default diagram uses `chip-hx711-80` at 80 SPS, so
+use this run to verify boot, HX711 connection, acquisition task startup,
+sequence continuity, and the USB sample stream before moving to real hardware.
+
+The runner:
+
+- builds the selected PlatformIO environment;
+- creates a temporary Wokwi project under `.pio/wokwi/<env>/project`;
+- runs `wokwi-cli` with `wokwi/usb-weight-stream.scenario.yaml`;
+- sends serial command `w` to enable `WMBP_WEIGHT_V1`;
+- captures the serial log and Wokwi CLI log without streaming every sample back to the terminal;
+- analyzes cadence with `tools/analyze-wmbp-serial-log.py`.
+
+Analyzer thresholds can be overridden per run. This is useful when changing the
+custom HX711 chip to 10 SPS:
+
+```bash
+WMBP_WOKWI_MIN_DEVICE_RATE_HZ=9.5 \
+WMBP_WOKWI_MAX_DEVICE_GAP_MS=150 \
+WMBP_WOKWI_MAX_GAPS_OVER_100MS=0 \
+tools/run-wokwi-runtime-smoke.sh esp32s3-xiao-wokwi-hx711-dout-interrupt
+```
+
+Run the TinyS3[D] profile through the Wokwi XIAO carrier proxy:
+
+```bash
+WMBP_WOKWI_TIMEOUT_MS=16000 \
+WMBP_WOKWI_DIAGRAM=diagram.tinys3d.json \
+WMBP_WOKWI_SCENARIO=wokwi/usb-weight-stream-autostart.scenario.yaml \
+tools/run-wokwi-runtime-smoke.sh esp32s3-tinys3d-wokwi-xiao-carrier-hx711-dout-interrupt
+```
+
+This proxy uses Wokwi's supported XIAO ESP32-S3 board as the simulated USB/S3
+carrier, while compiling the firmware with TinyS3[D] board features. It is
+intended to verify TinyS3[D] feature logic before hardware is available:
+
+- board identity path reports `TinyS3[D]`;
+- custom HX711 model supports selectable 10 SPS / 80 SPS timing;
+- MAX17048 fuel gauge is simulated at I2C address `0x36`;
+- LIS2DW12 accelerometer is simulated at I2C address `0x19`;
+- battery percent should come from the fuel-gauge path, not ADC fallback;
+- owned HX711 DOUT-interrupt acquisition starts and produces ordered samples.
+
+The proxy intentionally skips BLE, WiFi, web server, and display initialization
+inside `WMBP_WOKWI_RUNTIME_HARNESS` so the test remains focused on acquisition,
+battery backend selection, and the USB weight stream.
+
+
+The custom `chip-hx711-80` intentionally separates HX711 mode from actual oscillator rate. Real reference hardware in 80 SPS mode has measured around 94 Hz, so the default Wokwi diagrams set `sps=80`, `actualSps=94.22`, and small deterministic jitter. This makes Wokwi useful as a regression trap without pretending it certifies real hardware timing.
+
+Recommended scenario files:
+
+- `wokwi/usb-weight-stream-clean-94hz.scenario.yaml` — clean reference-XIAO stream.
+- `wokwi/usb-weight-stream-midstream-tare.scenario.yaml` — sends serial `t` mid-capture to catch tare publish gaps while raw acquisition continues. Use with `diagram.xiao-94hz-loaded.json`; the custom HX711 starts at 0 g for boot tare, switches to ~27.5 g after 5 s, then tares mid-stream.
+- `wokwi/usb-weight-stream-dout-missed-ready.scenario.yaml` — use with `diagram.xiao-94hz-missed-ready.json` to exercise timeout/recovery handling.
+
+Example mid-stream tare regression run:
+
+```bash
+WMBP_WOKWI_TIMEOUT_MS=45000 \
+WMBP_WOKWI_DIAGRAM=diagram.xiao-94hz-loaded.json \
+WMBP_WOKWI_SCENARIO=wokwi/usb-weight-stream-midstream-tare.scenario.yaml \
+tools/run-wokwi-runtime-smoke.sh esp32s3-xiao-wokwi-hx711-dout-interrupt
+```
+
+Example DOUT missed-ready recovery run:
+
+```bash
+WMBP_WOKWI_TIMEOUT_MS=45000 \
+WMBP_WOKWI_DIAGRAM=diagram.xiao-94hz-missed-ready.json \
+WMBP_WOKWI_SCENARIO=wokwi/usb-weight-stream-dout-missed-ready.scenario.yaml \
+tools/run-wokwi-runtime-smoke.sh esp32s3-xiao-wokwi-hx711-dout-interrupt
+```
+
+For Beta 7, evaluate raw acquisition cadence and published stream cadence separately: raw gaps indicate acquisition regressions; published-only gaps during tare/web/display work indicate processing or fan-out regressions.
+
+The WMB+ Wokwi diagrams use custom chips under `wokwi/`:
+
+- `chip-hx711-80`: HX711 protocol/timing model with separate `sps` mode and
+  `actualSps` oscillator rate controls, plus initial `weight`, delayed
+  `loadAfterMs` / `loadWeight`, `countsPerGram`, deterministic
+  `jitterMicros`, `glitchEvery`, `glitchCounts`, and `missedReadyEvery`
+  controls.
+- `chip-max17048`: TinyS3[D] fuel-gauge model.
+- `chip-lis2dw12`: accelerometer model for future hardware bump detection.
+- `chip-st7789-172x320`: Tiny TFT wiring placeholder with the real 8-pin
+  ST7789 module header. It is a recognized Wokwi part for wiring/build
+  validation, not a pixel-rendering display driver yet.
+
+Outputs:
+
+```text
+.pio/wokwi/<env>/serial.log
+.pio/wokwi/<env>/wokwi-cli.log
+.pio/wokwi/<env>/analysis.json
+```
+
+Compare Beta 6 final against the current working tree:
+
+```bash
+tools/compare-wokwi-beta6-beta7.sh
+```
+
+This comparison is intentionally relative. Wokwi currently does not sustain the
+full real-device 80 SPS serial stream in the XIAO simulation; in the 2026-08-16
+baseline, Beta 6 and Beta 7 both measured around 40 Hz in Wokwi while real
+hardware measured near 80 Hz. Treat Wokwi as a deterministic regression screen:
+boot, wiring, serial format, sequence continuity, dropped-sample counters, and
+Beta-7-vs-Beta-6 deltas. Do not use Wokwi absolute cadence as release evidence.
+
+Defaults:
+
+- baseline ref: `c043e1a76aca`
+- environment: `esp32s3-xiao-sim-80sps`
+
+Override when needed:
+
+```bash
+WMBP_BETA6_REF=c043e1a76aca \
+WMBP_WOKWI_ENV=esp32s3-xiao-sim-glitch \
+tools/compare-wokwi-beta6-beta7.sh
+```
+
+Important limits:
+
+- Wokwi is runtime confidence, not physical certification.
+- In the current simulation path, Wokwi absolute cadence can be much lower than
+  real hardware cadence; judge Wokwi by relative regression unless that changes.
+- Simulation-mode builds still need real-device validation for the physical
+  HX711 DOUT interrupt edge timing, IRQ rearm behavior, and SCK pulse timing.
+- The WMB+ custom HX711 model can simulate 80 SPS protocol timing, but it still
+  cannot certify real GPIO edge timing, electrical behavior, or load-cell
+  mechanics.
+- It does not validate BLE notify cadence.
+- It does not prove real USB CDC, RF, battery, charger, OLED bus, or physical HX711 timing.
+- Final 80 SPS claims still require the real-device runtime cadence smoke test above.
+
+## TinyS3[D] display note
+
+The planned TinyS3[D] build pairs with a 1.47 inch ST7789 SPI TFT display,
+172×320 pixels, with an 8-pin module header:
+
+```text
+GND VDD SCL SDA RES DC CS BL
+```
+
+This is not the same display path as the current SSD1306 I2C OLED. The Tiny
+display work should be implemented behind a display abstraction rather than
+special-casing OLED calls throughout the firmware. The Wokwi runtime harness
+currently skips display initialization; display driver validation belongs in a
+separate ST7789 task once the TinyS3[D] hardware/display wiring is finalized.
+
+The current builder-supplied TinyS3[D] pinout screenshot should be treated as a
+wiring reference, not a source file. Before hard-coding the TFT/LIS2DW12 GPIOs
+in firmware, convert it into an explicit table with:
+
+- TinyS3[D] GPIO number;
+- module pin label;
+- signal role;
+- whether the pin is boot-sensitive, strapping-sensitive, touch-capable, or
+  shared with SPI/I2C.
+
+Do not infer ambiguous GPIOs from the image alone.
+
 ## 6. Drift and zero behavior
 
 With an empty platform:
@@ -135,6 +337,16 @@ Record:
 - Battery benchmark session output from serial `BATTERY_BENCH` or `/api/battery/benchmark`.
 
 Battery percent is voltage-estimated. If possible, compare against a multimeter or USB power meter.
+
+Fast host-side simulation:
+
+- `tools/run-host-tests.sh` now includes battery simulation policy checks.
+- `python3 tools/simulate-battery-matrix.py --capacity-mah 700` models the default supported pack size.
+- `python3 tools/simulate-battery-matrix.py --capacity-mah 1000` models larger packs like the current reference unit.
+
+The simulation covers XIAO ESP32S3, TinyS3[D], SuperMini, and Waveshare Zero estimates across WiFi off/on, 10/80 SPS, sleep with HX711 powered, and sleep with HX711 powered down. It also estimates sleep-state charge time to 80% and 100% using the current working assumptions: XIAO around 100 mA charge current, TinyS3[D] around 300 mA, and 85% charge efficiency.
+
+Treat this as a comparative model, not proof of real current draw. Replace the board constants in `tools/simulate-battery-matrix.py` as measured drain-test data comes in.
 
 Drain/charge benchmark test:
 

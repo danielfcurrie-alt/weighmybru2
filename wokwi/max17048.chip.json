@@ -1,0 +1,23 @@
+{
+  "name": "MAX17048 Fuel Gauge",
+  "author": "WMB+",
+  "pins": [ "VCC", "GND", "SCL", "SDA" ],
+  "controls": [
+    {
+      "id": "voltage",
+      "label": "Cell voltage",
+      "type": "range",
+      "min": 3.0,
+      "max": 4.25,
+      "step": 0.01
+    },
+    {
+      "id": "soc",
+      "label": "State of charge",
+      "type": "range",
+      "min": 0,
+      "max": 100,
+      "step": 1
+    }
+  ]
+}

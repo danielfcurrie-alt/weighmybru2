@@ -1,0 +1,31 @@
+{
+  "name": "LIS2DW12 Accelerometer",
+  "author": "WMB+",
+  "pins": [ "VCC", "GND", "SCL", "SDA", "INT1" ],
+  "controls": [
+    {
+      "id": "ax",
+      "label": "X acceleration (g)",
+      "type": "range",
+      "min": -4,
+      "max": 4,
+      "step": 0.01
+    },
+    {
+      "id": "ay",
+      "label": "Y acceleration (g)",
+      "type": "range",
+      "min": -4,
+      "max": 4,
+      "step": 0.01
+    },
+    {
+      "id": "az",
+      "label": "Z acceleration (g)",
+      "type": "range",
+      "min": -4,
+      "max": 4,
+      "step": 0.01
+    }
+  ]
+}

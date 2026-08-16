@@ -105,39 +105,33 @@ bool Scale::begin() {
     return true;
 #endif
     
-    // Initialize HX711 with error handling
-    Serial.println("Initializing HX711...");
-    hx711.begin(dataPin, clockPin);
-    hx711.set_scale(calibrationFactor);
+    // Initialize HX711 with owned bounded IO. RobTillaart/HX711 remains pinned
+    // only as a temporary dependency/fallback; the active Beta 7 path does not
+    // call its unbounded read/tare helpers.
+    Serial.println("Initializing HX711 via owned Hx711Io...");
+    hx711Acquisition.begin(dataPin, clockPin, Hx711Io::Gain::ChannelA128);
     
-    // Test if HX711 is responding with a timeout
     Serial.println("Testing HX711 connection...");
-    unsigned long startTime = millis();
-    bool testPassed = false;
-    
-    // Try to get a reading with 3 second timeout
-    while (millis() - startTime < 3000) {
-        if (hx711.is_ready()) {
-            long testReading = hx711.read();
-            if (testReading != 0) {  // HX711 returns 0 when not connected
-                testPassed = true;
-                Serial.println("HX711 test reading: " + String(testReading));
-                break;
-            }
-        }
-        delay(100);  // Small delay between attempts
-    }
+    int32_t testReading = 0;
+    Hx711Io::Status testStatus = Hx711Io::Status::Timeout;
+    uint32_t testReadDurationMicros = 0;
+    const bool testPassed = readRawCountsWithTimeout(3000, testReading, &testStatus, &testReadDurationMicros);
     
     if (testPassed) {
         Serial.println("HX711 connected successfully");
+        Serial.println("HX711 test reading: " + String(static_cast<long>(testReading)) +
+                       " read_us=" + String(testReadDurationMicros));
         isConnected = true;
         
-        // Only tare if connection is confirmed
         Serial.println("Performing initial tare...");
-        hx711.tare();
+        if (!performRawTare(20, 3000)) {
+            Serial.println("WARNING: initial bounded tare failed; using first raw reading as offset");
+            tareOffsetCounts = testReading;
+        }
         lastTareMillis = millis();
         resetPlausibilityGate();
         resetZeroQualification();
+        resetSampleCadenceStats();
         
         Serial.println("Smart Scale filtering configured:");
         Serial.println("Brewing threshold: " + String(brewingThreshold) + "g");
@@ -145,10 +139,25 @@ bool Scale::begin() {
         Serial.println("Median samples (brewing): " + String(medianSamples));
         Serial.println("Average samples (stable): " + String(averageSamples));
         Serial.println("Smart filtering: ENABLED - Dynamic filter switching based on brewing activity");
+
+#if WMBP_ACQUISITION_TASK
+        if (hx711Acquisition.start()) {
+            Serial.printf("HX711 acquisition task started: model=%s priority=%d core=%d stack=%d\n",
+                          getAcquisitionModel(),
+                          WMBP_ACQUISITION_TASK_PRIORITY,
+                          WMBP_ACQUISITION_TASK_CORE,
+                          WMBP_ACQUISITION_TASK_STACK);
+        } else {
+            Serial.println("ERROR: HX711 acquisition task failed to start");
+            isConnected = false;
+            return false;
+        }
+#endif
         
         return true;
     } else {
-        Serial.println("ERROR: HX711 not responding!");
+        Hx711Io statusNameHelper;
+        Serial.println("ERROR: HX711 not responding! Last status: " + String(statusNameHelper.statusName(testStatus)));
         Serial.println("Check connections:");
         Serial.println("- VCC to 3.3V or 5V");
         Serial.println("- GND to GND");
@@ -203,8 +212,14 @@ void Scale::tare(uint8_t times) {
         flowRatePtr->pauseCalculation();
     }
     
-    Serial.println("Taring scale...");
-    hx711.tare(times);
+    Serial.println("Taring scale with bounded raw sample accumulation...");
+    if (!performRawTare(times, 1000)) {
+        Serial.println("Tare failed: not enough fresh HX711 samples before timeout");
+        if (flowRatePtr != nullptr) {
+            flowRatePtr->resumeCalculation();
+        }
+        return;
+    }
     Serial.println("Tare complete");
     
     // Reset smart filter state after taring - return to stable mode
@@ -240,7 +255,6 @@ void Scale::set_scale(float factor) {
     // Only save if the calibration factor actually changed
     if (calibrationFactor != factor) {
         calibrationFactor = factor;
-        hx711.set_scale(calibrationFactor);
         saveCalibration();
     }
 }
@@ -267,6 +281,7 @@ float Scale::getWeight() {
     }
     
     unsigned long currentTime = millis();
+    uint32_t acceptedSampleMicros = micros();
 
 #if WMBP_SIMULATION_MODE
     const uint32_t currentMicros = micros();
@@ -279,16 +294,52 @@ float Scale::getWeight() {
     acquisitionReadyCount++;
     simulationLastSampleMicros = currentMicros;
     simulationLastSampleMillis = currentTime;
+    acceptedSampleMicros = currentMicros;
+    recordRawReadCadence(currentMicros, 0);
     float rawReading = simulatedRawWeight(currentTime) - simulationTareOffset;
+    lastRawValueCounts = lroundf(rawReading * calibrationFactor);
+    hasLastRawValueCounts = true;
 #else
-    // Check if HX711 is ready before attempting to read
-    if (!hx711.is_ready()) {
+#if WMBP_ACQUISITION_TASK
+    int32_t rawCounts = 0;
+    uint32_t sampleMicros = 0;
+    uint32_t readDurationMicros = 0;
+    if (!popAcquiredRawSample(rawCounts, sampleMicros, readDurationMicros)) {
         acquisitionNotReadyCount++;
         return currentWeight;  // Return last known value if not ready
     }
     acquisitionReadyCount++;
-    
-    float rawReading = hx711.get_units(1);
+    acceptedSampleMicros = sampleMicros;
+    recordRawReadCadence(sampleMicros, readDurationMicros);
+#else
+    if (!hx711Acquisition.isReady()) {
+        acquisitionNotReadyCount++;
+        return currentWeight;  // Return last known value if not ready
+    }
+    acquisitionReadyCount++;
+
+    int32_t rawCounts = 0;
+    uint32_t readDurationMicros = 0;
+    const Hx711Io::Status readStatus = hx711Acquisition.readRawSync(rawCounts, &readDurationMicros);
+    if (readStatus == Hx711Io::Status::NotReady) {
+        acquisitionNotReadyCount++;
+        return currentWeight;
+    }
+    if (readStatus == Hx711Io::Status::Timeout || readStatus == Hx711Io::Status::Disconnected) {
+        acquisitionTimeoutCount++;
+        acquisitionReadErrorCount++;
+        return currentWeight;
+    }
+    if (readStatus == Hx711Io::Status::ReadError || readStatus == Hx711Io::Status::Railed) {
+        acquisitionReadErrorCount++;
+        return currentWeight;
+    }
+    acceptedSampleMicros = micros();
+    recordRawReadCadence(acceptedSampleMicros, readDurationMicros);
+#endif
+    lastRawValueCounts = static_cast<long>(rawCounts - tareOffsetCounts);
+    hasLastRawValueCounts = true;
+    float rawReading = rawCountsToGrams(rawCounts);
 #endif
     
     // Handle NaN or invalid readings
@@ -310,7 +361,7 @@ float Scale::getWeight() {
         currentWeight = applyZeroQualification(currentTime, rawReading, rawReading);
         lastStableWeight = currentWeight;
         currentFilterState = STABLE;
-        recordAcceptedSample(currentTime, rawReading, currentWeight);
+        recordAcceptedSample(currentTime, acceptedSampleMicros, rawReading, currentWeight);
         return currentWeight;
     }
     
@@ -382,7 +433,7 @@ float Scale::getWeight() {
     }
     
     currentWeight = applyZeroQualification(currentTime, rawReading, filteredWeight);
-    recordAcceptedSample(currentTime, rawReading, currentWeight);
+    recordAcceptedSample(currentTime, acceptedSampleMicros, rawReading, currentWeight);
     return currentWeight;
 }
 
@@ -390,9 +441,127 @@ float Scale::getCurrentWeight() {
     return currentWeight;
 }
 
-void Scale::recordSampleCadence(unsigned long sampleMillis) {
-    (void)sampleMillis;
-    const bool longGap = cadenceTracker.recordSampleMicros(micros());
+void Scale::recordRawReadCadence(uint32_t sampleMicros, uint32_t readDurationMicros) {
+    rawReadSequence++;
+    rawReadCount++;
+    rawCadenceTracker.recordSampleMicros(sampleMicros);
+    lastRawReadDurationMicros = readDurationMicros;
+    if (readDurationMicros > maxRawReadDurationMicros) {
+        maxRawReadDurationMicros = readDurationMicros;
+    }
+}
+
+float Scale::rawCountsToGrams(int32_t rawCounts) const {
+    if (!isfinite(calibrationFactor) || fabsf(calibrationFactor) < 1.0f) {
+        return 0.0f;
+    }
+    return static_cast<float>(rawCounts - tareOffsetCounts) / calibrationFactor;
+}
+
+bool Scale::readRawCountsWithTimeout(uint32_t timeoutMs, int32_t& rawCounts, Hx711Io::Status* finalStatus, uint32_t* readDurationMicros) {
+    uint32_t waitDurationMicros = 0;
+#if WMBP_ACQUISITION_TASK
+    if (hx711Acquisition.isStarted()) {
+        const unsigned long startMillis = millis();
+        while (millis() - startMillis < timeoutMs) {
+            uint32_t sampleMicros = 0;
+            uint32_t sampleReadDurationMicros = 0;
+            if (popAcquiredRawSample(rawCounts, sampleMicros, sampleReadDurationMicros)) {
+                (void)sampleMicros;
+                if (readDurationMicros != nullptr) {
+                    *readDurationMicros = sampleReadDurationMicros;
+                }
+                if (finalStatus != nullptr) {
+                    *finalStatus = Hx711Io::Status::Ok;
+                }
+                return true;
+            }
+            delay(1);
+        }
+        if (finalStatus != nullptr) {
+            *finalStatus = Hx711Io::Status::Timeout;
+        }
+        return false;
+    }
+#endif
+    const Hx711Io::Status status = hx711Acquisition.readRawWithTimeoutSync(timeoutMs * 1000UL, rawCounts, &waitDurationMicros, readDurationMicros);
+    if (finalStatus != nullptr) {
+        *finalStatus = status;
+    }
+    if (status == Hx711Io::Status::Ok) {
+        return true;
+    }
+    return false;
+}
+
+bool Scale::popAcquiredRawSample(int32_t& rawCounts, uint32_t& sampleMicros, uint32_t& readDurationMicros) {
+#if WMBP_ACQUISITION_TASK
+    Hx711Acquisition::RawSample sample;
+    if (!hx711Acquisition.popSample(sample)) {
+        return false;
+    }
+    rawCounts = sample.rawCounts;
+    sampleMicros = sample.readEndMicros;
+    readDurationMicros = sample.readDurationMicros;
+    return true;
+#else
+    (void)rawCounts;
+    (void)sampleMicros;
+    (void)readDurationMicros;
+    return false;
+#endif
+}
+
+bool Scale::performRawTare(uint8_t times, uint32_t timeoutMs) {
+    const uint8_t targetSamples = times == 0 ? 1 : times;
+    int64_t total = 0;
+    uint8_t samples = 0;
+    const unsigned long startMillis = millis();
+#if WMBP_ACQUISITION_TASK
+    if (hx711Acquisition.isStarted()) {
+        hx711Acquisition.clearSamples();
+        while (samples < targetSamples && millis() - startMillis < timeoutMs) {
+            int32_t rawCounts = 0;
+            uint32_t sampleMicros = 0;
+            uint32_t readDurationMicros = 0;
+            if (popAcquiredRawSample(rawCounts, sampleMicros, readDurationMicros)) {
+                total += rawCounts;
+                samples++;
+                recordRawReadCadence(sampleMicros, readDurationMicros);
+            } else {
+                delay(1);
+            }
+        }
+    } else
+#endif
+    {
+        while (samples < targetSamples && millis() - startMillis < timeoutMs) {
+            int32_t rawCounts = 0;
+            uint32_t readDurationMicros = 0;
+            Hx711Io::Status status = Hx711Io::Status::Timeout;
+            if (readRawCountsWithTimeout(100, rawCounts, &status, &readDurationMicros)) {
+                total += rawCounts;
+                samples++;
+                recordRawReadCadence(micros(), readDurationMicros);
+            } else if (status == Hx711Io::Status::Disconnected) {
+                return false;
+            }
+            delay(1);
+        }
+    }
+    if (samples == 0) {
+        return false;
+    }
+    tareOffsetCounts = static_cast<int32_t>(total / samples);
+    hasLastRawValueCounts = false;
+    lastRawValueCounts = 0;
+    Serial.println("Raw tare offset counts: " + String(static_cast<long>(tareOffsetCounts)) +
+                   " samples=" + String(samples));
+    return true;
+}
+
+void Scale::recordSampleCadence(uint32_t sampleMicros) {
+    const bool longGap = cadenceTracker.recordSampleMicros(sampleMicros);
 
     lastSampleIntervalMicros = cadenceTracker.getLastIntervalMicros();
     sampleIntervalTotalMicros = cadenceTracker.getTotalMicros();
@@ -406,12 +575,13 @@ void Scale::recordSampleCadence(unsigned long sampleMillis) {
     }
 }
 
-void Scale::recordAcceptedSample(unsigned long sampleMillis, float rawReading, float publicWeight) {
+void Scale::recordAcceptedSample(unsigned long sampleMillis, uint32_t sampleMicros, float rawReading, float publicWeight) {
     sampleSequence++;
-    lastSampleMillis = sampleMillis;
+    lastSampleMicros = sampleMicros;
+    lastSampleMillis = sampleMicros / 1000UL;
     lifetimeSampleCount++;
     samplesSinceQualityPersist++;
-    recordSampleCadence(sampleMillis);
+    recordSampleCadence(sampleMicros);
     recordMeasurementQuality(sampleMillis, rawReading, publicWeight);
     lastAcceptedRawReading = rawReading;
     hasLastAcceptedRawReading = true;
@@ -630,6 +800,12 @@ void Scale::resetSampleCadenceStats() {
     acquisitionRejectedCount = 0;
     acquisitionReadErrorCount = 0;
     acquisitionDisconnectedCount = 0;
+    acquisitionTimeoutCount = 0;
+    rawReadSequence = 0;
+    rawReadCount = 0;
+    lastRawReadDurationMicros = 0;
+    maxRawReadDurationMicros = 0;
+    rawCadenceTracker.reset();
     hasLastRawSampleWeight = false;
     resetPlausibilityGate();
 }
@@ -756,7 +932,7 @@ long Scale::getRawValue() {
 #if WMBP_SIMULATION_MODE
     return static_cast<long>((simulatedRawWeight(millis()) - simulationTareOffset) * 1000.0f);
 #else
-    return hx711.get_value(1); // Get raw value from HX711
+    return lastRawValueCounts;
 #endif
 }
 
@@ -765,11 +941,12 @@ void Scale::powerDown() {
     Serial.println("HX711 power down skipped in WMB+ simulation mode");
 #else
     if (isConnected) {
-        hx711.power_down();
+        hx711Acquisition.powerDown();
+    } else {
+        pinMode(clockPin, OUTPUT);
+        digitalWrite(clockPin, HIGH);
+        delayMicroseconds(80);
     }
-    pinMode(clockPin, OUTPUT);
-    digitalWrite(clockPin, HIGH);
-    delayMicroseconds(80);
     Serial.println(isConnected
         ? "HX711 powered down for deep sleep; PD_SCK held HIGH"
         : "HX711 PD_SCK held HIGH for deep sleep before connection was confirmed");

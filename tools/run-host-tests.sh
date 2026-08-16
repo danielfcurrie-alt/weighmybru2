@@ -8,6 +8,7 @@ mkdir -p "${build_dir}"
 
 tests=(
   test_battery_drain_session
+  test_battery_simulation_matrix
   test_sample_cadence_tracker
   test_simulation_profiles
 )
@@ -26,4 +27,7 @@ for test_name in "${tests[@]}"; do
 done
 
 PYTHONDONTWRITEBYTECODE=1 python3 -m ast "${repo_root}/tools/runtime-cadence-smoke.py" >/dev/null
+PYTHONDONTWRITEBYTECODE=1 python3 -m ast "${repo_root}/tools/analyze-wmbp-serial-log.py" >/dev/null
+python3 "${repo_root}/tools/simulate-battery-matrix.py" --capacity-mah 700 --format json >/dev/null
+python3 "${repo_root}/tools/simulate-battery-matrix.py" --capacity-mah 1000 --format json >/dev/null
 python3 "${repo_root}/tools/check-dashboard-polling.py"

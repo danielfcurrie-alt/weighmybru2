@@ -1,0 +1,9 @@
+name: WMB+ USB mid-stream tare regression
+version: 1
+author: WMB+
+steps:
+  # WMBP_WOKWI_RUNTIME_HARNESS enables the USB stream during setup.
+  # The serial command exercises the firmware command path while acquisition runs.
+  - delay: 15000ms
+  - write-serial: "t\n"
+  - delay: 10000ms

@@ -1,0 +1,8 @@
+name: WMB+ USB weight stream autostart capture
+version: 1
+author: WMB+
+steps:
+  # WMBP_WOKWI_RUNTIME_HARNESS enables the USB stream during setup.
+  # Do not wait for an early boot banner here; Wokwi can miss early serial text
+  # while the ESP32-S3 image is starting.
+  - delay: 25000ms

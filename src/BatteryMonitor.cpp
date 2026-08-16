@@ -910,6 +910,9 @@ void BatteryMonitor::setCriticalShutdownPercent(uint8_t percent) {
 }
 
 bool BatteryMonitor::shouldForceCriticalSleep() {
+#if WMBP_DISABLE_CRITICAL_BATTERY_SLEEP
+    return false;
+#endif
     if (!criticalShutdownEnabled) {
         return false;
     }

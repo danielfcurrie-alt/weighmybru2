@@ -1,0 +1,113 @@
+{
+  "version": 1,
+  "author": "WMB+",
+  "editor": "wokwi",
+  "parts": [
+    {
+      "type": "board-xiao-esp32-s3",
+      "id": "esp",
+      "top": 0,
+      "left": 0,
+      "attrs": {
+        "flashSize": "8",
+        "psramSize": "8"
+      }
+    },
+    {
+      "type": "chip-hx711-80",
+      "id": "hx711",
+      "top": 185,
+      "left": 250,
+      "attrs": {
+        "sps": "80",
+        "actualSps": "94.22",
+        "jitterMicros": "100",
+        "weight": "0.0",
+        "offset": "0",
+        "countsPerGram": "4200",
+        "glitchEvery": "0",
+        "glitchCounts": "0",
+        "loadAfterMs": "0",
+        "loadWeight": "0.0"
+      }
+    },
+    {
+      "type": "board-ssd1306",
+      "id": "oled",
+      "top": -120,
+      "left": 250,
+      "attrs": {
+        "i2cAddress": "0x3c"
+      }
+    }
+  ],
+  "connections": [
+    [
+      "hx711:VCC",
+      "esp:3V3",
+      "red",
+      []
+    ],
+    [
+      "hx711:GND",
+      "esp:GND",
+      "black",
+      []
+    ],
+    [
+      "hx711:DT",
+      "esp:D4",
+      "green",
+      []
+    ],
+    [
+      "hx711:SCK",
+      "esp:D5",
+      "blue",
+      []
+    ],
+    [
+      "oled:VCC",
+      "esp:3V3",
+      "red",
+      []
+    ],
+    [
+      "oled:GND",
+      "esp:GND",
+      "black",
+      []
+    ],
+    [
+      "oled:SDA",
+      "esp:D9",
+      "green",
+      []
+    ],
+    [
+      "oled:SCL",
+      "esp:D10",
+      "blue",
+      []
+    ],
+    [
+      "esp:D2",
+      "esp:GND",
+      "black",
+      [
+        "v-18",
+        "h-20"
+      ]
+    ],
+    [
+      "esp:D3",
+      "esp:GND",
+      "black",
+      [
+        "v-24",
+        "h-28"
+      ]
+    ]
+  ],
+  "dependencies": {}
+}

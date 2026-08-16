@@ -3,6 +3,7 @@
 #include <LittleFS.h>
 #include <ESPmDNS.h>
 #include <esp_sleep.h>
+#include <Wire.h>
 #ifdef ESP_IDF_VERSION_MAJOR
     #include "esp_wifi.h"
     #include "esp_err.h"
@@ -470,7 +471,7 @@ static void printUsbWeightSample(float weight, bool force = false) {
       line,
       sizeof(line),
       "WMBP_WEIGHT_V1,%lu,%lu,%.3f,%.3f,0x%04X,%u,%d,%.2f,%lu\n",
-      static_cast<unsigned long>(millis()),
+      static_cast<unsigned long>(scale.getLastSampleMillis()),
       static_cast<unsigned long>(scale.getSampleSequence()),
       weight,
       flowRate.getFlowRate(),
@@ -615,7 +616,7 @@ static void printConfigDiagnostics() {
                 static_cast<unsigned long>(usbWeightDroppedFrames));
   Serial.println("Board hardware: " + boardHardware.toJson());
   diagnosticEventLog.printTo(Serial, 12);
-  Serial.println("Commands: z=config diagnostics, e=print diagnostic events, E=clear diagnostic events, b=toggle battery benchmark log, B=print battery benchmark now, d=reset battery drain session, w=toggle USB weight stream, W=print one USB weight sample");
+  Serial.println("Commands: z=config diagnostics, e=print diagnostic events, E=clear diagnostic events, b=toggle battery benchmark log, B=print battery benchmark now, d=reset battery drain session, t=queue tare, w=toggle USB weight stream, W=print one USB weight sample");
   Serial.println("============================================");
 }
 
@@ -638,6 +639,9 @@ static void handleSerialCommands() {
       resetBatteryDrainSession("serial");
       Serial.println("Battery drain session reset");
       printBatteryBenchmarkLog(true);
+    } else if (command == 't') {
+      touchSensor.requestTare("serial");
+      Serial.println("Serial tare queued");
     } else if (command == 'w') {
       usbWeightStreamEnabled = !usbWeightStreamEnabled;
       Serial.printf("USB weight stream %s\n", usbWeightStreamEnabled ? "enabled" : "disabled");
@@ -679,6 +683,13 @@ void setup() {
   diagnosticEventLog.record(DiagnosticEventType::Boot, 0.0f, "firmware boot");
   boardHardware.begin();
   boardHardware.updateStatus(BoardHardwareStatus::Booting);
+
+#if HAS_I2C_FUEL_GAUGE
+  // TinyS3[D] uses an I2C MAX17048 fuel gauge. Initialize the bus before the
+  // battery monitor probes it; XIAO/SuperMini ADC battery paths do not need it.
+  Wire.begin(sdaPin, sclPin);
+  Wire.setClock(400000);
+#endif
   
   // Link scale and flow rate for tare operation coordination
   scale.setFlowRatePtr(&flowRate);
@@ -701,8 +712,13 @@ void setup() {
 
   // Initialize display early so critical-battery boot guard can show a warning
   // before BLE/WiFi spend power on a depleted cell.
+#if WMBP_WOKWI_RUNTIME_HARNESS
+  Serial.println("Wokwi runtime harness: skipping OLED initialization for faster deterministic boot");
+  bool displayAvailable = false;
+#else
   Serial.println("Initializing display...");
   bool displayAvailable = oledDisplay.begin();
+#endif
 
   if (!displayAvailable) {
     Serial.println("WARNING: Display initialization failed!");
@@ -754,6 +770,20 @@ void setup() {
     }
     forceDeepSleepNow(wokeFromCriticalSleep ? "critical battery recovery wait" : "boot critical battery", true);
   }
+
+#if WMBP_WOKWI_RUNTIME_HARNESS
+  Serial.println("Wokwi runtime harness: skipping BLE/WiFi/web startup and enabling USB weight stream");
+  Serial.println("Initializing scale...");
+  if (!scale.begin()) {
+    Serial.println("ERROR: Wokwi runtime harness could not initialize HX711");
+    diagnosticEventLog.record(DiagnosticEventType::Hx711Missing, 0.0f, "Wokwi HX711 init failed");
+  } else {
+    Serial.println("Scale initialized successfully");
+  }
+  usbWeightStreamEnabled = true;
+  printUsbWeightStreamHeader();
+  return;
+#endif
 
   bluetoothScale.setBatteryMonitor(&batteryMonitor);
   
@@ -922,13 +952,25 @@ void loop() {
   bool freshScaleSample = false;
   if (scaleSequence != lastProcessedScaleSequence) {
     flowRate.update(weight);
+#if !WMBP_WOKWI_RUNTIME_HARNESS
     // Broadcast live weight to StopMyBru relay module (no-op if not paired)
     smbComms.sendWeightUpdate(weight);
     // Notify auto-sleep timer of current weight
     powerManager.notifyWeight(weight);
+#endif
     lastProcessedScaleSequence = scaleSequence;
     freshScaleSample = true;
   }
+
+#if WMBP_WOKWI_RUNTIME_HARNESS
+  batteryMonitor.update();
+  touchSensor.update();
+  if (freshScaleSample) {
+    printUsbWeightSample(weight);
+  }
+  delay(1);
+  return;
+#endif
   
   // Check WiFi status every 30 seconds for debugging
   if (millis() - lastWiFiCheck >= 30000) {

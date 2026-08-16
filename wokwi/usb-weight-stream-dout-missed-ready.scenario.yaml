@@ -1,0 +1,6 @@
+name: WMB+ USB DOUT missed-ready recovery
+version: 1
+author: WMB+
+steps:
+  # Pair with a diagram that sets hx711 missedReadyEvery > 0.
+  - delay: 25000ms

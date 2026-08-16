@@ -1,0 +1,7 @@
+name: WMB+ USB weight stream
+version: 1
+author: WMB+
+steps:
+  - wait-serial: 'WMB+'
+  - wait-serial: 'WMBP_WEIGHT_V1_HEADER'
+  - delay: 20000ms

@@ -1,0 +1,6 @@
+name: WMB+ USB clean 94Hz reference stream
+version: 1
+author: WMB+
+steps:
+  # Uses diagram attrs actualSps=94.22 to mirror the reference XIAO HX711.
+  - delay: 25000ms

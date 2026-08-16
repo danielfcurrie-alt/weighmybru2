@@ -1,0 +1,31 @@
+{
+  "result": {
+    "valid": true,
+    "samples": 815,
+    "host_rate_hz": 40.746858887720876,
+    "device_rate_hz": 40.746858887720876,
+    "host_p50_ms": 13.000000000001677,
+    "host_p95_ms": 98.00000000000253,
+    "host_max_ms": 120.000000000001,
+    "device_p50_ms": 13.0,
+    "device_p95_ms": 98.0,
+    "device_max_ms": 120.0,
+    "device_gaps_over_100ms": 32,
+    "device_gaps_over_250ms": 0,
+    "missing_sequence": 0,
+    "dropped_delta": 0,
+    "reported_hx711_hz_avg": 40.19584049079754,
+    "reported_hx711_hz_min": 0.0,
+    "reported_hx711_hz_max": 42.04,
+    "quality_avg": 90.06134969325153,
+    "quality_min": 90,
+    "log_path": "/Users/admin/Developer/weighmybru2-pr1-existing-device-quality/.pio/wokwi-compare/20260816T094559Z/beta6-worktree/.pio/wokwi/esp32s3-xiao-sim-80sps/serial.log",
+    "total_weight_lines": 815,
+    "malformed_weight_lines": 0,
+    "host_timing_note": "host timing is synthesized from device_ms for offline log analysis"
+  },
+  "failures": [
+    "device rate 40.75Hz < 78.00Hz",
+    "gaps >100ms 32 > 0"
+  ]
+}

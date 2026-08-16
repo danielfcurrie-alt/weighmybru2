@@ -7,13 +7,13 @@
   #define BOARD_NAME "ESP32-S3-DevKitC-1 (SuperMini)"
   #define BOARD_TYPE_SUPERMINI
   
-#elif defined(BOARD_XIAO)
-  #define BOARD_NAME "XIAO ESP32S3" 
-  #define BOARD_TYPE_XIAO
-
 #elif defined(BOARD_TINYS3D)
   #define BOARD_NAME "TinyS3[D]"
   #define BOARD_TYPE_TINYS3D
+
+#elif defined(BOARD_XIAO)
+  #define BOARD_NAME "XIAO ESP32S3"
+  #define BOARD_TYPE_XIAO
   
 #else
   #define BOARD_NAME "ESP32-S3 (Unknown)"
@@ -92,6 +92,34 @@
 
 #ifndef WMBP_SIMULATION_MODE
   #define WMBP_SIMULATION_MODE 0
+#endif
+
+#ifndef WMBP_ACQUISITION_TASK
+  #define WMBP_ACQUISITION_TASK 1
+#endif
+
+#ifndef WMBP_ACQUISITION_TASK_PRIORITY
+  #define WMBP_ACQUISITION_TASK_PRIORITY 19
+#endif
+
+#ifndef WMBP_ACQUISITION_TASK_CORE
+  #define WMBP_ACQUISITION_TASK_CORE 1
+#endif
+
+#ifndef WMBP_ACQUISITION_TASK_STACK
+  #define WMBP_ACQUISITION_TASK_STACK 4096
+#endif
+
+#ifndef WMBP_ACQUISITION_DOUT_INTERRUPT
+  #define WMBP_ACQUISITION_DOUT_INTERRUPT 0
+#endif
+
+#ifndef WMBP_DISABLE_CRITICAL_BATTERY_SLEEP
+  #define WMBP_DISABLE_CRITICAL_BATTERY_SLEEP 0
+#endif
+
+#ifndef WMBP_WOKWI_RUNTIME_HARNESS
+  #define WMBP_WOKWI_RUNTIME_HARNESS 0
 #endif
 
 // Diagnostic event log policy. This stores exception/error events only, not raw

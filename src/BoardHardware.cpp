@@ -6,6 +6,12 @@ namespace {
 constexpr uint8_t MIN_STATUS_LED_BRIGHTNESS = 1;
 constexpr uint8_t MAX_STATUS_LED_BRIGHTNESS = 64;
 #endif
+
+#if defined(BOARD_TYPE_TINYS3D) && defined(RGB_PWR) && defined(RGB_BUILTIN)
+#define WMBP_HAS_TINYS3D_RGB_RUNTIME 1
+#else
+#define WMBP_HAS_TINYS3D_RGB_RUNTIME 0
+#endif
 }
 
 void BoardHardware::begin() {
@@ -16,12 +22,16 @@ void BoardHardware::begin() {
     pinMode(RF_ANTENNA_SWITCH_PIN, OUTPUT);
     digitalWrite(RF_ANTENNA_SWITCH_PIN, externalAntennaSelected ? HIGH : LOW);
 
+#if WMBP_HAS_TINYS3D_RGB_RUNTIME
     rgbStatusLedAvailable = true;
     pinMode(RGB_PWR, OUTPUT);
     digitalWrite(RGB_PWR, LOW);
     if (rgbStatusLedEnabled) {
         writeStatusLed(dimBrightness(), dimBrightness(), rgbStatusLedBrightness);
     }
+#else
+    rgbStatusLedAvailable = false;
+#endif
 #else
     antennaSwitchAvailable = false;
     rgbStatusLedAvailable = false;
@@ -83,7 +93,7 @@ void BoardHardware::updateStatus(BoardHardwareStatus status) {
 void BoardHardware::prepareForSleep() {
     if (rgbStatusLedAvailable) {
         writeStatusLed(0, 0, 0);
-#if defined(BOARD_TYPE_TINYS3D)
+#if WMBP_HAS_TINYS3D_RGB_RUNTIME
         digitalWrite(RGB_PWR, LOW);
 #endif
     }
@@ -94,7 +104,7 @@ void BoardHardware::setRgbStatusLedEnabled(bool enabled) {
     saveSettings();
     if (!enabled) {
         writeStatusLed(0, 0, 0);
-#if defined(BOARD_TYPE_TINYS3D)
+#if WMBP_HAS_TINYS3D_RGB_RUNTIME
         digitalWrite(RGB_PWR, LOW);
 #endif
     } else {
@@ -176,7 +186,7 @@ uint8_t BoardHardware::dimBrightness() const {
 }
 
 void BoardHardware::writeStatusLed(uint8_t red, uint8_t green, uint8_t blue) {
-#if defined(BOARD_TYPE_TINYS3D)
+#if WMBP_HAS_TINYS3D_RGB_RUNTIME
     if (!rgbStatusLedAvailable) {
         return;
     }

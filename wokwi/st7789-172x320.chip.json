@@ -1,0 +1,23 @@
+{
+  "name": "ST7789 1.47in 172x320 TFT",
+  "author": "WMB+",
+  "pins": [ "GND", "VDD", "SCL", "SDA", "RES", "DC", "CS", "BL" ],
+  "controls": [
+    {
+      "id": "width",
+      "label": "Width",
+      "type": "range",
+      "min": 172,
+      "max": 172,
+      "step": 1
+    },
+    {
+      "id": "height",
+      "label": "Height",
+      "type": "range",
+      "min": 320,
+      "max": 320,
+      "step": 1
+    }
+  ]
+}

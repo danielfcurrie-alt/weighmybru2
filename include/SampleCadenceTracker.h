@@ -21,12 +21,21 @@ public:
             return false;
         }
 
-        const uint32_t referenceAverageMicros = getAverageMicros();
+        const uint32_t referenceMicros = getExpectedMicros() > 0 ? getExpectedMicros() : getAverageMicros();
+        uint32_t lostSlotsThisSample = 0;
         const bool isLongGap =
             statsCount >= 3 &&
-            referenceAverageMicros > 0 &&
-            intervalMicros > referenceAverageMicros * 3UL &&
-            intervalMicros > 250000UL;
+            referenceMicros > 0 &&
+            intervalMicros > referenceMicros * 2UL;
+
+        if (statsCount >= 3 && referenceMicros > 0) {
+            const uint32_t roundedSlots = static_cast<uint32_t>(roundf(static_cast<float>(intervalMicros) / static_cast<float>(referenceMicros)));
+            if (roundedSlots > 1) {
+                lostSlotsThisSample = roundedSlots - 1;
+                estimatedLostCadenceSlots += lostSlotsThisSample;
+            }
+        }
+        lastEstimatedLostCadenceSlots = lostSlotsThisSample;
 
         totalMicros += intervalMicros;
         statsCount++;
@@ -35,6 +44,11 @@ public:
         }
         if (intervalMicros > maxMicros) {
             maxMicros = intervalMicros;
+        }
+        if (expectedMicros == 0) {
+            expectedMicros = intervalMicros;
+        } else if (!isLongGap) {
+            expectedMicros = static_cast<uint32_t>((static_cast<uint64_t>(expectedMicros) * 7ULL + intervalMicros) / 8ULL);
         }
         if (isLongGap) {
             longGapCount++;
@@ -51,6 +65,9 @@ public:
         minMicros = 0;
         maxMicros = 0;
         longGapCount = 0;
+        expectedMicros = 0;
+        estimatedLostCadenceSlots = 0;
+        lastEstimatedLostCadenceSlots = 0;
     }
 
     uint32_t getAverageMicros() const {
@@ -96,6 +113,9 @@ public:
     uint32_t getMinMicros() const { return minMicros; }
     uint32_t getMaxMicros() const { return maxMicros; }
     uint32_t getLongGapCount() const { return longGapCount; }
+    uint32_t getExpectedMicros() const { return expectedMicros; }
+    uint32_t getEstimatedLostCadenceSlots() const { return estimatedLostCadenceSlots; }
+    uint32_t getLastEstimatedLostCadenceSlots() const { return lastEstimatedLostCadenceSlots; }
 
 private:
     uint32_t lastSampleMicros = 0;
@@ -105,6 +125,9 @@ private:
     uint32_t minMicros = 0;
     uint32_t maxMicros = 0;
     uint32_t longGapCount = 0;
+    uint32_t expectedMicros = 0;
+    uint32_t estimatedLostCadenceSlots = 0;
+    uint32_t lastEstimatedLostCadenceSlots = 0;
 };
 
 #endif

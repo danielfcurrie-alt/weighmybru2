@@ -108,6 +108,13 @@ ACQUISITION_KEYS = [
     "acquisition_ready_count",
     "acquisition_not_ready_count",
     "acquisition_accepted_count",
+    "acquisition_raw_read_count",
+    "acquisition_estimated_lost_cadence_slots",
+    "raw_read_expected_interval_us",
+    "raw_read_avg_interval_us",
+    "raw_read_max_interval_us",
+    "raw_read_estimated_lost_cadence_slots",
+    "raw_read_max_duration_us",
     "acquisition_rejected_count",
     "acquisition_read_error_count",
     "acquisition_disconnected_count",
@@ -294,7 +301,7 @@ def fetch_dashboard_snapshot(base_url: str) -> dict[str, object]:
 
 
 def acquisition_snapshot(dashboard: dict[str, object]) -> dict[str, object]:
-    return {key: dashboard[key] for key in ACQUISITION_KEYS if key in dashboard}
+    return {key: dashboard.get(key, "-") for key in ACQUISITION_KEYS}
 
 
 def analyze(samples: list[Sample]) -> dict[str, object]:
@@ -379,7 +386,10 @@ def print_summary(
         print(
             "acquisition: model={acquisition_model} polls={acquisition_poll_count} "
             "ready={acquisition_ready_count} notReady={acquisition_not_ready_count} "
-            "accepted={acquisition_accepted_count} rejected={acquisition_rejected_count} "
+            "accepted={acquisition_accepted_count} raw={acquisition_raw_read_count} "
+            "lostSlots={acquisition_estimated_lost_cadence_slots} rejected={acquisition_rejected_count} "
+            "rawExpectedUs={raw_read_expected_interval_us} rawAvgUs={raw_read_avg_interval_us} "
+            "rawMaxUs={raw_read_max_interval_us} rawReadMaxUs={raw_read_max_duration_us} "
             "readErrors={acquisition_read_error_count} disconnected={acquisition_disconnected_count} "
             "dataReady={acquisition_data_ready_notifications} busySkips={acquisition_busy_skip_count} "
             "timeouts={acquisition_timeout_count}".format(**acquisition)

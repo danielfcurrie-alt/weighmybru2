@@ -1,0 +1,186 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+baseline_ref="${WMBP_BETA6_REF:-c043e1a76aca}"
+env_name="${WMBP_WOKWI_ENV:-esp32s3-xiao-sim-80sps}"
+timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+out_root="${repo_root}/.pio/wokwi-compare/${timestamp}"
+baseline_tree="${out_root}/beta6-worktree"
+beta6_out="${out_root}/beta6"
+beta7_out="${out_root}/beta7"
+baseline_cache="${WMBP_WOKWI_BASELINE_JSON:-${repo_root}/test/fixtures/wokwi/beta6-${baseline_ref}-${env_name}.analysis.json}"
+refresh_baseline="${WMBP_WOKWI_REFRESH_BASELINE:-0}"
+
+if ! command -v wokwi-cli >/dev/null 2>&1; then
+  cat >&2 <<'EOF'
+wokwi-cli is not installed.
+
+Install:
+  curl -L https://wokwi.com/ci/install.sh | sh
+
+Then set your Wokwi token:
+  export WOKWI_CLI_TOKEN=...
+
+EOF
+  exit 127
+fi
+
+if [[ -z "${WOKWI_CLI_TOKEN:-}" ]]; then
+  cat >&2 <<'EOF'
+WOKWI_CLI_TOKEN is not set.
+
+Create a Wokwi CI token, then run:
+  export WOKWI_CLI_TOKEN=...
+
+EOF
+  exit 2
+fi
+
+mkdir -p "${out_root}"
+
+cleanup() {
+  if git -C "${repo_root}" worktree list --porcelain | grep -Fq "worktree ${baseline_tree}"; then
+    git -C "${repo_root}" worktree remove --force "${baseline_tree}" >/dev/null 2>&1 || true
+  fi
+}
+trap cleanup EXIT
+
+copy_harness_into_baseline() {
+  cp "${repo_root}/diagram.json" "${baseline_tree}/diagram.json"
+  cp "${repo_root}/wokwi.toml" "${baseline_tree}/wokwi.toml"
+  mkdir -p "${baseline_tree}/wokwi" "${baseline_tree}/tools"
+  cp "${repo_root}/wokwi/usb-weight-stream.scenario.yaml" "${baseline_tree}/wokwi/usb-weight-stream.scenario.yaml"
+  cp "${repo_root}/tools/analyze-wmbp-serial-log.py" "${baseline_tree}/tools/analyze-wmbp-serial-log.py"
+  cp "${repo_root}/tools/run-wokwi-runtime-smoke.sh" "${baseline_tree}/tools/run-wokwi-runtime-smoke.sh"
+  chmod +x "${baseline_tree}/tools/analyze-wmbp-serial-log.py" "${baseline_tree}/tools/run-wokwi-runtime-smoke.sh"
+}
+
+run_one() {
+  local label="$1"
+  local worktree="$2"
+  local output_dir="$3"
+
+  echo
+  echo "== Running ${label} (${env_name}) =="
+  (
+    cd "${worktree}"
+    WMBP_WOKWI_NO_FAIL=1 tools/run-wokwi-runtime-smoke.sh "${env_name}"
+  )
+
+  mkdir -p "${output_dir}"
+  cp "${worktree}/.pio/wokwi/${env_name}/serial.log" "${output_dir}/serial.log"
+  cp "${worktree}/.pio/wokwi/${env_name}/analysis.json" "${output_dir}/analysis.json"
+}
+
+echo "Output: ${out_root}"
+echo "Baseline ref: ${baseline_ref}"
+echo "Environment: ${env_name}"
+echo "Baseline cache: ${baseline_cache}"
+
+mkdir -p "${beta6_out}"
+if [[ "${refresh_baseline}" != "1" && -f "${baseline_cache}" ]]; then
+  echo
+  echo "== Reusing cached beta6:${baseline_ref} (${env_name}) =="
+  cp "${baseline_cache}" "${beta6_out}/analysis.json"
+  echo "Cached analysis JSON: ${beta6_out}/analysis.json"
+else
+  echo
+  echo "== Refreshing beta6:${baseline_ref} (${env_name}) =="
+  git -C "${repo_root}" worktree add --detach "${baseline_tree}" "${baseline_ref}"
+  copy_harness_into_baseline
+  run_one "beta6:${baseline_ref}" "${baseline_tree}" "${beta6_out}"
+  mkdir -p "$(dirname "${baseline_cache}")"
+  cp "${beta6_out}/analysis.json" "${baseline_cache}"
+  echo "Saved baseline cache: ${baseline_cache}"
+fi
+
+run_one "beta7:current-worktree" "${repo_root}" "${beta7_out}"
+
+python3 - "${beta6_out}/analysis.json" "${beta7_out}/analysis.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+def load(path):
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    result = data["result"]
+    failures = data.get("failures", [])
+    return result, failures
+
+beta6, beta6_failures = load(sys.argv[1])
+beta7, beta7_failures = load(sys.argv[2])
+
+fields = [
+    ("samples", "samples"),
+    ("device_rate_hz", "rate Hz"),
+    ("device_p50_ms", "p50 ms"),
+    ("device_p95_ms", "p95 ms"),
+    ("device_max_ms", "max ms"),
+    ("device_gaps_over_100ms", "gaps>100"),
+    ("device_gaps_over_250ms", "gaps>250"),
+    ("missing_sequence", "missing seq"),
+    ("dropped_delta", "dropped"),
+    ("reported_hx711_hz_avg", "reported HX Hz"),
+    ("quality_avg", "quality avg"),
+]
+
+print("\n== Wokwi Beta 6 vs Beta 7 ==")
+print(f"{'metric':<18} {'beta6':>14} {'beta7':>14} {'delta':>14}")
+for key, label in fields:
+    a = beta6.get(key)
+    b = beta7.get(key)
+    if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+        delta = b - a
+        print(f"{label:<18} {a:>14.3f} {b:>14.3f} {delta:>14.3f}")
+    else:
+        print(f"{label:<18} {str(a):>14} {str(b):>14} {'-':>14}")
+
+if beta6_failures or beta7_failures:
+    print("\nAbsolute-profile failures:")
+    print("These are expected when Wokwi cannot sustain the real 80 SPS serial stream.")
+    print("The comparison pass/fail below is based on Beta 7 regression vs Beta 6.")
+    if beta6_failures:
+        print("beta6:")
+        for failure in beta6_failures:
+            print(f"  - {failure}")
+    if beta7_failures:
+        print("beta7:")
+        for failure in beta7_failures:
+            print(f"  - {failure}")
+
+regressions = []
+rate6 = float(beta6.get("device_rate_hz") or 0.0)
+rate7 = float(beta7.get("device_rate_hz") or 0.0)
+if rate6 > 0 and rate7 < rate6 * 0.90:
+    regressions.append(f"Beta 7 rate dropped more than 10% vs Beta 6: {rate7:.2f}Hz < {rate6 * 0.90:.2f}Hz")
+
+max6 = float(beta6.get("device_max_ms") or 0.0)
+max7 = float(beta7.get("device_max_ms") or 0.0)
+if max7 > max6 + 50.0:
+    regressions.append(f"Beta 7 max interval increased by more than 50ms: {max7:.1f}ms vs {max6:.1f}ms")
+
+gaps6 = int(beta6.get("device_gaps_over_100ms") or 0)
+gaps7 = int(beta7.get("device_gaps_over_100ms") or 0)
+if gaps7 > gaps6 + 10:
+    regressions.append(f"Beta 7 added more than 10 long gaps: {gaps7} vs {gaps6}")
+
+for field in ("missing_sequence", "dropped_delta"):
+    value = int(beta7.get(field) or 0)
+    if value > 0:
+        regressions.append(f"Beta 7 reported {field}={value}")
+
+if regressions:
+    print("\nREGRESSION FAIL")
+    for regression in regressions:
+        print(f"  - {regression}")
+    raise SystemExit(1)
+
+print("\nREGRESSION PASS")
+PY
+
+echo
+echo "Artifacts:"
+echo "  ${beta6_out}/analysis.json"
+echo "  ${beta7_out}/serial.log"
+echo "  ${beta7_out}/analysis.json"

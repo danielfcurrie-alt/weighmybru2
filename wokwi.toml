@@ -1,0 +1,5 @@
+[wokwi]
+version = 1
+firmware = ".pio/build/esp32s3-xiao-sim-80sps/firmware.bin"
+elf = ".pio/build/esp32s3-xiao-sim-80sps/firmware.elf"
+
