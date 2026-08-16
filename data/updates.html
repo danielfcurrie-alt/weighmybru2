@@ -120,6 +120,22 @@
                 class="bg-gray-600 hover:bg-button-green active:bg-green-900 disabled:opacity-40 disabled:cursor-not-allowed text-white px-4 py-2 rounded">
           Upload App Firmware
         </button>
+
+        <div id="firmwareUploadStatus"
+             class="mt-4 rounded border border-green-700/40 bg-black-background p-3"
+             x-show="showInlineStatus('firmware')">
+          <div class="flex items-center justify-between text-xs text-gray-300 mb-2">
+            <span x-text="uploading ? 'Uploading app firmware…' : 'App firmware update'"></span>
+            <span x-text="progress + '%'"></span>
+          </div>
+          <div class="w-full bg-black-select rounded h-3 mb-2 overflow-hidden">
+            <div class="bg-green-600 h-3 transition-all" :style="'width: ' + progress + '%'"></div>
+          </div>
+          <p class="text-xs" :class="messageError ? 'text-red-400' : 'text-green-400'" x-text="message || ota.lastMessage"></p>
+          <p class="text-xs text-yellow-400 mt-2" x-show="restartPending">
+            Update accepted. The scale is restarting; reconnect after it comes back online.
+          </p>
+        </div>
       </div>
 
       <div class="bg-black-select p-6 rounded shadow">
@@ -137,6 +153,22 @@
                 class="bg-gray-600 hover:bg-button-green active:bg-green-900 disabled:opacity-40 disabled:cursor-not-allowed text-white px-4 py-2 rounded">
           Upload Web UI Filesystem
         </button>
+
+        <div id="filesystemUploadStatus"
+             class="mt-4 rounded border border-green-700/40 bg-black-background p-3"
+             x-show="showInlineStatus('filesystem')">
+          <div class="flex items-center justify-between text-xs text-gray-300 mb-2">
+            <span x-text="uploading ? 'Uploading web UI filesystem…' : 'Web UI filesystem update'"></span>
+            <span x-text="progress + '%'"></span>
+          </div>
+          <div class="w-full bg-black-select rounded h-3 mb-2 overflow-hidden">
+            <div class="bg-green-600 h-3 transition-all" :style="'width: ' + progress + '%'"></div>
+          </div>
+          <p class="text-xs" :class="messageError ? 'text-red-400' : 'text-green-400'" x-text="message || ota.lastMessage"></p>
+          <p class="text-xs text-yellow-400 mt-2" x-show="restartPending">
+            Update accepted. The scale is restarting; reconnect after it comes back online.
+          </p>
+        </div>
       </div>
 
       <div class="bg-black-select p-6 rounded shadow" x-show="message || uploading || ota.lastMessage">
@@ -198,6 +230,18 @@ function updatesApp() {
       const ref = target === 'firmware' ? this.$refs.firmwareFile : this.$refs.filesystemFile;
       if (!ref || !ref.files || ref.files.length === 0) return null;
       return ref.files[0];
+    },
+
+    showInlineStatus(target) {
+      return (this.uploading && this.uploadTarget === target) ||
+        (!this.uploading && this.uploadTarget === target && (this.message || this.restartPending));
+    },
+
+    scrollUploadStatusIntoView(target) {
+      this.$nextTick(() => {
+        const el = document.getElementById(`${target}UploadStatus`);
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
     },
 
     boardAssetHint() {
@@ -277,8 +321,12 @@ function updatesApp() {
     upload(target) {
       const file = this.selectedFile(target);
       if (!file) {
+        this.uploadTarget = target;
         this.message = 'Choose a .bin file first.';
         this.messageError = true;
+        this.progress = 0;
+        this.restartPending = false;
+        this.scrollUploadStatusIntoView(target);
         return;
       }
 
@@ -292,6 +340,7 @@ function updatesApp() {
       this.message = `Uploading ${file.name}`;
       this.messageError = false;
       this.restartPending = false;
+      this.scrollUploadStatusIntoView(target);
 
       const xhr = new XMLHttpRequest();
       xhr.open('POST', endpoint, true);
