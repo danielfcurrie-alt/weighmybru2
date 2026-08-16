@@ -966,7 +966,16 @@ void loop() {
 #if WMBP_SIMULATION_MODE
   delay(1);
 #else
-  // Increased delay for better power efficiency while maintaining responsiveness
-  delay(10); // Optimized delay: 10ms for good responsiveness with power savings
+  // At 80 SPS the HX711 produces a new sample about every 12.5 ms. A fixed
+  // 10 ms sleep leaves too little margin once WiFi/AsyncTCP is also serving
+  // dashboard requests, which can create visible 100-250 ms holes in the BLE
+  // and USB streams. Keep the old lower-power sleep only for true 10 SPS/idle
+  // operation; high-rate or actively connected operation uses a short yield.
+  const uint32_t cadenceStats = scale.getSampleIntervalStatsCount();
+  const float detectedRateHz = scale.getDetectedSampleRateHz();
+  const bool rateUnknown = cadenceStats < 16;
+  const bool highRateHx711 = rateUnknown || detectedRateHz > 20.0f || scale.getDetectedHx711RateMode() == "80SPS";
+  const bool activeClient = bluetoothScale.isConnected() || batteryMonitor.isUsbPowerPresent();
+  delay(highRateHx711 ? 1 : (activeClient ? 2 : 10));
 #endif
 }

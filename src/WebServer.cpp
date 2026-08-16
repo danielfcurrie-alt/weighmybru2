@@ -1650,6 +1650,14 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
     request->send(response);
   });
 
+  server.on("/stopmybrew.html", HTTP_GET, [](AsyncWebServerRequest *request) {
+    request->send(LittleFS, "/stopmybrew.html", "text/html");
+  });
+
+  server.on("/stopmybru.html", HTTP_GET, [](AsyncWebServerRequest *request) {
+    request->send(LittleFS, "/stopmybrew.html", "text/html");
+  });
+
   // Serve static files for non-API paths
   server.serveStatic("/", LittleFS, "/").setDefaultFile("index.html");
 

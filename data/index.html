@@ -1078,15 +1078,15 @@
     if (manualBrewMode) {
       btn.textContent = 'Exit Brew Mode';
       btn.className = 'bg-red-600 hover:bg-red-700 py-2 rounded-lg text-sm font-semibold';
-      status.textContent = 'Manual Brew Mode: Stable Updates (2/sec)';
+      status.textContent = 'Manual Brew Mode: Stable Updates (1/sec)';
       clearInterval(updateTimer);
-      updateTimer = setInterval(updateWeight, 500); // 2x per second
+      updateTimer = setInterval(updateWeight, 1000); // 1x per second; BLE/USB carry high-rate data
     } else {
       btn.textContent = 'Brew Mode';
       btn.className = 'bg-blue-600 hover:bg-blue-700 py-2 rounded-lg text-sm font-semibold';
       status.textContent = 'Auto Mode: Smart Updates';
       clearInterval(updateTimer);
-      updateTimer = setInterval(updateWeight, 500); // Back to normal
+      updateTimer = setInterval(updateWeight, 1000); // Back to normal
       isBrewingActive = false;
     }
   }
@@ -1102,16 +1102,16 @@
     if (weightChange > 0.5) {
       if (!isBrewingActive) {
         isBrewingActive = true;
-        document.getElementById('updateStatus').textContent = 'Auto Brew Detected: Stable Updates (2/sec)';
+        document.getElementById('updateStatus').textContent = 'Auto Brew Detected: Stable Updates (1/sec)';
         clearInterval(updateTimer);
-        updateTimer = setInterval(updateWeight, 500); // 2x per second during brewing
+        updateTimer = setInterval(updateWeight, 1000); // 1x per second; BLE/USB carry high-rate data during brewing
       }
     } else {
       if (isBrewingActive) {
         isBrewingActive = false;
-        document.getElementById('updateStatus').textContent = 'Auto Mode: Normal Updates (2/sec)';
+        document.getElementById('updateStatus').textContent = 'Auto Mode: Normal Updates (1/sec)';
         clearInterval(updateTimer);
-        updateTimer = setInterval(updateWeight, 500); // 2x per second when idle
+        updateTimer = setInterval(updateWeight, 1000); // 1x per second; BLE/USB carry high-rate data when idle
       }
     }
 
@@ -1119,8 +1119,8 @@
   }
 
   // Keep the dashboard responsive; BLE/USB carry high-rate data.
-  let updateTimer = setInterval(updateWeight, 500); // 2/sec for dashboard responsiveness
-  document.getElementById('updateStatus').textContent = 'Dashboard Mode: Stable Updates (2/sec)';
+  let updateTimer = setInterval(updateWeight, 1000); // 1/sec; BLE/USB carry high-rate data
+  document.getElementById('updateStatus').textContent = 'Dashboard Mode: Stable Updates (1/sec)';
   
   refreshStaticSystemInfo().then(() => updateWeight());
   setInterval(refreshStaticSystemInfo, 60000);

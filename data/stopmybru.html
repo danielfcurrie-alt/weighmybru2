@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>WMB+ StopMyBru Remote</title>
+  <meta name="theme-color" content="#0b1115">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="StopMyBru">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/icons/wmb-plus-192.png">
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="stylesheet" href="/output.css">
+  <link rel="stylesheet" href="/css/all.min.css">
+  <style>
+    :root { color-scheme: dark; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at 20% 0%, rgba(71,168,100,.18), transparent 34rem),
+        linear-gradient(180deg, #071116 0%, #05080b 100%);
+      color: #f8fafc;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    .shell { width: min(680px, calc(100vw - 28px)); margin: 0 auto; padding: max(18px, env(safe-area-inset-top)) 0 max(24px, env(safe-area-inset-bottom)); }
+    .topbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 18px; }
+    .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+    .brand img { width: 52px; height: 52px; border-radius: 16px; object-fit: cover; box-shadow: 0 12px 30px rgba(0,0,0,.35); }
+    .eyebrow { color: #8aa29a; font-size: .78rem; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+    h1 { margin: 0; font-size: clamp(2rem, 8vw, 3.4rem); line-height: .95; letter-spacing: -.06em; }
+    .link { color: #86efac; text-decoration: none; font-weight: 750; white-space: nowrap; }
+    .card { background: rgba(18,24,28,.82); border: 1px solid rgba(255,255,255,.08); border-radius: 30px; padding: 22px; box-shadow: 0 24px 70px rgba(0,0,0,.34); backdrop-filter: blur(18px); margin-bottom: 14px; }
+    .status-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: #9ca3af; font-size: .95rem; }
+    .pill { display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; padding: 8px 12px; font-weight: 850; font-size: .86rem; background: rgba(255,255,255,.08); color: #d1d5db; }
+    .pill.on { background: rgba(248,113,113,.18); color: #fecaca; border: 1px solid rgba(248,113,113,.24); }
+    .pill.ok { background: rgba(34,197,94,.17); color: #86efac; border: 1px solid rgba(34,197,94,.25); }
+    .target-grid { display: grid; grid-template-columns: 1fr auto; gap: 14px; align-items: end; margin-top: 22px; }
+    label { display: block; color: #9ca3af; font-size: .92rem; font-weight: 750; margin-bottom: 8px; }
+    .target-input-wrap { position: relative; }
+    input[type="number"] { box-sizing: border-box; width: 100%; border: 1px solid rgba(255,255,255,.08); outline: none; border-radius: 24px; background: rgba(0,0,0,.38); color: white; padding: 20px 70px 20px 18px; font-size: clamp(2.8rem, 15vw, 5.4rem); line-height: 1; font-weight: 900; letter-spacing: -.07em; }
+    .unit { position: absolute; right: 20px; bottom: 24px; color: #9ca3af; font-size: 1.6rem; font-weight: 850; }
+    .cutoff { min-width: 132px; border-radius: 24px; padding: 18px; background: rgba(0,0,0,.28); border: 1px solid rgba(255,255,255,.06); }
+    .cutoff .value { font-size: 1.9rem; font-weight: 900; letter-spacing: -.05em; }
+    .presets { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 16px; }
+    button { border: 0; cursor: pointer; color: white; font: inherit; }
+    button:disabled { opacity: .45; cursor: not-allowed; }
+    .preset, .secondary { border-radius: 999px; padding: 13px 10px; background: rgba(255,255,255,.08); color: #d1d5db; font-weight: 850; }
+    .primary { width: 100%; margin-top: 16px; border-radius: 999px; padding: 18px 20px; background: linear-gradient(135deg, #22c55e, #15803d); color: #071116; font-size: 1.15rem; font-weight: 950; box-shadow: 0 18px 34px rgba(34,197,94,.22); }
+    .relay-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 18px; }
+    .relay-on { border-radius: 26px; padding: 20px 14px; background: linear-gradient(135deg, #b91c1c, #7f1d1d); font-size: 1.14rem; font-weight: 950; }
+    .relay-off { border-radius: 26px; padding: 20px 14px; background: rgba(255,255,255,.08); font-size: 1.14rem; font-weight: 950; }
+    .small-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 14px; }
+    .metric { background: rgba(0,0,0,.24); border: 1px solid rgba(255,255,255,.06); border-radius: 20px; padding: 13px; }
+    .metric .label { color: #8b949e; font-weight: 760; font-size: .82rem; }
+    .metric .value { margin-top: 3px; font-size: 1.15rem; font-weight: 850; }
+    .message { min-height: 1.4em; color: #86efac; font-weight: 750; margin-top: 14px; }
+    .message.bad { color: #fca5a5; }
+    @media (max-width: 560px) { .target-grid { grid-template-columns: 1fr; } .cutoff { min-width: 0; } .topbar { align-items: flex-start; } }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <div class="topbar">
+      <div class="brand">
+        <img src="/icons/wmb-plus-192.png" alt="WMB+">
+        <div>
+          <div class="eyebrow">WMB+ remote</div>
+          <h1>StopMyBru</h1>
+        </div>
+      </div>
+      <a class="link" href="/smb.html">Advanced</a>
+    </div>
+
+    <section class="card">
+      <div class="status-row">
+        <span id="subtitle">Loading relay status…</span>
+        <span id="relayPill" class="pill">Idle</span>
+      </div>
+
+      <div class="target-grid">
+        <div>
+          <label for="targetInput">Target cup weight</label>
+          <div class="target-input-wrap">
+            <input id="targetInput" type="number" inputmode="decimal" step="0.1" min="0" max="2000" value="36.0">
+            <span class="unit">g</span>
+          </div>
+        </div>
+        <div class="cutoff">
+          <label>Cutoff</label>
+          <div id="cutoffValue" class="value">—</div>
+        </div>
+      </div>
+
+      <div class="presets" aria-label="Common target weights">
+        <button class="preset" onclick="setTarget(18)">18g</button>
+        <button class="preset" onclick="setTarget(30)">30g</button>
+        <button class="preset" onclick="setTarget(36)">36g</button>
+        <button class="preset" onclick="setTarget(40)">40g</button>
+      </div>
+
+      <button id="saveButton" class="primary" onclick="saveTarget()">Save Target</button>
+
+      <div class="relay-grid">
+        <button id="relayOnButton" class="relay-on" onclick="relayOn()">Relay ON</button>
+        <button id="relayOffButton" class="relay-off" onclick="relayOff()">Relay OFF</button>
+      </div>
+
+      <div id="message" class="message"></div>
+    </section>
+
+    <section class="card">
+      <div class="status-row">
+        <strong>Live details</strong>
+        <button class="secondary" onclick="refreshStatus(true)">Refresh</button>
+      </div>
+      <div class="small-grid">
+        <div class="metric"><div class="label">Relay target</div><div id="targetMetric" class="value">—</div></div>
+        <div class="metric"><div class="label">Last weight</div><div id="lastWeight" class="value">—</div></div>
+        <div class="metric"><div class="label">Learning</div><div id="learning" class="value">—</div></div>
+        <div class="metric"><div class="label">Last result</div><div id="lastResult" class="value">—</div></div>
+      </div>
+    </section>
+  </main>
+
+<script>
+  let statusInFlight = false;
+  let lastStatus = {};
+
+  function fmt(value, digits = 1) {
+    const n = Number(value);
+    return Number.isFinite(n) ? `${n.toFixed(digits)} g` : '—';
+  }
+
+  function setMessage(text, bad = false) {
+    const el = document.getElementById('message');
+    el.textContent = text || '';
+    el.classList.toggle('bad', bad);
+  }
+
+  function haptic(pattern = 20) {
+    try { navigator.vibrate?.(pattern); } catch (e) {}
+  }
+
+  function setTarget(value) {
+    document.getElementById('targetInput').value = Number(value).toFixed(1);
+    haptic(15);
+  }
+
+  function applyStatus(s) {
+    lastStatus = s || {};
+    const relayActive = Boolean(s.relayOn || s.webhookRelayOn);
+    const relayAvailable = Boolean(s.paired || s.webhookEnabled);
+    document.getElementById('relayPill').textContent = relayActive ? 'ON' : 'Idle';
+    document.getElementById('relayPill').className = `pill ${relayActive ? 'on' : (relayAvailable ? 'ok' : '')}`;
+    document.getElementById('subtitle').textContent = relayAvailable
+      ? `${s.paired ? 'paired module' : 'webhook relay'}${s.stopLearningEnabled ? ' · learning on' : ''}`
+      : 'no relay configured';
+    if (document.activeElement !== document.getElementById('targetInput') && Number.isFinite(Number(s.setpoint))) {
+      document.getElementById('targetInput').value = Number(s.setpoint).toFixed(1);
+    }
+    document.getElementById('cutoffValue').textContent = fmt(s.effectiveSetpoint, 1);
+    document.getElementById('targetMetric').textContent = fmt(s.setpoint, 1);
+    document.getElementById('lastWeight').textContent = fmt(s.lastWeight, 1);
+    document.getElementById('learning').textContent = s.stopLearningEnabled
+      ? `${s.stopLearningObservations || 0} obs · ${fmt(s.learnedStopOffset, 2)}`
+      : 'off';
+    document.getElementById('lastResult').textContent = Number.isFinite(Number(s.lastStopFinalWeight))
+      ? `${fmt(s.lastStopFinalWeight, 2)} · error ${fmt(s.lastStopError, 2)}`
+      : '—';
+    document.getElementById('relayOnButton').disabled = !relayAvailable;
+    document.getElementById('relayOffButton').disabled = !relayAvailable;
+  }
+
+  async function refreshStatus(manual = false) {
+    if (statusInFlight) return;
+    if (!manual && document.activeElement === document.getElementById('targetInput')) return;
+    statusInFlight = true;
+    try {
+      const response = await fetch('/api/smb/status', { cache: 'no-store' });
+      if (!response.ok) throw new Error(`status ${response.status}`);
+      applyStatus(await response.json());
+      if (manual) setMessage('Status refreshed.');
+    } catch (error) {
+      document.getElementById('subtitle').textContent = 'StopMyBru status unavailable';
+      setMessage('Could not reach StopMyBru status.', true);
+    } finally {
+      statusInFlight = false;
+    }
+  }
+
+  async function postForm(url, values = {}) {
+    const form = new FormData();
+    Object.entries(values).forEach(([key, value]) => form.append(key, value));
+    const response = await fetch(url, { method: 'POST', body: form });
+    if (!response.ok) throw new Error(await response.text());
+    return response;
+  }
+
+  async function saveTarget() {
+    const value = document.getElementById('targetInput').value;
+    document.getElementById('saveButton').disabled = true;
+    try {
+      await postForm('/api/smb/setpoint', { value });
+      setMessage(`Target saved: ${Number(value).toFixed(1)} g`);
+      haptic(25);
+      await refreshStatus(true);
+    } catch (error) {
+      setMessage('Target save failed.', true);
+      haptic([50, 35, 50]);
+    } finally {
+      document.getElementById('saveButton').disabled = false;
+    }
+  }
+
+  async function relayOn() {
+    try {
+      await fetch('/api/smb/relay/on', { method: 'POST' });
+      setMessage('Relay ON command sent.');
+      haptic([35, 25, 35]);
+      await refreshStatus(true);
+    } catch (error) {
+      setMessage('Relay ON failed.', true);
+    }
+  }
+
+  async function relayOff() {
+    try {
+      await fetch('/api/smb/relay/off', { method: 'POST' });
+      setMessage('Relay OFF command sent.');
+      haptic(25);
+      await refreshStatus(true);
+    } catch (error) {
+      setMessage('Relay OFF failed.', true);
+    }
+  }
+
+  refreshStatus(true);
+  setInterval(() => refreshStatus(false), 2000);
+</script>
+</body>
+</html>
