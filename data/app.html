@@ -510,8 +510,8 @@
           <div class="card-content">
           <div class="stop-header">
             <div>
-              <h2 class="section-title" style="font-size: 21px;">Install WMB+</h2>
-              <p class="section-subtitle">Home-screen access to tare, target stop, calibration, settings, and updates.</p>
+              <h2 id="installTitle" class="section-title" style="font-size: 21px;">Add WMB+ Shortcut</h2>
+              <p id="installSubtitle" class="section-subtitle">Home-screen access to tare, target stop, calibration, settings, and updates.</p>
             </div>
             <svg class="install-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
               <rect x="8" y="3" width="8" height="18" rx="2.2"></rect>
@@ -522,7 +522,7 @@
             Install WMB+
           </button>
           <div id="installInstructions" class="install-copy">
-            iPhone/iPad: tap Share, then <strong>Add to Home Screen</strong>. Android/desktop Chrome: use browser menu, then <strong>Install app</strong> or <strong>Add to Home screen</strong>.
+            WMB+ is served directly from the scale over local HTTP, so many Android browsers offer a home-screen shortcut instead of full app install. Use your browser menu, then <strong>Add to Home screen</strong> or <strong>Create shortcut</strong>. iPhone/iPad: tap Share, then <strong>Add to Home Screen</strong>.
           </div>
           </div>
         </section>
@@ -844,6 +844,8 @@
   window.addEventListener('beforeinstallprompt', event => {
     event.preventDefault();
     deferredInstallPrompt = event;
+    setText('installTitle', 'Install WMB+');
+    setText('installSubtitle', 'Install WMB+ as an app-like home-screen launcher.');
     document.getElementById('installButton').classList.remove('hidden-hard');
     setText('installInstructions', 'This browser supports direct install. Tap Install WMB+ to add it.');
   });
@@ -859,6 +861,12 @@
   function updateInstallCard() {
     if (isStandalone()) {
       document.getElementById('installCard').classList.add('hidden-hard');
+      return;
+    }
+    if (!window.isSecureContext) {
+      setText('installTitle', 'Add WMB+ Shortcut');
+      setText('installSubtitle', 'Local scale pages use a browser shortcut on most Android devices.');
+      setText('installInstructions', 'Use your browser menu, then choose Add to Home screen or Create shortcut. Full PWA install usually requires HTTPS; WMB+ runs locally from the scale over HTTP.');
     }
   }
 
