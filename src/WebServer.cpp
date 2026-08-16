@@ -44,10 +44,18 @@ static String cachedBatteryJson[2];
 static String cachedDiagnosticsSelfTestJson[2];
 static String cachedFilterDebugJson[2];
 static String cachedSettingsJson[2];
+static String cachedWeightText[2];
+static String cachedWeightFastText[2];
+static String cachedBrewWeightText[2];
+static String cachedBrewStatusJson[2];
+static String cachedScaleStatusJson[2];
 static volatile uint8_t cachedDashboardActiveIndex = 0;
 static volatile uint8_t cachedRuntimeApiActiveIndex = 0;
+static volatile uint8_t cachedLiveApiActiveIndex = 0;
 static unsigned long lastDashboardCacheUpdateMs = 0;
+static unsigned long lastLiveApiCacheUpdateMs = 0;
 static constexpr unsigned long DASHBOARD_CACHE_INTERVAL_MS = 1000;
+static constexpr unsigned long LIVE_API_CACHE_INTERVAL_MS = 50;
 
 static String jsonEscape(const String& input);
 static String jsonNumberOrNull(float value, unsigned int decimals = 3);
@@ -548,6 +556,21 @@ static String cachedJsonOrWarming(const String cache[2], uint8_t activeIndex) {
       : String("{\"status\":\"warming\"}");
 }
 
+static String cachedTextOrZero(const String cache[2], uint8_t activeIndex) {
+  return cache[activeIndex].length() > 0 ? cache[activeIndex] : String("0.00");
+}
+
+static String buildBrewStatusJson(Scale &scale, FlowRate &flowRate) {
+  String json;
+  json.reserve(32);
+  json += "{\"w\":";
+  json += String(scale.getCurrentWeight(), 1);
+  json += ",\"f\":";
+  json += String(flowRate.getFlowRate(), 1);
+  json += "}";
+  return json;
+}
+
 static String buildBatteryJson(BatteryMonitor &battery) {
   String json;
   json.reserve(2200);
@@ -700,6 +723,72 @@ static String buildSettingsJson(PowerManager &powerManager,
   return json;
 }
 
+static String buildScaleStatusJson(Scale &scale) {
+  String json;
+  json.reserve(2600);
+  json += "{";
+  json += "\"connected\":" + String(scale.isHX711Connected() ? "true" : "false") + ",";
+  json += "\"weight\":" + String(scale.getCurrentWeight(), 2) + ",";
+  json += "\"raw_value\":" + String(scale.getLastRawValue()) + ",";
+  json += "\"raw_value_cached\":" + String(scale.hasLastRawValue() ? "true" : "false") + ",";
+  json += "\"calibration_factor\":" + String(scale.getCalibrationFactor(), 6) + ",";
+  json += "\"sample_sequence\":" + String(scale.getSampleSequence()) + ",";
+  json += "\"last_sample_ms\":" + String(scale.getLastSampleMillis()) + ",";
+  json += "\"detected_rate_hz\":" + String(scale.getDetectedSampleRateHz(), 2) + ",";
+  json += "\"detected_rate_mode\":\"" + scale.getDetectedHx711RateMode() + "\",";
+  json += "\"avg_interval_us\":" + String(scale.getSampleIntervalAverageMicros()) + ",";
+  json += "\"expected_interval_us\":" + String(scale.getSampleIntervalExpectedMicros()) + ",";
+  json += "\"min_interval_us\":" + String(scale.getSampleIntervalMinMicros()) + ",";
+  json += "\"max_interval_us\":" + String(scale.getSampleIntervalMaxMicros()) + ",";
+  json += "\"long_gap_count\":" + String(scale.getSampleIntervalLongGapCount()) + ",";
+  json += "\"estimated_lost_cadence_slots\":" + String(scale.getSampleIntervalEstimatedLostCadenceSlots()) + ",";
+  json += "\"cadence_stats_count\":" + String(scale.getSampleIntervalStatsCount()) + ",";
+  json += "\"acquisition_model\":\"" + String(scale.getAcquisitionModel()) + "\",";
+  json += "\"acquisition_poll_count\":" + String(scale.getAcquisitionPollCount()) + ",";
+  json += "\"acquisition_ready_count\":" + String(scale.getAcquisitionReadyCount()) + ",";
+  json += "\"acquisition_not_ready_count\":" + String(scale.getAcquisitionNotReadyCount()) + ",";
+  json += "\"acquisition_accepted_count\":" + String(scale.getAcquisitionAcceptedCount()) + ",";
+  json += "\"acquisition_raw_read_count\":" + String(scale.getAcquisitionRawReadCount()) + ",";
+  json += "\"acquisition_estimated_lost_cadence_slots\":" + String(scale.getAcquisitionEstimatedLostCadenceSlots()) + ",";
+  json += "\"raw_read_sequence\":" + String(scale.getRawReadSequence()) + ",";
+  json += "\"raw_read_count\":" + String(scale.getRawReadCount()) + ",";
+  json += "\"raw_read_avg_interval_us\":" + String(scale.getRawReadIntervalAverageMicros()) + ",";
+  json += "\"raw_read_expected_interval_us\":" + String(scale.getRawReadIntervalExpectedMicros()) + ",";
+  json += "\"raw_read_min_interval_us\":" + String(scale.getRawReadIntervalMinMicros()) + ",";
+  json += "\"raw_read_max_interval_us\":" + String(scale.getRawReadIntervalMaxMicros()) + ",";
+  json += "\"raw_read_long_gap_count\":" + String(scale.getRawReadIntervalLongGapCount()) + ",";
+  json += "\"raw_read_stats_count\":" + String(scale.getRawReadIntervalStatsCount()) + ",";
+  json += "\"raw_read_estimated_lost_cadence_slots\":" + String(scale.getRawReadEstimatedLostCadenceSlots()) + ",";
+  json += "\"raw_read_last_duration_us\":" + String(scale.getLastRawReadDurationMicros()) + ",";
+  json += "\"raw_read_max_duration_us\":" + String(scale.getMaxRawReadDurationMicros()) + ",";
+  json += "\"acquisition_rejected_count\":" + String(scale.getAcquisitionRejectedCount()) + ",";
+  json += "\"acquisition_read_error_count\":" + String(scale.getAcquisitionReadErrorCount()) + ",";
+  json += "\"acquisition_disconnected_count\":" + String(scale.getAcquisitionDisconnectedCount()) + ",";
+  json += "\"acquisition_data_ready_notifications\":" + String(scale.getAcquisitionDataReadyNotificationCount()) + ",";
+  json += "\"acquisition_task_wake_count\":" + String(scale.getAcquisitionTaskWakeCount()) + ",";
+  json += "\"acquisition_ready_recovered_by_level_poll_count\":" + String(scale.getAcquisitionReadyRecoveredByLevelPollCount()) + ",";
+  json += "\"acquisition_dout_high_timeout_count\":" + String(scale.getAcquisitionDoutHighTimeoutCount()) + ",";
+  json += "\"acquisition_spurious_ready_count\":" + String(scale.getAcquisitionSpuriousReadyCount()) + ",";
+  json += "\"acquisition_busy_skip_count\":" + String(scale.getAcquisitionBusySkipCount()) + ",";
+  json += "\"acquisition_timeout_count\":" + String(scale.getAcquisitionTimeoutCount()) + ",";
+  json += "\"quality_score\":" + String(scale.getScaleQualityScore()) + ",";
+  json += "\"lifetime_quality_score\":" + String(scale.getLifetimeQualityScore()) + ",";
+  json += "\"bump_count\":" + String(scale.getBumpCount()) + ",";
+  json += "\"recent_bump\":" + String(scale.hasRecentBump() ? "true" : "false") + ",";
+  json += "\"last_bump_ms\":" + String(scale.getLastBumpMillis()) + ",";
+  json += "\"last_bump_magnitude_g\":" + String(scale.getLastBumpMagnitudeGrams(), 2) + ",";
+  json += "\"glitch_count\":" + String(scale.getGlitchCount()) + ",";
+  json += "\"recent_glitch\":" + String(scale.hasRecentGlitch() ? "true" : "false") + ",";
+  json += "\"last_glitch_ms\":" + String(scale.getLastGlitchMillis()) + ",";
+  json += "\"last_glitch_magnitude_g\":" + String(scale.getLastGlitchMagnitudeGrams(), 2) + ",";
+  json += "\"lifetime_samples\":" + String(scale.getLifetimeSampleCount()) + ",";
+  json += "\"lifetime_long_gaps\":" + String(scale.getLifetimeLongGapCount()) + ",";
+  json += "\"lifetime_bumps\":" + String(scale.getLifetimeBumpCount()) + ",";
+  json += "\"lifetime_glitches\":" + String(scale.getLifetimeGlitchCount());
+  json += "}";
+  return json;
+}
+
 void updateDashboardCache(Scale &scale,
                           FlowRate &flowRate,
                           BluetoothScale &bluetoothScale,
@@ -709,6 +798,18 @@ void updateDashboardCache(Scale &scale,
                           DiagnosticEventLog &diagnosticEvents,
                           BoardHardware &boardHardware) {
   const unsigned long now = millis();
+  if (cachedWeightText[cachedLiveApiActiveIndex].length() == 0 ||
+      now - lastLiveApiCacheUpdateMs >= LIVE_API_CACHE_INTERVAL_MS) {
+    const uint8_t liveInactiveIndex = cachedLiveApiActiveIndex == 0 ? 1 : 0;
+    const float currentWeight = scale.getCurrentWeight();
+    cachedWeightText[liveInactiveIndex] = String(currentWeight);
+    cachedWeightFastText[liveInactiveIndex] = String(currentWeight, 2);
+    cachedBrewWeightText[liveInactiveIndex] = String(currentWeight, 1);
+    cachedBrewStatusJson[liveInactiveIndex] = buildBrewStatusJson(scale, flowRate);
+    cachedLiveApiActiveIndex = liveInactiveIndex;
+    lastLiveApiCacheUpdateMs = now;
+  }
+
   if (cachedDashboardJson[cachedDashboardActiveIndex].length() > 0 &&
       now - lastDashboardCacheUpdateMs < DASHBOARD_CACHE_INTERVAL_MS) {
     return;
@@ -739,6 +840,7 @@ void updateDashboardCache(Scale &scale,
       powerManager,
       battery,
       boardHardware);
+  cachedScaleStatusJson[runtimeInactiveIndex] = buildScaleStatusJson(scale);
   cachedRuntimeApiActiveIndex = runtimeInactiveIndex;
   lastDashboardCacheUpdateMs = now;
 }
@@ -799,28 +901,22 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
     request->send(200, "text/plain", "Timer reset");
   });
 
-  server.on("/api/weight", HTTP_GET, [&scale](AsyncWebServerRequest *request) {
-    request->send(200, "text/plain", String(scale.getCurrentWeight()));
+  server.on("/api/weight", HTTP_GET, [](AsyncWebServerRequest *request) {
+    request->send(200, "text/plain", cachedTextOrZero(cachedWeightText, cachedLiveApiActiveIndex));
   });
 
   // Lightweight weight-only endpoint for brewing applications
-  server.on("/api/weight-fast", HTTP_GET, [&scale](AsyncWebServerRequest *request) {
-    // Minimal processing for fastest response
-    request->send(200, "text/plain", String(scale.getCurrentWeight(), 2));
+  server.on("/api/weight-fast", HTTP_GET, [](AsyncWebServerRequest *request) {
+    request->send(200, "text/plain", cachedTextOrZero(cachedWeightFastText, cachedLiveApiActiveIndex));
   });
 
   // Brewing mode endpoints for external devices like GaggiMate
-  server.on("/api/brew/weight", HTTP_GET, [&scale](AsyncWebServerRequest *request) {
-    // Ultra-fast response for brewing systems
-    float weight = scale.getCurrentWeight();
-    request->send(200, "text/plain", String(weight, 1)); // 1 decimal for speed
+  server.on("/api/brew/weight", HTTP_GET, [](AsyncWebServerRequest *request) {
+    request->send(200, "text/plain", cachedTextOrZero(cachedBrewWeightText, cachedLiveApiActiveIndex));
   });
   
-  server.on("/api/brew/status", HTTP_GET, [&scale, &flowRate](AsyncWebServerRequest *request) {
-    // Minimal JSON for brewing systems
-    String json = "{\"w\":" + String(scale.getCurrentWeight(), 1) + 
-                  ",\"f\":" + String(flowRate.getFlowRate(), 1) + "}";
-    request->send(200, "application/json", json);
+  server.on("/api/brew/status", HTTP_GET, [](AsyncWebServerRequest *request) {
+    request->send(200, "application/json", cachedJsonOrWarming(cachedBrewStatusJson, cachedLiveApiActiveIndex));
   });
 
   // Battery calibration endpoints (must be before general /api/battery route)
@@ -1200,68 +1296,8 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
   });
 
   // Scale connection status endpoint
-  server.on("/api/scale/status", HTTP_GET, [&scale](AsyncWebServerRequest *request) {
-    String json = "{";
-    json += "\"connected\":" + String(scale.isHX711Connected() ? "true" : "false") + ",";
-    json += "\"weight\":" + String(scale.getCurrentWeight(), 2) + ",";
-    json += "\"raw_value\":" + String(scale.getLastRawValue()) + ",";
-    json += "\"raw_value_cached\":" + String(scale.hasLastRawValue() ? "true" : "false") + ",";
-    json += "\"calibration_factor\":" + String(scale.getCalibrationFactor(), 6) + ",";
-    json += "\"sample_sequence\":" + String(scale.getSampleSequence()) + ",";
-    json += "\"last_sample_ms\":" + String(scale.getLastSampleMillis()) + ",";
-    json += "\"detected_rate_hz\":" + String(scale.getDetectedSampleRateHz(), 2) + ",";
-    json += "\"detected_rate_mode\":\"" + scale.getDetectedHx711RateMode() + "\",";
-    json += "\"avg_interval_us\":" + String(scale.getSampleIntervalAverageMicros()) + ",";
-    json += "\"expected_interval_us\":" + String(scale.getSampleIntervalExpectedMicros()) + ",";
-    json += "\"min_interval_us\":" + String(scale.getSampleIntervalMinMicros()) + ",";
-    json += "\"max_interval_us\":" + String(scale.getSampleIntervalMaxMicros()) + ",";
-    json += "\"long_gap_count\":" + String(scale.getSampleIntervalLongGapCount()) + ",";
-    json += "\"estimated_lost_cadence_slots\":" + String(scale.getSampleIntervalEstimatedLostCadenceSlots()) + ",";
-    json += "\"cadence_stats_count\":" + String(scale.getSampleIntervalStatsCount()) + ",";
-    json += "\"acquisition_model\":\"" + String(scale.getAcquisitionModel()) + "\",";
-    json += "\"acquisition_poll_count\":" + String(scale.getAcquisitionPollCount()) + ",";
-    json += "\"acquisition_ready_count\":" + String(scale.getAcquisitionReadyCount()) + ",";
-    json += "\"acquisition_not_ready_count\":" + String(scale.getAcquisitionNotReadyCount()) + ",";
-    json += "\"acquisition_accepted_count\":" + String(scale.getAcquisitionAcceptedCount()) + ",";
-    json += "\"acquisition_raw_read_count\":" + String(scale.getAcquisitionRawReadCount()) + ",";
-    json += "\"acquisition_estimated_lost_cadence_slots\":" + String(scale.getAcquisitionEstimatedLostCadenceSlots()) + ",";
-    json += "\"raw_read_sequence\":" + String(scale.getRawReadSequence()) + ",";
-    json += "\"raw_read_count\":" + String(scale.getRawReadCount()) + ",";
-    json += "\"raw_read_avg_interval_us\":" + String(scale.getRawReadIntervalAverageMicros()) + ",";
-    json += "\"raw_read_expected_interval_us\":" + String(scale.getRawReadIntervalExpectedMicros()) + ",";
-    json += "\"raw_read_min_interval_us\":" + String(scale.getRawReadIntervalMinMicros()) + ",";
-    json += "\"raw_read_max_interval_us\":" + String(scale.getRawReadIntervalMaxMicros()) + ",";
-    json += "\"raw_read_long_gap_count\":" + String(scale.getRawReadIntervalLongGapCount()) + ",";
-    json += "\"raw_read_stats_count\":" + String(scale.getRawReadIntervalStatsCount()) + ",";
-    json += "\"raw_read_estimated_lost_cadence_slots\":" + String(scale.getRawReadEstimatedLostCadenceSlots()) + ",";
-    json += "\"raw_read_last_duration_us\":" + String(scale.getLastRawReadDurationMicros()) + ",";
-    json += "\"raw_read_max_duration_us\":" + String(scale.getMaxRawReadDurationMicros()) + ",";
-    json += "\"acquisition_rejected_count\":" + String(scale.getAcquisitionRejectedCount()) + ",";
-    json += "\"acquisition_read_error_count\":" + String(scale.getAcquisitionReadErrorCount()) + ",";
-    json += "\"acquisition_disconnected_count\":" + String(scale.getAcquisitionDisconnectedCount()) + ",";
-    json += "\"acquisition_data_ready_notifications\":" + String(scale.getAcquisitionDataReadyNotificationCount()) + ",";
-    json += "\"acquisition_task_wake_count\":" + String(scale.getAcquisitionTaskWakeCount()) + ",";
-    json += "\"acquisition_ready_recovered_by_level_poll_count\":" + String(scale.getAcquisitionReadyRecoveredByLevelPollCount()) + ",";
-    json += "\"acquisition_dout_high_timeout_count\":" + String(scale.getAcquisitionDoutHighTimeoutCount()) + ",";
-    json += "\"acquisition_spurious_ready_count\":" + String(scale.getAcquisitionSpuriousReadyCount()) + ",";
-    json += "\"acquisition_busy_skip_count\":" + String(scale.getAcquisitionBusySkipCount()) + ",";
-    json += "\"acquisition_timeout_count\":" + String(scale.getAcquisitionTimeoutCount()) + ",";
-    json += "\"quality_score\":" + String(scale.getScaleQualityScore()) + ",";
-    json += "\"lifetime_quality_score\":" + String(scale.getLifetimeQualityScore()) + ",";
-    json += "\"bump_count\":" + String(scale.getBumpCount()) + ",";
-    json += "\"recent_bump\":" + String(scale.hasRecentBump() ? "true" : "false") + ",";
-    json += "\"last_bump_ms\":" + String(scale.getLastBumpMillis()) + ",";
-    json += "\"last_bump_magnitude_g\":" + String(scale.getLastBumpMagnitudeGrams(), 2) + ",";
-    json += "\"glitch_count\":" + String(scale.getGlitchCount()) + ",";
-    json += "\"recent_glitch\":" + String(scale.hasRecentGlitch() ? "true" : "false") + ",";
-    json += "\"last_glitch_ms\":" + String(scale.getLastGlitchMillis()) + ",";
-    json += "\"last_glitch_magnitude_g\":" + String(scale.getLastGlitchMagnitudeGrams(), 2) + ",";
-    json += "\"lifetime_samples\":" + String(scale.getLifetimeSampleCount()) + ",";
-    json += "\"lifetime_long_gaps\":" + String(scale.getLifetimeLongGapCount()) + ",";
-    json += "\"lifetime_bumps\":" + String(scale.getLifetimeBumpCount()) + ",";
-    json += "\"lifetime_glitches\":" + String(scale.getLifetimeGlitchCount());
-    json += "}";
-    request->send(200, "application/json", json);
+  server.on("/api/scale/status", HTTP_GET, [](AsyncWebServerRequest *request) {
+    request->send(200, "application/json", cachedJsonOrWarming(cachedScaleStatusJson, cachedRuntimeApiActiveIndex));
   });
 
   server.on("/api/wifi-creds", HTTP_GET, [](AsyncWebServerRequest *request) {
