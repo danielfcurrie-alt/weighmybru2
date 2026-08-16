@@ -4,6 +4,12 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>WMB+</title>
+  <meta name="theme-color" content="#47a864">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="WMB+">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/icons/wmb-plus-192.png">
   <link rel="icon" type="image/png" href="/favicon.png">
   <link rel="stylesheet" href="/output.css">
   <script src="/js/alpine.min.js" defer></script>
@@ -107,6 +113,7 @@
       <a class="block px-4 py-2 mt-2 text-sm font-semibold text-gray-400 bg-transparent rounded-lg hover:text-stone-50 hover:bg-black-hover" href="/settings.html"><i class="fa fa-cogs mr-2" style="color: rgb(71, 168, 100);"></i>Settings</a>
       <a class="block px-4 py-2 mt-2 text-sm font-semibold text-gray-400 bg-transparent rounded-lg hover:text-stone-50 hover:bg-black-hover" href="/updates.html"><i class="fa fa-upload mr-2" style="color: rgb(71, 168, 100);"></i>Updates</a>
       <a class="block px-4 py-2 mt-2 text-sm font-semibold text-gray-400 bg-transparent rounded-lg hover:text-stone-50 hover:bg-black-hover" href="/smb.html"><i class="fa fa-coffee mr-2" style="color: rgb(71, 168, 100);"></i>StopMyBru</a>
+      <a class="block px-4 py-2 mt-2 text-sm font-semibold text-gray-400 bg-transparent rounded-lg hover:text-stone-50 hover:bg-black-hover" href="/app.html"><i class="fa fa-mobile-alt mr-2" style="color: rgb(71, 168, 100);"></i>Web App</a>
     </nav>
   </div>
 
@@ -123,6 +130,7 @@
       <a class="block px-4 py-2 mt-2 text-sm font-semibold text-gray-400 bg-transparent rounded-lg hover:text-stone-50 hover:bg-black-hover" href="/settings.html"><i class="fa fa-cogs mr-2" style="color: rgb(71, 168, 100);"></i>Settings</a>
       <a class="block px-4 py-2 mt-2 text-sm font-semibold text-gray-400 bg-transparent rounded-lg hover:text-stone-50 hover:bg-black-hover" href="/updates.html"><i class="fa fa-upload mr-2" style="color: rgb(71, 168, 100);"></i>Updates</a>
       <a class="block px-4 py-2 mt-2 text-sm font-semibold text-gray-400 bg-transparent rounded-lg hover:text-stone-50 hover:bg-black-hover" href="/smb.html"><i class="fa fa-coffee mr-2" style="color: rgb(71, 168, 100);"></i>StopMyBru</a>
+      <a class="block px-4 py-2 mt-2 text-sm font-semibold text-gray-400 bg-transparent rounded-lg hover:text-stone-50 hover:bg-black-hover" href="/app.html"><i class="fa fa-mobile-alt mr-2" style="color: rgb(71, 168, 100);"></i>Web App</a>
     </nav>
   </div>
 
@@ -293,6 +301,31 @@
     <!-- Status -->
     <div class="text-center">
       <div id="updateStatus" class="text-xs text-gray-400"></div>
+    </div>
+
+    <!-- Installable Web App -->
+    <div class="bg-black-background rounded-xl p-4 mt-2">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <h2 class="text-sm font-semibold text-gray-200">
+            <i class="fa fa-mobile-alt mr-1" style="color: rgb(71, 168, 100);"></i>WMB+ Web App
+          </h2>
+          <p class="text-xs text-gray-400 mt-1">
+            Add WMB+ to your phone or desktop home screen for quick tare, StopMyBru target, calibration, settings, and updates.
+          </p>
+        </div>
+        <a href="/app.html" class="bg-button-green hover:bg-green-700 text-white px-3 py-2 rounded text-xs font-semibold whitespace-nowrap">
+          Open
+        </a>
+      </div>
+      <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-gray-300">
+        <div class="bg-black-select rounded p-2">
+          <strong class="text-white">iPhone/iPad:</strong> open WMB+, tap Share, then Add to Home Screen.
+        </div>
+        <div class="bg-black-select rounded p-2">
+          <strong class="text-white">Android/desktop:</strong> use browser menu, then Install app or Add to Home screen.
+        </div>
+      </div>
     </div>
   </div>
   </div>

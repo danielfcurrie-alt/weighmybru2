@@ -1680,6 +1680,18 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
     request->send(200, "text/plain", "Unpaired");
   });
 
+  // Explicit MIME handlers for PWA/install metadata. Some browsers are strict
+  // about manifest and service worker content types.
+  server.on("/manifest.webmanifest", HTTP_GET, [](AsyncWebServerRequest *request) {
+    request->send(LittleFS, "/manifest.webmanifest", "application/manifest+json");
+  });
+
+  server.on("/sw.js", HTTP_GET, [](AsyncWebServerRequest *request) {
+    AsyncWebServerResponse *response = request->beginResponse(LittleFS, "/sw.js", "application/javascript");
+    response->addHeader("Service-Worker-Allowed", "/");
+    request->send(response);
+  });
+
   // Serve static files for non-API paths
   server.serveStatic("/", LittleFS, "/").setDefaultFile("index.html");
 
