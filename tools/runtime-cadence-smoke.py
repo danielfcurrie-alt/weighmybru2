@@ -100,6 +100,21 @@ PROFILES: dict[str, list[PollRequest]] = {
         PollRequest("/api/device/info", 5.0),
         PollRequest("/api/ota/status", 5.0),
     ],
+    # Short, high-connection-churn accept-path stress. This intentionally uses
+    # GET-only endpoints and multiple workers to compress the old 10-minute
+    # browser-refresh exposure into a bounded run.
+    "connection-churn": [
+        PollRequest("/api/dashboard", 0.02),
+        PollRequest("/api/device/info", 0.02),
+        PollRequest("/api/ota/status", 0.02),
+        PollRequest("/api/settings", 0.02),
+        PollRequest("/api/scale/status", 0.02),
+        PollRequest("/api/battery", 0.02),
+    ],
+}
+
+PROFILE_WORKERS: dict[str, int] = {
+    "connection-churn": 8,
 }
 
 ACQUISITION_KEYS = [
@@ -260,6 +275,7 @@ def poll_worker(
     requests: list[PollRequest],
     stop_event: threading.Event,
     stats: dict[str, dict[str, int | float]],
+    stats_lock: threading.Lock,
 ) -> None:
     next_due = {request.endpoint: time.monotonic() for request in requests}
     while not stop_event.is_set():
@@ -279,13 +295,14 @@ def poll_worker(
                 except (urllib.error.URLError, TimeoutError, OSError):
                     status = "error"
                 elapsed_ms = (time.monotonic() - started) * 1000.0
-                endpoint_stats = stats.setdefault(
-                    request.endpoint,
-                    {"ok": 0, "error": 0, "max_ms": 0.0, "total_ms": 0.0},
-                )
-                endpoint_stats[status] = int(endpoint_stats[status]) + 1
-                endpoint_stats["total_ms"] = float(endpoint_stats["total_ms"]) + elapsed_ms
-                endpoint_stats["max_ms"] = max(float(endpoint_stats["max_ms"]), elapsed_ms)
+                with stats_lock:
+                    endpoint_stats = stats.setdefault(
+                        request.endpoint,
+                        {"ok": 0, "error": 0, "max_ms": 0.0, "total_ms": 0.0},
+                    )
+                    endpoint_stats[status] = int(endpoint_stats[status]) + 1
+                    endpoint_stats["total_ms"] = float(endpoint_stats["total_ms"]) + elapsed_ms
+                    endpoint_stats["max_ms"] = max(float(endpoint_stats["max_ms"]), elapsed_ms)
                 next_due[request.endpoint] = now + request.interval_s
             soonest = min(soonest, next_due[request.endpoint])
         stop_event.wait(max(0.02, min(0.25, soonest - time.monotonic())))
@@ -374,6 +391,8 @@ def print_summary(
         "reportedHx711={reported_hx711_hz_avg:.2f}Hz qualityAvg={quality_avg:.1f} minQuality={quality_min}".format(**result)
     )
     if poll_stats:
+        total_requests = sum(int(stats["ok"]) + int(stats["error"]) for stats in poll_stats.values())
+        print(f"polling: total={total_requests}")
         print("polling:")
         for endpoint, stats in sorted(poll_stats.items()):
             total = int(stats["ok"]) + int(stats["error"])
@@ -434,15 +453,18 @@ def run_profile(reader: SerialReader, base_url: str, profile: str, duration_s: f
     requests = PROFILES[profile]
     stop_event = threading.Event()
     poll_stats: dict[str, dict[str, int | float]] = {}
-    poll_thread: threading.Thread | None = None
+    stats_lock = threading.Lock()
+    poll_threads: list[threading.Thread] = []
     if requests:
-        poll_thread = threading.Thread(
-            target=poll_worker,
-            args=(base_url, requests, stop_event, poll_stats),
-            name=f"poll-{profile}",
-            daemon=True,
-        )
-        poll_thread.start()
+        for worker_index in range(PROFILE_WORKERS.get(profile, 1)):
+            poll_thread = threading.Thread(
+                target=poll_worker,
+                args=(base_url, requests, stop_event, poll_stats, stats_lock),
+                name=f"poll-{profile}-{worker_index + 1}",
+                daemon=True,
+            )
+            poll_thread.start()
+            poll_threads.append(poll_thread)
 
     reader.drain_samples()
     collected: list[Sample] = []
@@ -453,7 +475,7 @@ def run_profile(reader: SerialReader, base_url: str, profile: str, duration_s: f
     collected.extend(reader.drain_samples())
 
     stop_event.set()
-    if poll_thread is not None:
+    for poll_thread in poll_threads:
         poll_thread.join(timeout=2.0)
     return analyze(collected), poll_stats
 
@@ -516,6 +538,7 @@ def main(argv: Iterable[str] | None = None) -> int:
             print_summary(profile, result, poll_stats, acquisition)
             if profile not in {"aggressive-repro", "static-repro", "dashboard-2hz-repro"}:
                 failures.extend(assert_pass(profile, result, args))
+            if profile not in {"aggressive-repro", "static-repro", "dashboard-2hz-repro", "connection-churn"}:
                 failures.extend(assert_polling_pass(profile, poll_stats))
 
         if args.json_output:
