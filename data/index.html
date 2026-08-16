@@ -255,9 +255,17 @@
         <span id="systemBadge" class="text-xs text-gray-400">live</span>
       </div>
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-xs">
-        <div class="flex justify-between border-b border-gray-800 py-1">
+        <div class="flex justify-between border-b border-gray-800 py-1 gap-2">
           <span class="text-gray-400">Firmware</span>
-          <span id="systemFirmware" class="text-gray-200 text-right ml-2">Loading…</span>
+          <span class="flex items-center justify-end gap-2 min-w-0 text-right ml-2">
+            <span id="systemFirmware" class="text-gray-200 break-all select-text">Loading…</span>
+            <button
+              id="copySystemFirmware"
+              type="button"
+              class="px-2 py-0.5 rounded bg-gray-800 hover:bg-gray-700 text-gray-200 text-[10px] font-semibold"
+              title="Copy firmware build string"
+              onclick="copyElementText('systemFirmware', 'copySystemFirmware')">Copy</button>
+          </span>
         </div>
         <div class="flex justify-between border-b border-gray-800 py-1">
           <span class="text-gray-400">Board / chip</span>
@@ -378,6 +386,34 @@
 
   function shouldPauseLiveRefresh() {
     return hasActiveTextSelection() || isTextEntryActive();
+  }
+
+  async function copyElementText(textElementId, buttonElementId) {
+    const text = document.getElementById(textElementId)?.textContent?.trim() || '';
+    if (!text || text === 'Loading…') return;
+
+    let copied = false;
+    try {
+      await navigator.clipboard?.writeText(text);
+      copied = true;
+    } catch (error) {
+      const textArea = document.createElement('textarea');
+      textArea.value = text;
+      textArea.setAttribute('readonly', '');
+      textArea.style.position = 'fixed';
+      textArea.style.top = '-1000px';
+      document.body.appendChild(textArea);
+      textArea.select();
+      copied = document.execCommand('copy');
+      document.body.removeChild(textArea);
+    }
+
+    const button = document.getElementById(buttonElementId);
+    if (button) {
+      const original = button.textContent;
+      button.textContent = copied ? 'Copied' : 'Copy failed';
+      setTimeout(() => { button.textContent = original; }, 1200);
+    }
   }
 
   function updateSystemPanel(data) {
