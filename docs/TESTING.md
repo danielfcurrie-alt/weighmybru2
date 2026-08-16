@@ -57,6 +57,47 @@ Expected:
 - `dropped` remains zero during normal capture.
 - Weight matches display.
 
+## 5a. Runtime cadence smoke test
+
+Run this on a flashed XIAO reference unit when validating dashboard/API changes. It measures the real USB `WMBP_WEIGHT_V1` stream while also polling web endpoints, so it catches runtime interference that simulation builds and source-level checks cannot prove.
+
+```bash
+python3 tools/runtime-cadence-smoke.py \
+  --port /dev/cu.usbmodem1101 \
+  --base-url http://192.168.4.1 \
+  --profile baseline \
+  --profile dashboard-safe
+```
+
+Expected:
+
+- `baseline` passes at roughly 79-80 Hz on 80 SPS hardware.
+- `dashboard-safe` also passes at roughly 79-80 Hz while the web dashboard endpoints are being polled.
+- `device_gaps_over_100ms` is zero.
+- `missingSeq` is zero.
+- `droppedDelta` is zero.
+- Web polling reports zero endpoint errors.
+
+To intentionally reproduce old dashboard pressure without making the shell command fail:
+
+```bash
+python3 tools/runtime-cadence-smoke.py \
+  --port /dev/cu.usbmodem1101 \
+  --base-url http://192.168.4.1 \
+  --profile aggressive-repro \
+  --no-fail
+```
+
+`static-repro` isolates the old short static-info polling cadence:
+
+```bash
+python3 tools/runtime-cadence-smoke.py \
+  --port /dev/cu.usbmodem1101 \
+  --base-url http://192.168.4.1 \
+  --profile static-repro \
+  --no-fail
+```
+
 ## 6. Drift and zero behavior
 
 With an empty platform:

@@ -362,6 +362,18 @@ Host-side tests for firmware math:
 tools/run-host-tests.sh
 ```
 
+Runtime cadence smoke test for a flashed XIAO reference unit:
+
+```bash
+python3 tools/runtime-cadence-smoke.py \
+  --port /dev/cu.usbmodem1101 \
+  --base-url http://192.168.4.1 \
+  --profile baseline \
+  --profile dashboard-safe
+```
+
+This keeps the USB `WMBP_WEIGHT_V1` stream running while polling the same web endpoints as the dashboard. It should pass with about 79-80 Hz device cadence, no sequence loss, no USB drops, and no web polling errors. Use it before public beta releases to catch dashboard or API changes that stall 80 SPS acquisition.
+
 Firmware simulation builds:
 
 ```bash

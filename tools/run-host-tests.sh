@@ -25,4 +25,5 @@ for test_name in "${tests[@]}"; do
   "${build_dir}/${test_name}"
 done
 
+PYTHONDONTWRITEBYTECODE=1 python3 -m ast "${repo_root}/tools/runtime-cadence-smoke.py" >/dev/null
 python3 "${repo_root}/tools/check-dashboard-polling.py"
