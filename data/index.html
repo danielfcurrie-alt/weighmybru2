@@ -988,9 +988,9 @@
     if (manualBrewMode) {
       btn.textContent = 'Exit Brew Mode';
       btn.className = 'bg-red-600 hover:bg-red-700 py-2 rounded-lg text-sm font-semibold';
-      status.textContent = 'Manual Brew Mode: Fast Updates (5/sec)';
+      status.textContent = 'Manual Brew Mode: Stable Updates (2/sec)';
       clearInterval(updateTimer);
-      updateTimer = setInterval(updateWeight, 200); // 5x per second
+      updateTimer = setInterval(updateWeight, 500); // 2x per second
     } else {
       btn.textContent = 'Brew Mode';
       btn.className = 'bg-blue-600 hover:bg-blue-700 py-2 rounded-lg text-sm font-semibold';
@@ -1012,9 +1012,9 @@
     if (weightChange > 0.5) {
       if (!isBrewingActive) {
         isBrewingActive = true;
-        document.getElementById('updateStatus').textContent = 'Auto Brew Detected: Fast Updates (5/sec)';
+        document.getElementById('updateStatus').textContent = 'Auto Brew Detected: Stable Updates (2/sec)';
         clearInterval(updateTimer);
-        updateTimer = setInterval(updateWeight, 200); // 5x per second during brewing
+        updateTimer = setInterval(updateWeight, 500); // 2x per second during brewing
       }
     } else {
       if (isBrewingActive) {

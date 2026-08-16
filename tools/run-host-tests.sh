@@ -24,3 +24,5 @@ for test_name in "${tests[@]}"; do
 
   "${build_dir}/${test_name}"
 done
+
+python3 "${repo_root}/tools/check-dashboard-polling.py"
