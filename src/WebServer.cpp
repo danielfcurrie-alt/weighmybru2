@@ -37,6 +37,8 @@ static size_t otaUploadTotal = 0;
 static String otaUploadTarget = "none";
 static String otaLastMessage = "idle";
 static String otaLastFilename;
+static String cachedDeviceInfoJson;
+static String cachedOtaIdleStatusJson;
 
 static String jsonEscape(const String& input);
 static String jsonNumberOrNull(float value, unsigned int decimals = 3);
@@ -80,12 +82,13 @@ static const esp_partition_t* filesystemPartition() {
         nullptr);
 }
 
-static String otaStatusJson() {
+static String buildOtaStatusJson() {
     const esp_partition_t* running = esp_ota_get_running_partition();
     const esp_partition_t* next = esp_ota_get_next_update_partition(nullptr);
     const esp_partition_t* fs = filesystemPartition();
 
     String json = "{";
+    json.reserve(512);
     json += "\"firmwareOtaSupported\":" + String(firmwareOtaSupported() ? "true" : "false") + ",";
     json += "\"filesystemOtaSupported\":" + String(fs != nullptr ? "true" : "false") + ",";
     json += "\"runningPartition\":\"" + String(running ? running->label : "unknown") + "\",";
@@ -105,6 +108,41 @@ static String otaStatusJson() {
     return json;
 }
 
+static String otaStatusJson() {
+    // Normal reads should be cheap on AsyncTCP's request task. Once an upload
+    // starts, return live progress/status until the device reboots.
+    if (!otaUploadStarted && cachedOtaIdleStatusJson.length() > 0) {
+        return cachedOtaIdleStatusJson;
+    }
+    return buildOtaStatusJson();
+}
+
+static String buildDeviceInfoJson() {
+    String json = "{";
+    json.reserve(768);
+    json += "\"version\":\"" + String(WEIGHMYBRU_VERSION_STRING) + "\",";
+    json += "\"full_version\":\"" + String(WEIGHMYBRU_FULL_VERSION) + "\",";
+    json += "\"commit_hash\":\"" + String(WEIGHMYBRU_COMMIT_HASH) + "\",";
+    json += "\"build_number\":" + String(WEIGHMYBRU_BUILD_NUMBER) + ",";
+    json += "\"board\":\"" + String(WEIGHMYBRU_BOARD_NAME) + "\",";
+    json += "\"build_date\":\"" + String(WEIGHMYBRU_BUILD_DATE) + "\",";
+    json += "\"build_time\":\"" + String(WEIGHMYBRU_BUILD_TIME) + "\",";
+    json += "\"firmware_size\":" + String(ESP.getSketchSize()) + ",";
+    json += "\"free_space\":" + String(ESP.getFreeSketchSpace()) + ",";
+    json += "\"chip_model\":\"" + String(ESP.getChipModel()) + "\",";
+    json += "\"chip_revision\":" + String(ESP.getChipRevision()) + ",";
+    json += "\"cpu_frequency\":" + String(ESP.getCpuFreqMHz()) + ",";
+    json += "\"flash_size\":" + String(ESP.getFlashChipSize()) + ",";
+    json += "\"heap_size\":" + String(ESP.getHeapSize()) + ",";
+    json += "\"free_heap\":" + String(ESP.getFreeHeap()) + ",";
+    json += "\"free_heap_at_boot\":" + String(ESP.getFreeHeap()) + ",";
+    json += "\"psram_size\":" + String(ESP.getPsramSize()) + ",";
+    json += "\"free_psram\":" + String(ESP.getFreePsram()) + ",";
+    json += "\"free_psram_at_boot\":" + String(ESP.getFreePsram()) + ",";
+    json += "\"sdk_version\":\"" + String(ESP.getSdkVersion()) + "\"";
+    json += "}";
+    return json;
+}
 static void handleOtaUpload(AsyncWebServerRequest *request,
                             const String& filename,
                             size_t index,
@@ -1086,29 +1124,15 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
     request->send(200, "application/json", scanResult);
   });
 
-  // Device information endpoint
+  // Device information endpoint. This endpoint is polled by UI code as
+  // static build/board metadata; dynamic heap and diagnostics live on
+  // /api/diagnostics/self-test. Keep request handling cheap so web polling does
+  // not create 80 SPS acquisition gaps.
+  cachedDeviceInfoJson = buildDeviceInfoJson();
+  cachedOtaIdleStatusJson = buildOtaStatusJson();
+
   server.on("/api/device/info", HTTP_GET, [](AsyncWebServerRequest *request) {
-    String json = "{";
-    json += "\"version\":\"" + String(WEIGHMYBRU_VERSION_STRING) + "\",";
-    json += "\"full_version\":\"" + String(WEIGHMYBRU_FULL_VERSION) + "\",";
-    json += "\"commit_hash\":\"" + String(WEIGHMYBRU_COMMIT_HASH) + "\",";
-    json += "\"build_number\":" + String(WEIGHMYBRU_BUILD_NUMBER) + ",";
-    json += "\"board\":\"" + String(WEIGHMYBRU_BOARD_NAME) + "\",";
-    json += "\"build_date\":\"" + String(WEIGHMYBRU_BUILD_DATE) + "\",";
-    json += "\"build_time\":\"" + String(WEIGHMYBRU_BUILD_TIME) + "\",";
-    json += "\"firmware_size\":" + String(ESP.getSketchSize()) + ",";
-    json += "\"free_space\":" + String(ESP.getFreeSketchSpace()) + ",";
-    json += "\"chip_model\":\"" + String(ESP.getChipModel()) + "\",";
-    json += "\"chip_revision\":" + String(ESP.getChipRevision()) + ",";
-    json += "\"cpu_frequency\":" + String(ESP.getCpuFreqMHz()) + ",";
-    json += "\"flash_size\":" + String(ESP.getFlashChipSize()) + ",";
-    json += "\"heap_size\":" + String(ESP.getHeapSize()) + ",";
-    json += "\"free_heap\":" + String(ESP.getFreeHeap()) + ",";
-    json += "\"psram_size\":" + String(ESP.getPsramSize()) + ",";
-    json += "\"free_psram\":" + String(ESP.getFreePsram()) + ",";
-    json += "\"sdk_version\":\"" + String(ESP.getSdkVersion()) + "\"";
-    json += "}";
-    request->send(200, "application/json", json);
+    request->send(200, "application/json", cachedDeviceInfoJson);
   });
 
   server.on("/api/diagnostics/self-test", HTTP_GET, [&scale, &display, &battery, &bluetoothScale, &diagnosticEvents, &boardHardware](AsyncWebServerRequest *request) {
