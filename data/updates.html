@@ -44,7 +44,7 @@
       <div class="bg-black-select p-6 rounded shadow">
         <h2 class="text-2xl font-semibold mb-4">Firmware & Software Updates</h2>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-          <div><span class="text-gray-400">Current version</span> <span class="ml-2" x-text="device.version || 'Loading…'"></span></div>
+          <div><span class="text-gray-400">Current version</span> <span class="ml-2" x-text="device.full_version || device.version || 'Loading…'"></span></div>
           <div><span class="text-gray-400">Board</span> <span class="ml-2" x-text="device.board || 'Loading…'"></span></div>
           <div><span class="text-gray-400">Running partition</span> <span class="ml-2" x-text="ota.runningPartition || 'unknown'"></span></div>
           <div><span class="text-gray-400">Next OTA partition</span> <span class="ml-2" x-text="ota.nextPartition || 'none'"></span></div>

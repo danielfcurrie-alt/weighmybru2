@@ -528,6 +528,9 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
     json += ",\"device_version\":\"" + String(WEIGHMYBRU_VERSION_STRING) + "\"";
     json += ",\"device_board\":\"" + String(WEIGHMYBRU_BOARD_NAME) + "\"";
     json += ",\"device_build_date\":\"" + String(WEIGHMYBRU_BUILD_DATE) + "\"";
+    json += ",\"device_build_time\":\"" + String(WEIGHMYBRU_BUILD_TIME) + "\"";
+    json += ",\"device_build_number\":" + String(WEIGHMYBRU_BUILD_NUMBER);
+    json += ",\"device_commit_hash\":\"" + String(WEIGHMYBRU_COMMIT_HASH) + "\"";
     json += ",\"device_full_version\":\"" + String(WEIGHMYBRU_FULL_VERSION) + "\"";
     
     json += "}";
@@ -1135,6 +1138,8 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
     String json = "{";
     json += "\"version\":\"" + String(WEIGHMYBRU_VERSION_STRING) + "\",";
     json += "\"full_version\":\"" + String(WEIGHMYBRU_FULL_VERSION) + "\",";
+    json += "\"commit_hash\":\"" + String(WEIGHMYBRU_COMMIT_HASH) + "\",";
+    json += "\"build_number\":" + String(WEIGHMYBRU_BUILD_NUMBER) + ",";
     json += "\"board\":\"" + String(WEIGHMYBRU_BOARD_NAME) + "\",";
     json += "\"build_date\":\"" + String(WEIGHMYBRU_BUILD_DATE) + "\",";
     json += "\"build_time\":\"" + String(WEIGHMYBRU_BUILD_TIME) + "\",";

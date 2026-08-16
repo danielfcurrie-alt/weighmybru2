@@ -66,11 +66,10 @@ commit_hash="$(git rev-parse --short HEAD)"
 build_date="$(date -u +"%Y-%m-%d")"
 build_time="$(date -u +"%H:%M:%S")"
 
-export PLATFORMIO_BUILD_FLAGS="\
--DWEIGHMYBRU_BUILD_NUMBER=${build_number} \
--DWEIGHMYBRU_COMMIT_HASH=\\\"${commit_hash}\\\" \
--DWEIGHMYBRU_BUILD_DATE=\\\"${build_date}\\\" \
--DWEIGHMYBRU_BUILD_TIME=\\\"${build_time}\\\""
+export WMBP_BUILD_NUMBER="${build_number}"
+export WMBP_COMMIT_HASH="${commit_hash}"
+export WMBP_BUILD_DATE="${build_date}"
+export WMBP_BUILD_TIME="${build_time}"
 
 board_suffix_for_env() {
   case "$1" in
