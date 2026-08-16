@@ -43,6 +43,17 @@ public:
     uint32_t getLifetimeLongGapCount() const { return lifetimeLongGapCount; }
     uint32_t getLifetimeBumpCount() const { return lifetimeBumpCount; }
     uint32_t getLifetimeGlitchCount() const { return lifetimeGlitchCount; }
+    const char* getAcquisitionModel() const { return "loop_poll"; }
+    uint32_t getAcquisitionPollCount() const { return acquisitionPollCount; }
+    uint32_t getAcquisitionReadyCount() const { return acquisitionReadyCount; }
+    uint32_t getAcquisitionNotReadyCount() const { return acquisitionNotReadyCount; }
+    uint32_t getAcquisitionAcceptedCount() const { return sampleSequence; }
+    uint32_t getAcquisitionRejectedCount() const { return acquisitionRejectedCount; }
+    uint32_t getAcquisitionReadErrorCount() const { return acquisitionReadErrorCount; }
+    uint32_t getAcquisitionDisconnectedCount() const { return acquisitionDisconnectedCount; }
+    uint32_t getAcquisitionDataReadyNotificationCount() const { return 0; }
+    uint32_t getAcquisitionBusySkipCount() const { return 0; }
+    uint32_t getAcquisitionTimeoutCount() const { return 0; }
     bool isZeroClamped() const { return zeroClampActive; }
     bool isAutoZeroActive() const { return autoZeroActive; }
     float getAutoZeroCorrectionGrams() const { return autoZeroCorrectionGrams; }
@@ -115,6 +126,12 @@ private:
     bool hasLastAcceptedRawReading = false;
     bool zeroClampActive = false;
     bool autoZeroActive = false;
+    uint32_t acquisitionPollCount = 0;
+    uint32_t acquisitionReadyCount = 0;
+    uint32_t acquisitionNotReadyCount = 0;
+    uint32_t acquisitionRejectedCount = 0;
+    uint32_t acquisitionReadErrorCount = 0;
+    uint32_t acquisitionDisconnectedCount = 0;
     unsigned long zeroWindowStartMillis = 0;
     unsigned long lastAutoZeroAdjustMillis = 0;
     float zeroWindowMinGrams = 0.0f;

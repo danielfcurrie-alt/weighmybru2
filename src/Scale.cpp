@@ -258,8 +258,11 @@ void Scale::loadCalibration() {
 }
 
 float Scale::getWeight() {
+    acquisitionPollCount++;
+
     // Return 0 if HX711 is not connected
     if (!isConnected) {
+        acquisitionDisconnectedCount++;
         return 0.0f;
     }
     
@@ -270,27 +273,33 @@ float Scale::getWeight() {
     const uint32_t simIntervalMicros = SimulationProfiles::sampleIntervalMicros(WMBP_SIM_HX711_HZ);
     if (simulationLastSampleMicros != 0 &&
         currentMicros - simulationLastSampleMicros < simIntervalMicros) {
+        acquisitionNotReadyCount++;
         return currentWeight;
     }
+    acquisitionReadyCount++;
     simulationLastSampleMicros = currentMicros;
     simulationLastSampleMillis = currentTime;
     float rawReading = simulatedRawWeight(currentTime) - simulationTareOffset;
 #else
     // Check if HX711 is ready before attempting to read
     if (!hx711.is_ready()) {
+        acquisitionNotReadyCount++;
         return currentWeight;  // Return last known value if not ready
     }
+    acquisitionReadyCount++;
     
     float rawReading = hx711.get_units(1);
 #endif
     
     // Handle NaN or invalid readings
     if (isnan(rawReading)) {
+        acquisitionReadErrorCount++;
         return currentWeight;
     }
 
     float qualifiedRawReading = rawReading;
     if (!qualifyRawReading(currentTime, rawReading, qualifiedRawReading)) {
+        acquisitionRejectedCount++;
         return currentWeight;
     }
     rawReading = qualifiedRawReading;
@@ -495,6 +504,7 @@ bool Scale::qualifyRawReading(unsigned long sampleMillis, float rawReading, floa
 }
 
 void Scale::recordRejectedGlitch(unsigned long sampleMillis, float magnitudeGrams) {
+    acquisitionRejectedCount++;
     glitchCount++;
     lifetimeGlitchCount++;
     samplesSinceQualityPersist++;
@@ -614,6 +624,12 @@ void Scale::resetSampleCadenceStats() {
     glitchCount = 0;
     lastGlitchMillis = 0;
     lastGlitchMagnitudeGrams = 0.0f;
+    acquisitionPollCount = 0;
+    acquisitionReadyCount = 0;
+    acquisitionNotReadyCount = 0;
+    acquisitionRejectedCount = 0;
+    acquisitionReadErrorCount = 0;
+    acquisitionDisconnectedCount = 0;
     hasLastRawSampleWeight = false;
     resetPlausibilityGate();
 }

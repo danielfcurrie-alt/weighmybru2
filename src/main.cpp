@@ -556,6 +556,18 @@ static void printConfigDiagnostics() {
                 static_cast<unsigned long>(scale.getSampleIntervalMaxMicros()),
                 static_cast<unsigned long>(scale.getSampleIntervalLongGapCount()),
                 static_cast<unsigned long>(scale.getSampleIntervalStatsCount()));
+  Serial.printf("Acquisition model=%s polls=%lu ready=%lu notReady=%lu accepted=%lu rejected=%lu readErrors=%lu disconnected=%lu dataReadyNotifications=%lu busySkips=%lu timeouts=%lu\n",
+                scale.getAcquisitionModel(),
+                static_cast<unsigned long>(scale.getAcquisitionPollCount()),
+                static_cast<unsigned long>(scale.getAcquisitionReadyCount()),
+                static_cast<unsigned long>(scale.getAcquisitionNotReadyCount()),
+                static_cast<unsigned long>(scale.getAcquisitionAcceptedCount()),
+                static_cast<unsigned long>(scale.getAcquisitionRejectedCount()),
+                static_cast<unsigned long>(scale.getAcquisitionReadErrorCount()),
+                static_cast<unsigned long>(scale.getAcquisitionDisconnectedCount()),
+                static_cast<unsigned long>(scale.getAcquisitionDataReadyNotificationCount()),
+                static_cast<unsigned long>(scale.getAcquisitionBusySkipCount()),
+                static_cast<unsigned long>(scale.getAcquisitionTimeoutCount()));
   Serial.printf("Scale quality=%u lifetimeQuality=%u bumps=%lu glitches=%lu lastBumpMs=%lu lastBump=%.2fg lastGlitchMs=%lu lastGlitch=%.2fg lifetimeSamples=%lu lifetimeGaps=%lu lifetimeBumps=%lu lifetimeGlitches=%lu\n",
                 scale.getScaleQualityScore(),
                 scale.getLifetimeQualityScore(),

@@ -415,7 +415,7 @@ static String buildDashboardJson(Scale &scale,
   // handlers serve the cached string and avoid touching live acquisition state
   // while the HX711 is running at 80 SPS.
   String json;
-  json.reserve(2200);
+  json.reserve(3000);
   json += "{";
 
   const float currentWeight = scale.getCurrentWeight();
@@ -442,6 +442,17 @@ static String buildDashboardJson(Scale &scale,
   json += "\"scale_max_interval_us\":" + String(scale.getSampleIntervalMaxMicros()) + ",";
   json += "\"scale_long_gap_count\":" + String(scale.getSampleIntervalLongGapCount()) + ",";
   json += "\"scale_cadence_stats_count\":" + String(scale.getSampleIntervalStatsCount()) + ",";
+  json += "\"acquisition_model\":\"" + String(scale.getAcquisitionModel()) + "\",";
+  json += "\"acquisition_poll_count\":" + String(scale.getAcquisitionPollCount()) + ",";
+  json += "\"acquisition_ready_count\":" + String(scale.getAcquisitionReadyCount()) + ",";
+  json += "\"acquisition_not_ready_count\":" + String(scale.getAcquisitionNotReadyCount()) + ",";
+  json += "\"acquisition_accepted_count\":" + String(scale.getAcquisitionAcceptedCount()) + ",";
+  json += "\"acquisition_rejected_count\":" + String(scale.getAcquisitionRejectedCount()) + ",";
+  json += "\"acquisition_read_error_count\":" + String(scale.getAcquisitionReadErrorCount()) + ",";
+  json += "\"acquisition_disconnected_count\":" + String(scale.getAcquisitionDisconnectedCount()) + ",";
+  json += "\"acquisition_data_ready_notifications\":" + String(scale.getAcquisitionDataReadyNotificationCount()) + ",";
+  json += "\"acquisition_busy_skip_count\":" + String(scale.getAcquisitionBusySkipCount()) + ",";
+  json += "\"acquisition_timeout_count\":" + String(scale.getAcquisitionTimeoutCount()) + ",";
   json += "\"scale_quality_score\":" + String(scaleQuality) + ",";
   json += "\"firmware_quality\":" + String(scaleQuality) + ",";
   json += "\"scale_lifetime_quality_score\":" + String(lifetimeQuality) + ",";
@@ -1061,6 +1072,17 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
     json += "\"max_interval_us\":" + String(scale.getSampleIntervalMaxMicros()) + ",";
     json += "\"long_gap_count\":" + String(scale.getSampleIntervalLongGapCount()) + ",";
     json += "\"cadence_stats_count\":" + String(scale.getSampleIntervalStatsCount()) + ",";
+    json += "\"acquisition_model\":\"" + String(scale.getAcquisitionModel()) + "\",";
+    json += "\"acquisition_poll_count\":" + String(scale.getAcquisitionPollCount()) + ",";
+    json += "\"acquisition_ready_count\":" + String(scale.getAcquisitionReadyCount()) + ",";
+    json += "\"acquisition_not_ready_count\":" + String(scale.getAcquisitionNotReadyCount()) + ",";
+    json += "\"acquisition_accepted_count\":" + String(scale.getAcquisitionAcceptedCount()) + ",";
+    json += "\"acquisition_rejected_count\":" + String(scale.getAcquisitionRejectedCount()) + ",";
+    json += "\"acquisition_read_error_count\":" + String(scale.getAcquisitionReadErrorCount()) + ",";
+    json += "\"acquisition_disconnected_count\":" + String(scale.getAcquisitionDisconnectedCount()) + ",";
+    json += "\"acquisition_data_ready_notifications\":" + String(scale.getAcquisitionDataReadyNotificationCount()) + ",";
+    json += "\"acquisition_busy_skip_count\":" + String(scale.getAcquisitionBusySkipCount()) + ",";
+    json += "\"acquisition_timeout_count\":" + String(scale.getAcquisitionTimeoutCount()) + ",";
     json += "\"quality_score\":" + String(scale.getScaleQualityScore()) + ",";
     json += "\"lifetime_quality_score\":" + String(scale.getLifetimeQualityScore()) + ",";
     json += "\"bump_count\":" + String(scale.getBumpCount()) + ",";

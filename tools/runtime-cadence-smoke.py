@@ -11,10 +11,15 @@ Typical use against a flashed XIAO reference unit:
     python3 tools/runtime-cadence-smoke.py --port /dev/cu.usbmodem1101 \
       --base-url http://192.168.4.1 --profile dashboard-safe
 
-Run a baseline first, then safe dashboard polling:
+Run a baseline first, then one manual dashboard refresh during the capture:
 
     python3 tools/runtime-cadence-smoke.py --port /dev/cu.usbmodem1101 \
       --base-url http://192.168.4.1 --profile baseline --profile dashboard-safe
+
+Run the low-priority recording profile:
+
+    python3 tools/runtime-cadence-smoke.py --port /dev/cu.usbmodem1101 \
+      --base-url http://192.168.4.1 --profile recording-low-priority
 
 Reproduce the old bad pattern without failing the shell command:
 
@@ -66,10 +71,17 @@ class PollRequest:
 
 PROFILES: dict[str, list[PollRequest]] = {
     "baseline": [],
-    # Current intended dashboard behavior: live dashboard poll at 2 Hz, static
-    # metadata at a slow cadence. A short test will usually hit static endpoints
-    # once at start and then only /api/dashboard.
+    # Current intended dashboard behavior: one manual refresh at profile start.
     "dashboard-safe": [
+        PollRequest("/api/dashboard", 3600.0),
+    ],
+    # Explicit recording-mode pattern: low-priority dashboard polling only after
+    # a user starts a timer/recording view.
+    "recording-low-priority": [
+        PollRequest("/api/dashboard", 2.0),
+    ],
+    # Former "safe" behavior retained as a repro/comparison profile.
+    "dashboard-2hz-repro": [
         PollRequest("/api/dashboard", 0.5),
         PollRequest("/api/device/info", 60.0),
         PollRequest("/api/ota/status", 60.0),
@@ -89,6 +101,20 @@ PROFILES: dict[str, list[PollRequest]] = {
         PollRequest("/api/ota/status", 5.0),
     ],
 }
+
+ACQUISITION_KEYS = [
+    "acquisition_model",
+    "acquisition_poll_count",
+    "acquisition_ready_count",
+    "acquisition_not_ready_count",
+    "acquisition_accepted_count",
+    "acquisition_rejected_count",
+    "acquisition_read_error_count",
+    "acquisition_disconnected_count",
+    "acquisition_data_ready_notifications",
+    "acquisition_busy_skip_count",
+    "acquisition_timeout_count",
+]
 
 
 def percentile(values: list[float], percentile_value: float) -> float | None:
@@ -258,6 +284,19 @@ def poll_worker(
         stop_event.wait(max(0.02, min(0.25, soonest - time.monotonic())))
 
 
+def fetch_dashboard_snapshot(base_url: str) -> dict[str, object]:
+    url = base_url.rstrip("/") + "/api/dashboard"
+    try:
+        with urllib.request.urlopen(url, timeout=1.5) as response:
+            return json.loads(response.read(8192).decode("utf-8"))
+    except (json.JSONDecodeError, urllib.error.URLError, TimeoutError, OSError) as exc:
+        return {"error": str(exc)}
+
+
+def acquisition_snapshot(dashboard: dict[str, object]) -> dict[str, object]:
+    return {key: dashboard[key] for key in ACQUISITION_KEYS if key in dashboard}
+
+
 def analyze(samples: list[Sample]) -> dict[str, object]:
     if len(samples) < 2:
         return {"samples": len(samples), "valid": False}
@@ -307,7 +346,12 @@ def analyze(samples: list[Sample]) -> dict[str, object]:
     }
 
 
-def print_summary(profile: str, result: dict[str, object], poll_stats: dict[str, dict[str, int | float]]) -> None:
+def print_summary(
+    profile: str,
+    result: dict[str, object],
+    poll_stats: dict[str, dict[str, int | float]],
+    acquisition: dict[str, object] | None = None,
+) -> None:
     print(f"\n== {profile} ==")
     if not result.get("valid"):
         print(f"samples={result.get('samples', 0)} (not enough data)")
@@ -331,6 +375,15 @@ def print_summary(profile: str, result: dict[str, object], poll_stats: dict[str,
                 f"  {endpoint}: ok={stats['ok']} err={stats['error']} "
                 f"avg={avg_ms:.1f}ms max={float(stats['max_ms']):.1f}ms"
             )
+    if acquisition:
+        print(
+            "acquisition: model={acquisition_model} polls={acquisition_poll_count} "
+            "ready={acquisition_ready_count} notReady={acquisition_not_ready_count} "
+            "accepted={acquisition_accepted_count} rejected={acquisition_rejected_count} "
+            "readErrors={acquisition_read_error_count} disconnected={acquisition_disconnected_count} "
+            "dataReady={acquisition_data_ready_notifications} busySkips={acquisition_busy_skip_count} "
+            "timeouts={acquisition_timeout_count}".format(**acquisition)
+        )
 
 
 def assert_pass(profile: str, result: dict[str, object], args: argparse.Namespace) -> list[str]:
@@ -446,8 +499,12 @@ def main(argv: Iterable[str] | None = None) -> int:
             result, poll_stats = run_profile(reader, args.base_url, profile, args.duration)
             all_results[profile] = result
             all_poll_stats[profile] = poll_stats
-            print_summary(profile, result, poll_stats)
-            if profile != "aggressive-repro" and profile != "static-repro":
+            dashboard = fetch_dashboard_snapshot(args.base_url)
+            acquisition = acquisition_snapshot(dashboard)
+            if acquisition:
+                result["acquisition"] = acquisition
+            print_summary(profile, result, poll_stats, acquisition)
+            if profile not in {"aggressive-repro", "static-repro", "dashboard-2hz-repro"}:
                 failures.extend(assert_pass(profile, result, args))
                 failures.extend(assert_polling_pass(profile, poll_stats))
 
