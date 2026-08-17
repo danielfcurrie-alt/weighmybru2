@@ -27,6 +27,7 @@ constexpr float PLAUSIBILITY_CONFIRM_TOLERANCE_FRACTION = 0.25f;
 constexpr uint8_t PLAUSIBILITY_CONFIRM_SAMPLE_COUNT = 2;
 constexpr unsigned long PLAUSIBILITY_CANDIDATE_TIMEOUT_MS = 250;
 constexpr unsigned long PLAUSIBILITY_SUPPRESS_AFTER_TARE_MS = 500;
+constexpr unsigned long RECENT_PUBLIC_TARE_SAMPLE_MS = 250;
 constexpr uint8_t HIGH_RATE_TARE_SAMPLE_CAP =
     WMBP_HIGH_RATE_TARE_SAMPLES < 1 ? 1 :
     (WMBP_HIGH_RATE_TARE_SAMPLES > 20 ? 20 : WMBP_HIGH_RATE_TARE_SAMPLES);
@@ -213,34 +214,63 @@ void Scale::tare(uint8_t times) {
     if (flowRatePtr != nullptr) {
         flowRatePtr->pauseCalculation();
     }
-    
-    Serial.println("Taring scale with bounded raw sample accumulation...");
-    if (!performRawTare(times, 1000)) {
-        Serial.println("Tare failed: not enough fresh HX711 samples before timeout");
-        if (flowRatePtr != nullptr) {
-            flowRatePtr->resumeCalculation();
+
+    const unsigned long tareRequestMillis = millis();
+    bool tareSucceeded = false;
+    bool usedRecentPublicSample = false;
+    if (hasLastAcceptedRawReading &&
+        lastSampleMillis > 0 &&
+        tareRequestMillis - lastSampleMillis <= RECENT_PUBLIC_TARE_SAMPLE_MS &&
+        isfinite(calibrationFactor) &&
+        fabsf(calibrationFactor) >= 1.0f) {
+        const int64_t absoluteRawCounts =
+            static_cast<int64_t>(tareOffsetCounts) +
+            static_cast<int64_t>(lroundf(lastAcceptedRawReading * calibrationFactor));
+        if (absoluteRawCounts >= INT32_MIN && absoluteRawCounts <= INT32_MAX) {
+            tareOffsetCounts = static_cast<int32_t>(absoluteRawCounts);
+            hasLastRawValueCounts = false;
+            lastRawValueCounts = 0;
+            Serial.println("Runtime tare using recent public raw sample; offset counts: " +
+                           String(static_cast<long>(tareOffsetCounts)));
+            tareSucceeded = true;
+            usedRecentPublicSample = true;
         }
-        return;
     }
-    Serial.println("Tare complete");
-    
+
+    if (!tareSucceeded) {
+        Serial.println("Taring scale with bounded raw sample accumulation...");
+        if (!performRawTare(times, 1000)) {
+            Serial.println("Tare failed: not enough fresh HX711 samples before timeout");
+            if (flowRatePtr != nullptr) {
+                flowRatePtr->resumeCalculation();
+            }
+            return;
+        }
+        tareSucceeded = true;
+    }
+    Serial.println(usedRecentPublicSample
+                       ? "Tare complete without blocking for fresh raw samples"
+                       : "Tare complete");
+
     // Reset smart filter state after taring - return to stable mode
     currentFilterState = STABLE;
     lastBrewingActivity = 0;
     currentWeight = 0.0f;
     lastStableWeight = 0.0f;
-    lastSampleMillis = millis();
-    lastSampleMicros = 0;
+    if (!usedRecentPublicSample) {
+        lastSampleMillis = millis();
+        lastSampleMicros = 0;
+    }
     hasLastRawSampleWeight = false;
-    lastTareMillis = lastSampleMillis;
+    lastTareMillis = millis();
     resetPlausibilityGate();
     resetZeroQualification();
     persistQualityStatsIfNeeded(true);
-    
+
     // Reinitialize sample buffer
     samplesInitialized = false;
     Serial.println("Smart filter reset to STABLE state");
-    
+
     // Resume flow rate calculation from the new zero reference.
     if (flowRatePtr != nullptr) {
         flowRatePtr->resumeCalculation();
