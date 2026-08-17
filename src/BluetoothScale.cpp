@@ -324,12 +324,6 @@ void BluetoothScale::initializeBLE() {
 
     updateBatteryLevel(false);
     
-    Serial.println("BluetoothScale: Starting service...");
-    
-    // Start the service
-    service->start();
-    batteryService->start();
-    
     Serial.println("BluetoothScale: Setting up advertising...");
     
     // Get advertising object
@@ -347,12 +341,11 @@ void BluetoothScale::initializeBLE() {
     scanResponseData.setName(DEVICE_NAME);
     scanResponseData.setCompleteServices16({NimBLEUUID(BATTERY_SERVICE_UUID)});
     advertising->setScanResponseData(scanResponseData);
-    advertising->setScanResponse(true);
+    advertising->enableScanResponse(true);
     
     // Set proper connection interval preferences to avoid packet rejection
     // and ensure reliable discovery on all ESP32-S3 variants
-    advertising->setMinPreferred(0x06);  // 7.5 ms minimum interval
-    advertising->setMaxPreferred(0x12);  // 22.5 ms maximum interval
+    advertising->setPreferredParams(0x06, 0x12);  // 7.5 ms to 22.5 ms
     
     Serial.println("BluetoothScale: BLE initialization completed successfully");
 }
@@ -823,20 +816,27 @@ void BluetoothScale::processIncomingMessage(uint8_t* data, size_t length) {
 }
 
 // BLE Server Callbacks
-void BluetoothScale::onConnect(NimBLEServer* pServer) {
+void BluetoothScale::onConnect(NimBLEServer* pServer, NimBLEConnInfo& connInfo) {
+    (void)pServer;
     deviceConnected = true;
+    connectionHandle = connInfo.getConnHandle();
     NimBLEDevice::stopAdvertising();
     Serial.println("BluetoothScale: Device connected");
 }
 
-void BluetoothScale::onDisconnect(NimBLEServer* pServer) {
+void BluetoothScale::onDisconnect(NimBLEServer* pServer, NimBLEConnInfo& connInfo, int reason) {
+    (void)pServer;
+    (void)connInfo;
+    (void)reason;
     deviceConnected = false;
+    connectionHandle = 0;
     Serial.println("BluetoothScale: Device disconnected");
 }
 
 // BLE Characteristic Callbacks
-void BluetoothScale::onWrite(NimBLECharacteristic* pCharacteristic) {
-    std::string value = pCharacteristic->getValue();
+void BluetoothScale::onWrite(NimBLECharacteristic* pCharacteristic, NimBLEConnInfo& connInfo) {
+    (void)connInfo;
+    auto value = pCharacteristic->getValue();
     
     if (value.length() > 0) {
         uint8_t* data = (uint8_t*)value.data();
