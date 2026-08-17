@@ -46,6 +46,7 @@ public:
     int getBluetoothSignalStrength(); // Get BLE signal strength (RSSI)
     String getBluetoothConnectionInfo(); // Get detailed BLE connection information
     uint32_t getExtendedWeightNotifyCount() const { return weightNotifyCount; }
+    uint32_t getExtendedWeightNotifyDropCount() const { return weightNotifyDropCount; }
     uint32_t getFloat32NotifyCount() const { return float32NotifyCount; }
     uint32_t getBatteryNotifyCount() const { return batteryNotifyCount; }
     
@@ -79,6 +80,7 @@ private:
     uint32_t lastNotifiedSampleSequence;
     uint32_t lastNotifiedScaleSampleMillis;
     uint32_t weightNotifyCount;
+    uint32_t weightNotifyDropCount;
     uint32_t float32NotifyCount;
     uint8_t packetSequence;
     uint32_t batteryNotifyCount;
@@ -123,7 +125,7 @@ private:
     void updateFloat32CompatibilityStream(uint32_t now);
     float getFloat32CompatibilityWeight(uint32_t now);
     void sendBeanConquerorWeight(float weight);    // Send simple float format
-    void sendGaggiMateWeight(float weight);        // Send WeighMyBru protocol format
+    bool sendGaggiMateWeight(float weight);        // Send WeighMyBru protocol format
     void updateCapabilities();
     void updateBatteryLevel(bool forceNotify = false);
 };

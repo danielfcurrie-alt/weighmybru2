@@ -119,7 +119,7 @@ BluetoothScale::BluetoothScale()
       commandCharacteristic(nullptr), capabilitiesCharacteristic(nullptr), batteryLevelCharacteristic(nullptr), advertising(nullptr), deviceConnected(false),
       oldDeviceConnected(false), lastHeartbeat(0), lastBatterySent(0),
       lastNotifiedSampleSequence(0), lastNotifiedScaleSampleMillis(0),
-      weightNotifyCount(0), float32NotifyCount(0), packetSequence(0), batteryNotifyCount(0),
+      weightNotifyCount(0), weightNotifyDropCount(0), float32NotifyCount(0), packetSequence(0), batteryNotifyCount(0),
       lastWeightNotifyMillis(0), lastFloat32NotifyMillis(0), lastBatteryNotifyMillis(0),
       lastFloat32Weight(0.0f), hasLastFloat32Weight(false),
       lastBatteryPercent(255),
@@ -431,10 +431,12 @@ void BluetoothScale::sendWeightNotification(float weight) {
     }
     
     // Send to GaggiMate first (WeighMyBru protocol format) - critical for backward compatibility
-    sendGaggiMateWeight(weight);
-
-    weightNotifyCount++;
-    lastWeightNotifyMillis = millis();
+    if (sendGaggiMateWeight(weight)) {
+        weightNotifyCount++;
+        lastWeightNotifyMillis = millis();
+    } else {
+        weightNotifyDropCount++;
+    }
 }
 
 void BluetoothScale::updateFloat32CompatibilityStream(uint32_t now) {
@@ -520,10 +522,10 @@ void BluetoothScale::sendBeanConquerorWeight(float weight) {
     }
 }
 
-void BluetoothScale::sendGaggiMateWeight(float weight) {
+bool BluetoothScale::sendGaggiMateWeight(float weight) {
     if (!gaggiMateWeightCharacteristic) {
         Serial.println("BluetoothScale: WARNING - GaggiMate characteristic is null!");
-        return;
+        return false;
     }
     
     try {
@@ -571,8 +573,8 @@ void BluetoothScale::sendGaggiMateWeight(float weight) {
         }
         payload[13] = batteryPercent;
 
-        packetSequence++;
-        payload[14] = packetSequence;
+        const uint8_t nextPacketSequence = packetSequence + 1;
+        payload[14] = nextPacketSequence;
 
         uint8_t statusFlags = 0;
         if (display && display->isTimerRunning()) {
@@ -631,13 +633,20 @@ void BluetoothScale::sendGaggiMateWeight(float weight) {
         // Calculate and set checksum (last byte)
         payload[PROTOCOL_LENGTH - 1] = calculateChecksum(payload, PROTOCOL_LENGTH - 1);
         
-        // Send notification
+        // Count only notifications accepted by the BLE stack as public stream
+        // packets. If the stack is momentarily busy, the next accepted packet
+        // reuses this sequence so clients do not see a phantom public gap.
         gaggiMateWeightCharacteristic->setValue(payload, PROTOCOL_LENGTH);
-        gaggiMateWeightCharacteristic->notify();
+        if (!gaggiMateWeightCharacteristic->notify(payload, PROTOCOL_LENGTH)) {
+            return false;
+        }
+        packetSequence = nextPacketSequence;
         
         //Serial.printf("BluetoothScale: Sent GaggiMate weight %.2fg as WeighMyBru protocol\n", weight);
+        return true;
     } catch (const std::exception& e) {
         Serial.printf("BluetoothScale: ERROR sending GaggiMate weight: %s\n", e.what());
+        return false;
     }
 }
 
@@ -964,8 +973,9 @@ void BluetoothScale::printDiagnostics() {
                   static_cast<unsigned long>(scale ? scale->getSampleSequence() : 0),
                   static_cast<unsigned long>(lastNotifiedSampleSequence),
                   static_cast<unsigned long>(lastNotifiedScaleSampleMillis));
-    Serial.printf("  extendedWeightNotifyCount=%lu rate=%.2f/s lastMs=%lu\n",
-                  static_cast<unsigned long>(weightNotifyCount), extendedWeightRate,
+    Serial.printf("  extendedWeightNotifyCount=%lu dropCount=%lu rate=%.2f/s lastMs=%lu\n",
+                  static_cast<unsigned long>(weightNotifyCount),
+                  static_cast<unsigned long>(weightNotifyDropCount), extendedWeightRate,
                   static_cast<unsigned long>(lastWeightNotifyMillis));
     Serial.printf("  float32NotifyCount=%lu rate=%.2f/s lastScheduleMs=%lu lastWeight=%.2f\n",
                   static_cast<unsigned long>(float32NotifyCount), float32Rate,
