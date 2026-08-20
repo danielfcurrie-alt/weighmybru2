@@ -6,14 +6,16 @@
   <title>WMB+ Calibration</title>
   <meta name="theme-color" content="#47a864">
   <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="WMB+">
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="apple-touch-icon" href="/icons/wmb-plus-192.png">
-  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="icon" type="image/png" href="/icons/wmb-plus-192.png">
   <link rel="stylesheet" href="/output.css">
   <script src="/js/alpine.min.js" defer></script>
   <link rel="stylesheet" href="/css/all.min.css">
+  <script src="/view-mode.js"></script>
 </head>
 <body class="bg-black-background text-white">
 
@@ -21,7 +23,7 @@
   <div @click.away="open = false" class="flex flex-col w-full md:w-64 text-gray-700 bg-black-discord dark-mode:text-gray-200 dark-mode:bg-gray-800 flex-shrink-0" x-data="{ open: false }">
     <div class="flex-shrink-0 px-8 py-4 flex flex-row items-center justify-between">
       <a href="/" class="focus:outline-none focus:shadow-outline" aria-label="WMB+ Dashboard">
-        <img src="/wmb-plus-logo.jpg" alt="WeighMyBru+" style="width: 128px; height: auto; max-width: 170px; border-radius: 12px; object-fit: contain;">
+        <img src="/icons/wmb-plus-512.jpg" alt="WeighMyBru+" style="width: 128px; height: auto; max-width: 170px; border-radius: 12px; object-fit: contain;">
       </a>
       <button class="rounded-lg md:hidden focus:outline-none focus:shadow-outline" @click="open = !open">
         <svg fill="currentColor" viewBox="0 0 20 20" class="w-6 h-6">
@@ -61,7 +63,7 @@
     </div>
     
     <!-- Battery Calibration Section -->
-    <div class="bg-black-select p-6 rounded shadow max-w-xl mt-8">
+    <div data-wmbp-extended class="bg-black-select p-6 rounded shadow max-w-xl mt-8">
       <h2 class="text-2xl font-semibold mb-4"><i class="fa fa-battery-half mr-2" style="color: rgb(71, 168, 100);"></i>Battery Calibration</h2>
       <div id="batteryMessage" class="text-green-400 mb-2"></div>
       <p id="batteryStatus" class="text-yellow-400 mb-4"></p>
@@ -105,6 +107,14 @@
             <i class="fa fa-calibrate mr-2"></i>Calibrate Battery
           </button>
         </form>
+        <div class="mt-4 border-t border-gray-700 pt-4">
+          <p class="text-gray-400 text-sm mb-3">
+            If the pack has been fully charged and should read full, calibrate the current ADC reading as 4.20V.
+          </p>
+          <button id="calibrateFullBatteryBtn" type="button" class="bg-gray-600 hover:bg-button-green active:bg-green-900 text-white px-4 py-2 rounded">
+            Calibrate as Full
+          </button>
+        </div>
       </div>
     </div>
   </main>
@@ -119,6 +129,7 @@
     
     // Battery elements
     const batteryCalibrationForm = document.getElementById("batteryCalibrationForm");
+    const calibrateFullBatteryBtn = document.getElementById("calibrateFullBatteryBtn");
     const batteryStatus = document.getElementById("batteryStatus");
     const batteryMessage = document.getElementById("batteryMessage");
 
@@ -194,6 +205,31 @@
           
           // Clear form
           document.getElementById("actualVoltage").value = "";
+        } else {
+          batteryMessage.textContent = "";
+          batteryStatus.textContent = `❌ Error: ${result.message}`;
+          batteryStatus.className = "text-red-400 mb-4";
+        }
+      } catch (error) {
+        batteryMessage.textContent = "";
+        batteryStatus.textContent = `❌ Network error: ${error.message}`;
+        batteryStatus.className = "text-red-400 mb-4";
+      }
+    });
+
+    calibrateFullBatteryBtn.addEventListener("click", async () => {
+      batteryStatus.textContent = "Calibrating current battery reading as full...";
+      batteryMessage.textContent = "";
+
+      try {
+        const response = await fetch("/api/battery/calibrate-full", { method: "POST" });
+        const result = await response.json();
+
+        if (result.status === "success") {
+          batteryMessage.textContent = `✓ ${result.message}`;
+          batteryStatus.textContent = `Before: ${result.before_voltage}V (${result.before_percentage}%) → After: ${result.after_voltage}V (${result.after_percentage}%)`;
+          batteryStatus.className = "text-green-400 mb-4";
+          updateBatteryDisplay();
         } else {
           batteryMessage.textContent = "";
           batteryStatus.textContent = `❌ Error: ${result.message}`;

@@ -11,6 +11,12 @@ class DiagnosticEventLog;
 
 class Scale {
 public:
+    struct InputSample {
+        uint32_t sourceSequence;
+        uint32_t sampleMillis;
+        float weightGrams;
+    };
+
     Scale(uint8_t dataPin, uint8_t clockPin, float calibrationFactor);
     bool begin();  // Returns true if successful, false if HX711 fails
     void tare(uint8_t times = 20);
@@ -30,6 +36,25 @@ public:
     uint32_t getSampleIntervalEstimatedLostCadenceSlots() const { return cadenceTracker.getEstimatedLostCadenceSlots(); }
     uint32_t getRawReadSequence() const { return rawReadSequence; }
     uint32_t getRawReadCount() const { return rawReadCount; }
+    uint32_t getRawInputSampleCount() const { return rawInputSampleCount; }
+    uint32_t getQualifiedInputSampleCount() const { return qualifiedInputSampleCount; }
+    uint32_t getPlausibilityRejectedSampleCount() const { return plausibilityRejectedSampleCount; }
+    uint32_t getLastRawInputSequence() const { return lastRawInputSequence; }
+    uint32_t getLastQualifiedInputSequence() const { return lastQualifiedInputSequence; }
+    uint32_t getLastPublicRawInputSequence() const { return lastPublicRawInputSequence; }
+    uint32_t getRawToPublicSequenceGap() const {
+        return lastRawInputSequence >= lastPublicRawInputSequence
+            ? lastRawInputSequence - lastPublicRawInputSequence
+            : 0;
+    }
+    float getLastRawInputWeightGrams() const { return lastRawInputWeightGrams; }
+    float getLastQualifiedInputWeightGrams() const { return lastQualifiedInputWeightGrams; }
+    bool hasLastRawInputWeight() const { return hasLastRawInputWeightGrams; }
+    bool hasLastQualifiedInputWeight() const { return hasLastQualifiedInputWeightGrams; }
+    unsigned long getLastRawInputMillis() const { return lastRawInputMillis; }
+    unsigned long getLastQualifiedInputMillis() const { return lastQualifiedInputMillis; }
+    unsigned long getLastPublicRawInputMillis() const { return lastPublicRawInputMillis; }
+    uint8_t copyRecentQualifiedInputSamples(uint32_t nowMillis, uint32_t windowMillis, InputSample* outSamples, uint8_t maxSamples) const;
     uint32_t getRawReadIntervalAverageMicros() const { return rawCadenceTracker.getAverageMicros(); }
     uint32_t getRawReadIntervalExpectedMicros() const { return rawCadenceTracker.getExpectedMicros(); }
     uint32_t getRawReadIntervalMinMicros() const { return rawCadenceTracker.getMinMicros(); }
@@ -45,6 +70,7 @@ public:
     bool hasLastRawValue() const { return hasLastRawValueCounts; }
     uint8_t getScaleQualityScore() const;
     uint8_t getLifetimeQualityScore() const;
+    unsigned long getLastTareMillis() const { return lastTareMillis; }
     uint32_t getBumpCount() const { return bumpCount; }
     unsigned long getLastBumpMillis() const { return lastBumpMillis; }
     float getLastBumpMagnitudeGrams() const { return lastBumpMagnitudeGrams; }
@@ -159,6 +185,7 @@ public:
     bool isZeroClamped() const { return zeroClampActive; }
     bool isAutoZeroActive() const { return autoZeroActive; }
     float getAutoZeroCorrectionGrams() const { return autoZeroCorrectionGrams; }
+    void resetTransientQualityStats();
     void resetSampleCadenceStats();
     long getRawValue();
     void saveCalibration(); // Save calibration factor to NVS
@@ -209,6 +236,23 @@ private:
     int32_t tareOffsetCounts = 0;
     uint32_t rawReadSequence = 0;
     uint32_t rawReadCount = 0;
+    uint32_t rawInputSampleCount = 0;
+    uint32_t qualifiedInputSampleCount = 0;
+    uint32_t plausibilityRejectedSampleCount = 0;
+    uint32_t lastRawInputSequence = 0;
+    uint32_t lastQualifiedInputSequence = 0;
+    uint32_t lastPublicRawInputSequence = 0;
+    unsigned long lastRawInputMillis = 0;
+    unsigned long lastQualifiedInputMillis = 0;
+    unsigned long lastPublicRawInputMillis = 0;
+    float lastRawInputWeightGrams = 0.0f;
+    float lastQualifiedInputWeightGrams = 0.0f;
+    bool hasLastRawInputWeightGrams = false;
+    bool hasLastQualifiedInputWeightGrams = false;
+    static const uint8_t QUALIFIED_INPUT_WINDOW_CAPACITY = 48;
+    InputSample qualifiedInputWindow[QUALIFIED_INPUT_WINDOW_CAPACITY];
+    uint8_t qualifiedInputWindowWriteIndex = 0;
+    uint8_t qualifiedInputWindowCount = 0;
     uint32_t lastRawReadDurationMicros = 0;
     uint32_t maxRawReadDurationMicros = 0;
     uint32_t bumpCount = 0;
@@ -279,17 +323,21 @@ private:
     float averageFilter(int samples);
     void initializeSamples(float initialValue);
     void recordSampleCadence(uint32_t sampleMicros);
-    void recordRawReadCadence(uint32_t sampleMicros, uint32_t readDurationMicros);
+    void recordRawReadCadence(uint32_t sampleMicros, uint32_t readDurationMicros, uint32_t sourceSequence = 0);
+    void recordRawInputSample(uint32_t sourceSequence, unsigned long sampleMillis, float rawReading);
+    void recordQualifiedInputSample(uint32_t sourceSequence, unsigned long sampleMillis, float qualifiedReading);
     void recordAcceptedSample(unsigned long sampleMillis, uint32_t sampleMicros, float rawReading, float publicWeight);
     bool readRawCountsWithTimeout(uint32_t timeoutMs, int32_t& rawCounts, Hx711Io::Status* finalStatus = nullptr, uint32_t* readDurationMicros = nullptr);
-    bool popAcquiredRawSample(int32_t& rawCounts, uint32_t& sampleMicros, uint32_t& readDurationMicros);
+    bool popAcquiredRawSample(int32_t& rawCounts, uint32_t& sampleMicros, uint32_t& readDurationMicros, uint32_t* sourceSequence = nullptr);
     float rawCountsToGrams(int32_t rawCounts) const;
     bool performRawTare(uint8_t times, uint32_t timeoutMs);
     void recordMeasurementQuality(unsigned long sampleMillis, float rawReading, float publicWeight);
     bool qualifyRawReading(unsigned long sampleMillis, float rawReading, float& qualifiedRawReading);
     void recordRejectedGlitch(unsigned long sampleMillis, float magnitudeGrams);
+    void resetInputStageDiagnostics();
     void resetPlausibilityGate();
     float applyZeroQualification(unsigned long sampleMillis, float rawReading, float filteredWeight);
+    float applyCurrentZeroStateToObservedSample(float observedWeight) const;
     void resetZeroQualification();
     void loadQualityStats();
     void persistQualityStatsIfNeeded(bool force = false);

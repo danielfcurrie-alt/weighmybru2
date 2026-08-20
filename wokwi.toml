@@ -1,5 +1,12 @@
+# Default interactive/VS Code Wokwi target.
+#
+# This MUST be a real-HX711 harness env, not a *-sim-* env. Builds with
+# WMBP_SIMULATION_MODE=1 take the `#if WMBP_SIMULATION_MODE` branch in
+# Scale::getWeight() and never read the HX711 pins, so the Wokwi chip-hx711-80
+# part (including its missedReadyEvery / jitterMicros behaviour) has no effect
+# on firmware behaviour. Pointing this at a sim env makes every DOUT scenario
+# silently pass while testing nothing.
 [wokwi]
 version = 1
-firmware = ".pio/build/esp32s3-xiao-sim-80sps/firmware.bin"
-elf = ".pio/build/esp32s3-xiao-sim-80sps/firmware.elf"
-
+firmware = ".pio/build/esp32s3-xiao-wokwi-hx711-dout-interrupt/firmware.bin"
+elf = ".pio/build/esp32s3-xiao-wokwi-hx711-dout-interrupt/firmware.elf"

@@ -1,0 +1,106 @@
+{
+  "_comment": [
+    "Binds scenario -> diagram -> env -> thresholds so an acquisition scenario",
+    "cannot be run against a *-sim-* build by accident. Previously this pairing",
+    "lived only in a comment inside each .scenario.yaml ('Pair with a diagram",
+    "that sets hx711 missedReadyEvery > 0'), which meant a green result could",
+    "be produced from a build that never reads DT/SCK.",
+    "",
+    "NOTE on rates: diagram attr 'actualSps' (94.22) drives cadence ONLY in the",
+    "real-HX711 harness envs. The *-sim-* envs ignore it entirely and use the",
+    "build flag WMBP_SIM_HX711_HZ instead. Two rate knobs exist; each env reads",
+    "exactly one of them.",
+    "A row with lintOnly:true is built and its diagram linted, but the simulator is not run. Use it for model-fidelity targets that cannot produce serial - it keeps compile coverage without a bogus runtime FAIL."
+  ],
+  "runs": [
+    {
+      "name": "clean-94hz",
+      "env": "esp32s3-xiao-wokwi-hx711-dout-interrupt",
+      "diagram": "diagram.json",
+      "scenario": "wokwi/usb-weight-stream-clean-94hz.scenario.yaml",
+      "timeoutMs": 30000,
+      "minDeviceRateHz": 78.0,
+      "maxDeviceGapMs": 150.0,
+      "maxGapsOver100ms": 0,
+      "why": "Baseline cadence against a clean 94.22 SPS source."
+    },
+    {
+      "name": "dout-missed-ready",
+      "env": "esp32s3-xiao-wokwi-hx711-dout-interrupt",
+      "diagram": "diagram.xiao-94hz-missed-ready.json",
+      "scenario": "wokwi/usb-weight-stream-dout-missed-ready.scenario.yaml",
+      "timeoutMs": 30000,
+      "minDeviceRateHz": 70.0,
+      "maxDeviceGapMs": 400.0,
+      "maxGapsOver100ms": 40,
+      "why": "missedReadyEvery=97 (~1 dropped edge/sec at 94 Hz). Proves the timeout+level-poll recovery path: an edge-only design would stall permanently here."
+    },
+    {
+      "name": "midstream-tare-loaded",
+      "env": "esp32s3-xiao-wokwi-hx711-dout-interrupt",
+      "diagram": "diagram.xiao-94hz-loaded.json",
+      "scenario": "wokwi/usb-weight-stream-midstream-tare.scenario.yaml",
+      "timeoutMs": 30000,
+      "minDeviceRateHz": 78.0,
+      "maxDeviceGapMs": 250.0,
+      "maxGapsOver100ms": 2,
+      "why": "27.5 g applied at 5s, then a serial tare. Exercises the owner-queued tare path under load."
+    },
+    {
+      "name": "late-usb-enable",
+      "env": "esp32s3-xiao-wokwi-hx711-dout-interrupt",
+      "diagram": "diagram.json",
+      "scenario": "wokwi/usb-weight-stream-late.scenario.yaml",
+      "timeoutMs": 40000,
+      "minDeviceRateHz": 78.0,
+      "maxDeviceGapMs": 150.0,
+      "maxGapsOver100ms": 0,
+      "why": "USB stream enabled mid-run; acquisition must already be steady."
+    },
+    {
+      "name": "tinys3d-feature-proxy",
+      "env": "esp32s3-tinys3d-wokwi-xiao-carrier-hx711-dout-interrupt",
+      "diagram": "diagram.tinys3d.json",
+      "scenario": "wokwi/usb-weight-stream-clean-94hz.scenario.yaml",
+      "timeoutMs": 30000,
+      "minDeviceRateHz": 78.0,
+      "maxDeviceGapMs": 150.0,
+      "maxGapsOver100ms": 0,
+      "why": "TinyS3[D] firmware-feature proxy running on Wokwi's XIAO ESP32-S3 board. Exercises HX711 acquisition plus MAX17048 and LIS2DW12 I2C model wiring; it is not a TinyS3[D] hardware model, and TinyS3-only RGB, USB-sense pin fidelity, RF antenna switching, and board-variant behavior are outside this runtime row."
+    },
+    {
+      "name": "hx711-pulse-trace",
+      "env": "esp32s3-xiao-wokwi-hx711-dout-interrupt",
+      "diagram": "diagram.xiao-94hz-logic.json",
+      "scenario": "wokwi/usb-weight-stream-clean-94hz.scenario.yaml",
+      "timeoutMs": 30000,
+      "minDeviceRateHz": 78.0,
+      "maxDeviceGapMs": 150.0,
+      "maxGapsOver100ms": 0,
+      "vcd": true,
+      "why": "Captures DT/SCK to VCD via wokwi-logic-analyzer, then asserts 25 clocks per conversion and no spurious DOUT-edge servicing. Replaces the 'optional logic-analyzer gate' with an automated one - note it proves pulse COUNT/ORDER, not real T3 width (WMBP_HX711_PULSE_SETTLE_US=3 widens pulses in the harness)."
+    },
+    {
+      "name": "float32-flow-ramp",
+      "env": "esp32s3-xiao-wokwi-hx711-dout-interrupt",
+      "diagram": "diagram.json",
+      "scenario": "wokwi/usb-weight-stream-flow-ramp.scenario.yaml",
+      "timeoutMs": 23000,
+      "minDeviceRateHz": 78.0,
+      "maxDeviceGapMs": 250.0,
+      "maxGapsOver100ms": 2,
+      "why": "set-control sweeps applied weight at 2/4/8/14 g/s. Exercises the Float32 coherence gates on-device without a real pour."
+    },
+    {
+      "name": "tinys3d-devkitc-feature-proxy",
+      "env": "esp32s3-tinys3d-wokwi-devkitc-board-hx711-dout-interrupt",
+      "diagram": "diagram.tinys3d-devkitc.json",
+      "scenario": "wokwi/devkitc-boot-probe-15s.scenario.yaml",
+      "timeoutMs": 15000,
+      "minDeviceRateHz": 78.0,
+      "maxDeviceGapMs": 150.0,
+      "maxGapsOver100ms": 0,
+      "why": "TinyS3[D] firmware-feature proxy matched to Wokwi's DevKitC Arduino variant. Runs HX711 acquisition, MAX17048, Float32, GPIO17/18 wiring, and the GPIO35 USB-sense substitute. It is not a TinyS3[D] hardware model: GPIO35 cannot validate physical GPIO33, GPIO38 remains unconnected, and the real TinyS3 Arduino variant is covered only by separate builds/hardware."
+    }
+  ]
+}

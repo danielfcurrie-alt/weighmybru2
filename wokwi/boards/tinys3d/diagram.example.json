@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "author": "WMB+ project",
+  "editor": "wokwi",
+  "parts": [
+    {
+      "type": "wokwi-custom-board",
+      "id": "tinys3d",
+      "top": 0,
+      "left": 0,
+      "attrs": {}
+    }
+  ],
+  "connections": []
+}

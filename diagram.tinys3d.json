@@ -58,17 +58,9 @@
       "attrs": {
         "ax": "0.0",
         "ay": "0.0",
-        "az": "1.0"
-      }
-    },
-    {
-      "type": "chip-st7789-172x320",
-      "id": "tft",
-      "top": 255,
-      "left": 200,
-      "attrs": {
-        "width": "172",
-        "height": "320"
+        "az": "1.0",
+        "tempC": "25.0",
+        "dataReady": "1"
       }
     }
   ],
@@ -173,54 +165,6 @@
       "accel:INT1",
       "esp:D1",
       "orange",
-      []
-    ],
-    [
-      "tft:VDD",
-      "esp:3V3",
-      "red",
-      []
-    ],
-    [
-      "tft:GND",
-      "esp:GND",
-      "black",
-      []
-    ],
-    [
-      "tft:SCL",
-      "esp:SCK",
-      "blue",
-      []
-    ],
-    [
-      "tft:SDA",
-      "esp:MOSI",
-      "green",
-      []
-    ],
-    [
-      "tft:RES",
-      "esp:D6",
-      "orange",
-      []
-    ],
-    [
-      "tft:DC",
-      "esp:D7",
-      "purple",
-      []
-    ],
-    [
-      "tft:CS",
-      "esp:D8",
-      "gray",
-      []
-    ],
-    [
-      "tft:BL",
-      "esp:D0",
-      "yellow",
       []
     ],
     [

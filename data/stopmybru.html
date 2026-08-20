@@ -6,13 +6,15 @@
   <title>WMB+ StopMyBru Remote</title>
   <meta name="theme-color" content="#0b1115">
   <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="StopMyBru">
-  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="manifest" href="/stopmybru.webmanifest">
   <link rel="apple-touch-icon" href="/icons/wmb-plus-192.png">
-  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="icon" type="image/png" href="/icons/wmb-plus-192.png">
   <link rel="stylesheet" href="/output.css">
   <link rel="stylesheet" href="/css/all.min.css">
+  <script src="/view-mode.js"></script>
   <style>
     :root { color-scheme: dark; }
     body {
@@ -57,6 +59,9 @@
     .metric .value { margin-top: 3px; font-size: 1.15rem; font-weight: 850; }
     .message { min-height: 1.4em; color: #86efac; font-weight: 750; margin-top: 14px; }
     .message.bad { color: #fca5a5; }
+    .install-copy { color: #cbd5cf; font-size: .92rem; line-height: 1.45; margin: 0; }
+    .install-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+    .hidden-hard { display: none !important; }
     @media (max-width: 560px) { .target-grid { grid-template-columns: 1fr; } .cutoff { min-width: 0; } .topbar { align-items: flex-start; } }
   </style>
 </head>
@@ -110,7 +115,22 @@
       <div id="message" class="message"></div>
     </section>
 
-    <section class="card">
+    <section id="installCard" class="card">
+      <div class="status-row">
+        <strong id="installTitle">Add StopMyBru App</strong>
+      </div>
+      <p id="installInstructions" class="install-copy">
+        Add this quick remote to your home screen for direct target stop controls.
+      </p>
+      <div class="install-actions">
+        <button id="installButton" onclick="installStopMyBru()" class="hidden-hard primary" style="width:auto; margin-top:0;">
+          Install StopMyBru
+        </button>
+        <a class="secondary" href="/app.html">WMB+ App</a>
+      </div>
+    </section>
+
+    <section data-wmbp-extended class="card">
       <div class="status-row">
         <strong>Live details</strong>
         <button class="secondary" onclick="refreshStatus(true)">Refresh</button>
@@ -127,6 +147,7 @@
 <script>
   let statusInFlight = false;
   let lastStatus = {};
+  let deferredInstallPrompt = null;
 
   function fmt(value, digits = 1) {
     const n = Number(value);
@@ -141,6 +162,10 @@
 
   function haptic(pattern = 20) {
     try { navigator.vibrate?.(pattern); } catch (e) {}
+  }
+
+  function isStandalone() {
+    return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
   }
 
   function setTarget(value) {
@@ -175,6 +200,7 @@
 
   async function refreshStatus(manual = false) {
     if (statusInFlight) return;
+    if (!manual && document.visibilityState === 'hidden') return;
     if (!manual && document.activeElement === document.getElementById('targetInput')) return;
     statusInFlight = true;
     try {
@@ -236,6 +262,38 @@
     }
   }
 
+  window.addEventListener('beforeinstallprompt', event => {
+    event.preventDefault();
+    deferredInstallPrompt = event;
+    document.getElementById('installButton').classList.remove('hidden-hard');
+    document.getElementById('installTitle').textContent = 'Install StopMyBru';
+    document.getElementById('installInstructions').textContent = 'This browser can install the StopMyBru quick remote as an app.';
+  });
+
+  async function installStopMyBru() {
+    if (!deferredInstallPrompt) return;
+    deferredInstallPrompt.prompt();
+    await deferredInstallPrompt.userChoice;
+    deferredInstallPrompt = null;
+    document.getElementById('installButton').classList.add('hidden-hard');
+  }
+
+  function updateInstallCard() {
+    if (isStandalone()) {
+      document.getElementById('installCard').classList.add('hidden-hard');
+      return;
+    }
+    if (!window.isSecureContext) {
+      document.getElementById('installTitle').textContent = 'Add StopMyBru to Home Screen';
+      document.getElementById('installInstructions').textContent = 'Local scale pages usually use a browser shortcut. iPhone/iPad: tap Share, then Add to Home Screen. Android/desktop: use the browser menu, then Add to Home screen or Create shortcut.';
+    }
+  }
+
+  if ('serviceWorker' in navigator && window.isSecureContext) {
+    navigator.serviceWorker.register('/sw.js').catch(() => undefined);
+  }
+
+  updateInstallCard();
   refreshStatus(true);
   setInterval(() => refreshStatus(false), 2000);
 </script>

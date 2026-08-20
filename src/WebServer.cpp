@@ -1,6 +1,8 @@
 #include <ESPAsyncWebServer.h>
 #include <LittleFS.h>
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
+#include <HTTPClient.h>
 #include <Update.h>
 #include <Ticker.h>
 #include <esp_ota_ops.h>
@@ -37,6 +39,21 @@ static size_t otaUploadTotal = 0;
 static String otaUploadTarget = "none";
 static String otaLastMessage = "idle";
 static String otaLastFilename;
+static bool otaRemoteUpdateAvailable = false;
+static bool otaRemotePendingInstall = false;
+static bool otaRemoteTaskRunning = false;
+static bool otaRemoteLastCheckSuccess = false;
+static size_t otaRemoteProgress = 0;
+static size_t otaRemoteTotal = 0;
+static unsigned long otaRemoteLastCheckedMillis = 0;
+static String otaRemoteStatus = "idle";
+static String otaRemoteLatestVersion;
+static String otaRemoteReleaseUrl;
+static String otaRemoteFirmwareName;
+static String otaRemoteFirmwareUrl;
+static String otaRemoteLittlefsName;
+static String otaRemoteLittlefsUrl;
+static String otaRemoteMessage = "idle";
 static String cachedDeviceInfoJson;
 static String cachedOtaIdleStatusJson;
 static String cachedDashboardJson[2];
@@ -48,22 +65,515 @@ static String cachedWeightText[2];
 static String cachedWeightFastText[2];
 static String cachedBrewWeightText[2];
 static String cachedBrewStatusJson[2];
+static String cachedLiveSnapshotJson[2];
 static String cachedScaleStatusJson[2];
 static volatile uint8_t cachedDashboardActiveIndex = 0;
 static volatile uint8_t cachedRuntimeApiActiveIndex = 0;
 static volatile uint8_t cachedLiveApiActiveIndex = 0;
 static unsigned long lastDashboardCacheUpdateMs = 0;
 static unsigned long lastLiveApiCacheUpdateMs = 0;
+static unsigned long lastLiveSseSendMs = 0;
 static constexpr unsigned long DASHBOARD_CACHE_INTERVAL_MS = 1000;
 static constexpr unsigned long LIVE_API_CACHE_INTERVAL_MS = 50;
+static constexpr unsigned long LIVE_SSE_INTERVAL_MS = 100;
 
 static String jsonEscape(const String& input);
 static String jsonNumberOrNull(float value, unsigned int decimals = 3);
 static bool parseFiniteFloat(const String& input, float& output);
 static bool isSaneScaleCalibrationFactor(float value);
+static bool firmwareOtaSupported();
+static const esp_partition_t* filesystemPartition();
 
 static void restartAfterOta() {
     ESP.restart();
+}
+
+struct ParsedVersion {
+    int major = 0;
+    int minor = 0;
+    int patch = 0;
+    int beta = -1;
+    int betaPatch = 0;
+    bool valid = false;
+};
+
+struct OtaReleaseInfo {
+    String version;
+    String releaseUrl;
+    String firmwareName;
+    String firmwareUrl;
+    String littlefsName;
+    String littlefsUrl;
+};
+
+struct OtaDownloadRequest {
+    String url;
+    String version;
+    String filename;
+};
+
+static String boardReleaseSuffix() {
+#if defined(BOARD_XIAO)
+    return "xiao";
+#elif defined(BOARD_SUPERMINI)
+    return "supermini";
+#elif defined(BOARD_TINYS3D)
+    return "tinys3d";
+#else
+    return "";
+#endif
+}
+
+static ParsedVersion parseVersionKey(String version) {
+    ParsedVersion parsed;
+    version.trim();
+    if (version.startsWith("v") || version.startsWith("V")) {
+        version.remove(0, 1);
+    }
+
+    int firstDash = version.indexOf('-');
+    String core = firstDash >= 0 ? version.substring(0, firstDash) : version;
+    int firstDot = core.indexOf('.');
+    int secondDot = firstDot >= 0 ? core.indexOf('.', firstDot + 1) : -1;
+    if (firstDot < 0 || secondDot < 0) {
+        return parsed;
+    }
+
+    parsed.major = core.substring(0, firstDot).toInt();
+    parsed.minor = core.substring(firstDot + 1, secondDot).toInt();
+    parsed.patch = core.substring(secondDot + 1).toInt();
+    parsed.beta = 999999;
+    parsed.valid = true;
+
+    const int betaPos = version.indexOf("beta");
+    if (betaPos >= 0) {
+        parsed.beta = 0;
+        int numberStart = betaPos + 4;
+        while (numberStart < static_cast<int>(version.length()) &&
+               (version[numberStart] == '.' || version[numberStart] == '-' || version[numberStart] == '_')) {
+            numberStart++;
+        }
+        int numberEnd = numberStart;
+        while (numberEnd < static_cast<int>(version.length()) && isdigit(version[numberEnd])) {
+            numberEnd++;
+        }
+        if (numberEnd > numberStart) {
+            parsed.beta = version.substring(numberStart, numberEnd).toInt();
+        }
+        int tailPos = numberEnd;
+        while (tailPos < static_cast<int>(version.length()) && !isdigit(version[tailPos])) {
+            tailPos++;
+        }
+        int tailEnd = tailPos;
+        while (tailEnd < static_cast<int>(version.length()) && isdigit(version[tailEnd])) {
+            tailEnd++;
+        }
+        if (tailEnd > tailPos) {
+            parsed.betaPatch = version.substring(tailPos, tailEnd).toInt();
+        }
+    }
+
+    return parsed;
+}
+
+static bool isRemoteVersionNewer(const String& remoteVersion, const String& currentVersion) {
+    ParsedVersion remote = parseVersionKey(remoteVersion);
+    ParsedVersion current = parseVersionKey(currentVersion);
+    if (!remote.valid || !current.valid) {
+        return remoteVersion != currentVersion && remoteVersion.length() > 0;
+    }
+
+    if (remote.major != current.major) return remote.major > current.major;
+    if (remote.minor != current.minor) return remote.minor > current.minor;
+    if (remote.patch != current.patch) return remote.patch > current.patch;
+    if (remote.beta != current.beta) return remote.beta > current.beta;
+    if (remote.betaPatch != current.betaPatch) return remote.betaPatch > current.betaPatch;
+    return false;
+}
+
+static String extractJsonStringAfter(const String& text, int start, const char* key) {
+    const int keyPos = text.indexOf(key, start);
+    if (keyPos < 0) {
+        return "";
+    }
+    const int colonPos = text.indexOf(':', keyPos);
+    if (colonPos < 0) {
+        return "";
+    }
+    int quotePos = text.indexOf('"', colonPos + 1);
+    if (quotePos < 0) {
+        return "";
+    }
+    String value;
+    value.reserve(64);
+    bool escaped = false;
+    for (int i = quotePos + 1; i < static_cast<int>(text.length()); i++) {
+        const char c = text[i];
+        if (escaped) {
+            value += c;
+            escaped = false;
+        } else if (c == '\\') {
+            escaped = true;
+        } else if (c == '"') {
+            break;
+        } else {
+            value += c;
+        }
+    }
+    return value;
+}
+
+static bool extractAssetInfo(const String& releaseBlock,
+                             const String& filenameSuffix,
+                             String& assetName,
+                             String& assetUrl) {
+    int searchPos = 0;
+    while (true) {
+        const int nameKeyPos = releaseBlock.indexOf("\"name\"", searchPos);
+        if (nameKeyPos < 0) {
+            break;
+        }
+
+        const String candidateName = extractJsonStringAfter(releaseBlock, nameKeyPos, "\"name\"");
+        if (candidateName.endsWith(filenameSuffix)) {
+            const String candidateUrl = extractJsonStringAfter(releaseBlock, nameKeyPos, "\"browser_download_url\"");
+            if (candidateUrl.length() > 0) {
+                assetName = candidateName;
+                assetUrl = candidateUrl;
+                return true;
+            }
+        }
+
+        searchPos = nameKeyPos + 6;
+    }
+
+    int suffixPos = releaseBlock.indexOf(filenameSuffix);
+    while (suffixPos >= 0) {
+        int valueStart = suffixPos;
+        while (valueStart > 0 && releaseBlock[valueStart - 1] != '"') {
+            valueStart--;
+        }
+        const int valueEnd = releaseBlock.indexOf('"', suffixPos);
+        if (valueEnd > valueStart) {
+            const String candidateUrl = releaseBlock.substring(valueStart, valueEnd);
+            if (candidateUrl.startsWith("http")) {
+                const int slashPos = candidateUrl.lastIndexOf('/');
+                assetName = slashPos >= 0 ? candidateUrl.substring(slashPos + 1) : candidateUrl;
+                assetUrl = candidateUrl;
+                return true;
+            }
+        }
+        suffixPos = releaseBlock.indexOf(filenameSuffix, suffixPos + filenameSuffix.length());
+    }
+
+    return false;
+}
+
+static bool parseLatestRelease(const String& payload, OtaReleaseInfo& info, String& error) {
+    const String suffix = boardReleaseSuffix();
+    if (suffix.length() == 0) {
+        error = "Unknown board; cannot choose a release asset";
+        return false;
+    }
+
+    int searchPos = 0;
+    while (true) {
+        const int tagPos = payload.indexOf("\"tag_name\"", searchPos);
+        if (tagPos < 0) {
+            error = "No WMB+ beta release found";
+            return false;
+        }
+
+        const int nextTagPos = payload.indexOf("\"tag_name\"", tagPos + 10);
+        const String releaseBlock = payload.substring(tagPos, nextTagPos >= 0 ? nextTagPos : payload.length());
+        const String tag = extractJsonStringAfter(payload, tagPos, "\"tag_name\"");
+        const bool draft = releaseBlock.indexOf("\"draft\":true") >= 0;
+        const bool prerelease = releaseBlock.indexOf("\"prerelease\":true") >= 0;
+        const bool wmbBeta = tag.startsWith("0.2.0-beta.") || tag.startsWith("v0.2.0-beta.");
+
+        if (!draft && prerelease && wmbBeta) {
+            info.version = tag.startsWith("v") || tag.startsWith("V") ? tag.substring(1) : tag;
+            info.releaseUrl = extractJsonStringAfter(releaseBlock, 0, "\"html_url\"");
+            const bool hasApp = extractAssetInfo(releaseBlock, "-" + suffix + "-app.bin", info.firmwareName, info.firmwareUrl);
+            const bool hasLittlefs = extractAssetInfo(releaseBlock, "-" + suffix + "-littlefs.bin", info.littlefsName, info.littlefsUrl);
+            if (!hasApp) {
+                info.firmwareName = "wmb-plus-" + info.version + "-" + suffix + "-app.bin";
+                info.firmwareUrl = "https://github.com/danielfcurrie-alt/weighmybru2/releases/download/" +
+                                   tag + "/" + info.firmwareName;
+            }
+            if (!hasLittlefs) {
+                info.littlefsName = "wmb-plus-" + info.version + "-" + suffix + "-littlefs.bin";
+                info.littlefsUrl = "https://github.com/danielfcurrie-alt/weighmybru2/releases/download/" +
+                                   tag + "/" + info.littlefsName;
+            }
+            return true;
+        }
+
+        searchPos = tagPos + 10;
+    }
+}
+
+static String updateCheckEndpoint() {
+    return "https://api.github.com/repos/danielfcurrie-alt/weighmybru2/releases?per_page=2";
+}
+
+static bool fetchLatestOtaRelease(OtaReleaseInfo& info, String& error) {
+    if (WiFi.status() != WL_CONNECTED) {
+        error = "WiFi is not connected";
+        return false;
+    }
+
+    WiFiClientSecure client;
+    client.setInsecure();
+
+    HTTPClient http;
+    http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+    http.setTimeout(12000);
+    http.useHTTP10(true);
+    if (!http.begin(client, updateCheckEndpoint())) {
+        error = "Could not start release check";
+        return false;
+    }
+    http.addHeader("User-Agent", "WMBPlus-OTA");
+    http.addHeader("Accept", "application/vnd.github+json");
+
+    const int code = http.GET();
+    if (code != HTTP_CODE_OK) {
+        error = "Release check failed: HTTP " + String(code);
+        http.end();
+        return false;
+    }
+
+    const int contentLength = http.getSize();
+    if (contentLength > 0 && contentLength > 131072) {
+        error = "Release check response too large";
+        http.end();
+        return false;
+    }
+
+    String payload = http.getString();
+    http.end();
+    if (payload.length() == 0) {
+        error = "Release check returned an empty response";
+        return false;
+    }
+
+    return parseLatestRelease(payload, info, error);
+}
+
+static String performOtaReleaseCheck() {
+    otaRemoteStatus = "checking";
+    otaRemoteMessage = "Checking WMB+ releases";
+    otaRemoteLastCheckSuccess = false;
+    otaRemoteUpdateAvailable = false;
+    otaRemoteProgress = 0;
+    otaRemoteTotal = 0;
+
+    OtaReleaseInfo info;
+    String error;
+    if (!fetchLatestOtaRelease(info, error)) {
+        otaRemoteStatus = "error";
+        otaRemoteMessage = error;
+        return error;
+    }
+
+    otaRemoteLastCheckedMillis = millis();
+    otaRemoteLastCheckSuccess = true;
+    otaRemoteLatestVersion = info.version;
+    otaRemoteReleaseUrl = info.releaseUrl;
+    otaRemoteFirmwareName = info.firmwareName;
+    otaRemoteFirmwareUrl = info.firmwareUrl;
+    otaRemoteLittlefsName = info.littlefsName;
+    otaRemoteLittlefsUrl = info.littlefsUrl;
+    otaRemoteUpdateAvailable = isRemoteVersionNewer(info.version, WEIGHMYBRU_VERSION_STRING);
+    otaRemoteStatus = otaRemoteUpdateAvailable ? "available" : "current";
+    otaRemoteMessage = otaRemoteUpdateAvailable
+        ? "Update available: " + info.version
+        : "No newer WMB+ firmware found";
+    return "";
+}
+
+static void remoteReleaseCheckTask(void* parameter) {
+    (void)parameter;
+    Serial.println("OTA self-update check start");
+    const String error = performOtaReleaseCheck();
+    if (error.length() > 0) {
+        Serial.println("OTA self-update check failed: " + error);
+    } else {
+        Serial.println("OTA self-update check complete: " + otaRemoteMessage);
+    }
+    otaRemoteTaskRunning = false;
+    vTaskDelete(nullptr);
+}
+
+static bool startRemoteReleaseCheck(String& error) {
+    if (otaRemoteTaskRunning) {
+        error = "Another OTA task is already running";
+        return false;
+    }
+
+    otaRemoteTaskRunning = true;
+    otaRemoteStatus = "checking";
+    otaRemoteMessage = "Checking WMB+ releases";
+    otaRemoteLastCheckSuccess = false;
+    otaRemoteUpdateAvailable = false;
+    otaRemoteProgress = 0;
+    otaRemoteTotal = 0;
+
+    BaseType_t taskStarted = xTaskCreatePinnedToCore(
+      remoteReleaseCheckTask,
+      "ota-check",
+      12288,
+      nullptr,
+      1,
+      nullptr,
+      1);
+    if (taskStarted != pdPASS) {
+      otaRemoteTaskRunning = false;
+      otaRemoteStatus = "error";
+      otaRemoteMessage = "Could not start OTA check task";
+      error = otaRemoteMessage;
+      return false;
+    }
+
+    return true;
+}
+
+static void clearUpdateErrorOnManualUploadStart() {
+    if (otaRemoteStatus == "error") {
+        otaRemoteStatus = otaRemotePendingInstall ? "pending_install" : "idle";
+    }
+}
+
+static bool beginRemoteFirmwareUpdate(size_t contentLength) {
+    if (!firmwareOtaSupported()) {
+        otaRemoteMessage = "Firmware OTA requires a dual-OTA partition table";
+        return false;
+    }
+    if (!Update.begin(UPDATE_SIZE_UNKNOWN, U_FLASH)) {
+        otaRemoteMessage = String("Update begin failed: ") + Update.errorString();
+        Update.printError(Serial);
+        return false;
+    }
+    otaRemoteProgress = 0;
+    otaRemoteTotal = contentLength;
+    return true;
+}
+
+static bool streamRemoteFirmware(const String& url) {
+    WiFiClientSecure client;
+    client.setInsecure();
+
+    HTTPClient http;
+    http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+    http.setTimeout(15000);
+    if (!http.begin(client, url)) {
+        otaRemoteMessage = "Could not start firmware download";
+        return false;
+    }
+    http.addHeader("User-Agent", "WMBPlus-OTA");
+
+    const int code = http.GET();
+    if (code != HTTP_CODE_OK) {
+        otaRemoteMessage = "Firmware download failed: HTTP " + String(code);
+        http.end();
+        return false;
+    }
+
+    const int contentLength = http.getSize();
+    if (!beginRemoteFirmwareUpdate(contentLength > 0 ? static_cast<size_t>(contentLength) : 0)) {
+        http.end();
+        return false;
+    }
+
+    uint8_t buffer[1024];
+    WiFiClient* stream = http.getStreamPtr();
+    uint32_t lastProgressLog = millis();
+    while (http.connected()) {
+        size_t available = stream->available();
+        if (available == 0) {
+            if (contentLength > 0 && otaRemoteProgress >= static_cast<size_t>(contentLength)) {
+                break;
+            }
+            delay(1);
+            continue;
+        }
+
+        if (available > sizeof(buffer)) {
+            available = sizeof(buffer);
+        }
+        const int bytesRead = stream->readBytes(buffer, available);
+        if (bytesRead <= 0) {
+            delay(1);
+            continue;
+        }
+
+        const size_t written = Update.write(buffer, static_cast<size_t>(bytesRead));
+        otaRemoteProgress += written;
+        if (written != static_cast<size_t>(bytesRead)) {
+            otaRemoteMessage = String("Update write failed: ") + Update.errorString();
+            Update.printError(Serial);
+            http.end();
+            return false;
+        }
+
+        const uint32_t now = millis();
+        if (now - lastProgressLog >= 2000) {
+            Serial.printf("OTA download progress: %u/%u bytes\n",
+                          static_cast<unsigned>(otaRemoteProgress),
+                          static_cast<unsigned>(otaRemoteTotal));
+            lastProgressLog = now;
+        }
+        delay(1);
+    }
+
+    http.end();
+    if (!Update.end(true)) {
+        otaRemoteMessage = String("Update end failed: ") + Update.errorString();
+        Update.printError(Serial);
+        return false;
+    }
+
+    return true;
+}
+
+static void remoteFirmwareDownloadTask(void* parameter) {
+    OtaDownloadRequest* request = static_cast<OtaDownloadRequest*>(parameter);
+    otaRemoteStatus = "downloading";
+    otaRemoteMessage = "Downloading " + request->filename;
+    otaRemoteProgress = 0;
+    otaRemoteTotal = 0;
+    otaRemotePendingInstall = false;
+    otaRemoteTaskRunning = true;
+
+    Serial.printf("OTA self-update download start: version=%s file=%s\n",
+                  request->version.c_str(),
+                  request->filename.c_str());
+
+    const bool ok = streamRemoteFirmware(request->url);
+    if (ok) {
+        otaRemotePendingInstall = true;
+        otaRemoteUpdateAvailable = false;
+        otaRemoteStatus = "pending_install";
+        otaRemoteMessage = "Firmware downloaded; install pending";
+        otaLastSuccess = true;
+        otaLastMessage = otaRemoteMessage;
+        otaUploadTarget = "firmware-download";
+        otaLastFilename = request->filename;
+        otaUploadProgress = otaRemoteProgress;
+        otaUploadTotal = otaRemoteTotal;
+        Serial.println("OTA self-update staged; reboot pending");
+    } else {
+        Update.abort();
+        otaRemoteStatus = "error";
+        otaLastSuccess = false;
+        otaLastMessage = otaRemoteMessage;
+        Serial.println("OTA self-update download failed: " + otaRemoteMessage);
+    }
+
+    otaRemoteTaskRunning = false;
+    delete request;
+    vTaskDelete(nullptr);
 }
 
 static String formatRuntimeEstimate(int minutes) {
@@ -105,7 +615,7 @@ static String buildOtaStatusJson() {
     const esp_partition_t* fs = filesystemPartition();
 
     String json = "{";
-    json.reserve(512);
+    json.reserve(1400);
     json += "\"firmwareOtaSupported\":" + String(firmwareOtaSupported() ? "true" : "false") + ",";
     json += "\"filesystemOtaSupported\":" + String(fs != nullptr ? "true" : "false") + ",";
     json += "\"runningPartition\":\"" + String(running ? running->label : "unknown") + "\",";
@@ -120,17 +630,27 @@ static String buildOtaStatusJson() {
     json += "\"progress\":" + String(otaUploadProgress) + ",";
     json += "\"total\":" + String(otaUploadTotal) + ",";
     json += "\"lastSuccess\":" + String(otaLastSuccess ? "true" : "false") + ",";
-    json += "\"lastMessage\":\"" + jsonEscape(otaLastMessage) + "\"";
+    json += "\"lastMessage\":\"" + jsonEscape(otaLastMessage) + "\",";
+    json += "\"remoteStatus\":\"" + jsonEscape(otaRemoteStatus) + "\",";
+    json += "\"remoteMessage\":\"" + jsonEscape(otaRemoteMessage) + "\",";
+    json += "\"remoteTaskRunning\":" + String(otaRemoteTaskRunning ? "true" : "false") + ",";
+    json += "\"remoteLastCheckSuccess\":" + String(otaRemoteLastCheckSuccess ? "true" : "false") + ",";
+    json += "\"remoteLastCheckedMs\":" + String(otaRemoteLastCheckedMillis) + ",";
+    json += "\"updateAvailable\":" + String(otaRemoteUpdateAvailable ? "true" : "false") + ",";
+    json += "\"pendingInstall\":" + String(otaRemotePendingInstall ? "true" : "false") + ",";
+    json += "\"latestVersion\":\"" + jsonEscape(otaRemoteLatestVersion) + "\",";
+    json += "\"releaseUrl\":\"" + jsonEscape(otaRemoteReleaseUrl) + "\",";
+    json += "\"firmwareAssetName\":\"" + jsonEscape(otaRemoteFirmwareName) + "\",";
+    json += "\"firmwareAssetUrl\":\"" + jsonEscape(otaRemoteFirmwareUrl) + "\",";
+    json += "\"littlefsAssetName\":\"" + jsonEscape(otaRemoteLittlefsName) + "\",";
+    json += "\"littlefsAssetUrl\":\"" + jsonEscape(otaRemoteLittlefsUrl) + "\",";
+    json += "\"remoteProgress\":" + String(otaRemoteProgress) + ",";
+    json += "\"remoteTotal\":" + String(otaRemoteTotal);
     json += "}";
     return json;
 }
 
 static String otaStatusJson() {
-    // Normal reads should be cheap on AsyncTCP's request task. Once an upload
-    // starts, return live progress/status until the device reboots.
-    if (!otaUploadStarted && cachedOtaIdleStatusJson.length() > 0) {
-        return cachedOtaIdleStatusJson;
-    }
     return buildOtaStatusJson();
 }
 
@@ -169,6 +689,7 @@ static void handleOtaUpload(AsyncWebServerRequest *request,
                             int command,
                             const char* targetName) {
     if (index == 0) {
+        clearUpdateErrorOnManualUploadStart();
         otaUploadStarted = true;
         otaUploadFinished = false;
         otaUploadFailed = false;
@@ -400,6 +921,7 @@ void diagnoseEEPROMPerformance() {
 }
 
 AsyncWebServer server(80);
+AsyncEventSource liveEvents("/api/live");
 static bool webServerRunning = false;
 
 /*
@@ -429,7 +951,7 @@ static String buildDashboardJson(Scale &scale,
   // handlers serve the cached string and avoid touching live acquisition state
   // while the HX711 is running at 80 SPS.
   String json;
-  json.reserve(3800);
+  json.reserve(5000);
   json += "{";
 
   const float currentWeight = scale.getCurrentWeight();
@@ -467,6 +989,19 @@ static String buildDashboardJson(Scale &scale,
   json += "\"acquisition_estimated_lost_cadence_slots\":" + String(scale.getAcquisitionEstimatedLostCadenceSlots()) + ",";
   json += "\"raw_read_sequence\":" + String(scale.getRawReadSequence()) + ",";
   json += "\"raw_read_count\":" + String(scale.getRawReadCount()) + ",";
+  json += "\"raw_input_count\":" + String(scale.getRawInputSampleCount()) + ",";
+  json += "\"qualified_input_count\":" + String(scale.getQualifiedInputSampleCount()) + ",";
+  json += "\"plausibility_rejected_count\":" + String(scale.getPlausibilityRejectedSampleCount()) + ",";
+  json += "\"last_raw_input_sequence\":" + String(scale.getLastRawInputSequence()) + ",";
+  json += "\"last_qualified_input_sequence\":" + String(scale.getLastQualifiedInputSequence()) + ",";
+  json += "\"last_public_raw_input_sequence\":" + String(scale.getLastPublicRawInputSequence()) + ",";
+  json += "\"raw_to_public_sequence_gap\":" + String(scale.getRawToPublicSequenceGap()) + ",";
+  json += "\"raw_to_public_sequence_lag\":" + String(scale.getRawToPublicSequenceGap()) + ",";
+  json += "\"last_raw_input_ms\":" + String(scale.getLastRawInputMillis()) + ",";
+  json += "\"last_qualified_input_ms\":" + String(scale.getLastQualifiedInputMillis()) + ",";
+  json += "\"last_public_raw_input_ms\":" + String(scale.getLastPublicRawInputMillis()) + ",";
+  json += "\"last_raw_input_g\":" + (scale.hasLastRawInputWeight() ? String(scale.getLastRawInputWeightGrams(), 3) : String("null")) + ",";
+  json += "\"last_qualified_input_g\":" + (scale.hasLastQualifiedInputWeight() ? String(scale.getLastQualifiedInputWeightGrams(), 3) : String("null")) + ",";
   json += "\"raw_read_avg_interval_us\":" + String(scale.getRawReadIntervalAverageMicros()) + ",";
   json += "\"raw_read_expected_interval_us\":" + String(scale.getRawReadIntervalExpectedMicros()) + ",";
   json += "\"raw_read_min_interval_us\":" + String(scale.getRawReadIntervalMinMicros()) + ",";
@@ -538,6 +1073,27 @@ static String buildDashboardJson(Scale &scale,
   json += ",\"wifi_signal_quality\":\"" + getWiFiSignalQuality() + "\"";
   json += ",\"bluetooth_connected\":" + String(bluetoothScale.isConnected() ? "true" : "false");
   json += ",\"bluetooth_signal_strength\":" + String(bluetoothScale.getBluetoothSignalStrength());
+  json += ",\"float32_notify_count\":" + String(bluetoothScale.getFloat32NotifyCount());
+  json += ",\"float32_notify_drop_count\":" + String(bluetoothScale.getFloat32NotifyDropCount());
+  json += ",\"float32_last_weight_g\":" + String(bluetoothScale.getLastFloat32Weight(), 3);
+  json += ",\"float32_source_valid\":" + String(bluetoothScale.hasLastFloat32SelectedSource() ? "true" : "false");
+  json += ",\"float32_source_sample_count\":" + String(bluetoothScale.getLastFloat32SelectedSourceCount());
+  json += ",\"float32_source_sequence\":" + String(bluetoothScale.getLastFloat32SelectedSourceSequence());
+  json += ",\"float32_source_age_ms\":" + (bluetoothScale.hasLastFloat32SelectedSource() ? String(bluetoothScale.getLastFloat32SelectedSourceAgeMs()) : String("null"));
+  json += ",\"float32_source_window_ms\":" + String(bluetoothScale.getFloat32SelectionWindowMillis());
+  json += ",\"float32_source_window_range_g\":" + String(bluetoothScale.getLastFloat32SelectedWindowRangeGrams(), 3);
+  json += ",\"float32_source_limited\":" + String(bluetoothScale.isLastFloat32SourceLimited() ? "true" : "false");
+  json += ",\"float32_source_age_over_tick\":" + String(bluetoothScale.isLastFloat32SourceAgeOverTick() ? "true" : "false");
+  json += ",\"float32_source_reused\":" + String(bluetoothScale.isLastFloat32SourceReused() ? "true" : "false");
+  json += ",\"float32_source_stale\":" + String(bluetoothScale.isLastFloat32SourceStale() ? "true" : "false");
+  json += ",\"float32_stale_source_count\":" + String(bluetoothScale.getFloat32StaleSourceCount());
+  json += ",\"float32_last_emission_ms\":" + String(bluetoothScale.getLastFloat32NotifyMillis());
+  json += ",\"float32_last_estimator_ms\":" + String(bluetoothScale.getLastFloat32EstimatorMillis());
+  json += ",\"float32_last_schedule_ms\":" + String(bluetoothScale.getLastFloat32ScheduleMillis());
+  json += ",\"float32_last_selection_suspect\":" + String(bluetoothScale.wasLastFloat32SelectionSuspect() ? "true" : "false");
+  json += ",\"float32_suspect_selection_count\":" + String(bluetoothScale.getFloat32SuspectSelectionCount());
+  json += ",\"float32_last_confirmed_load_step\":" + String(bluetoothScale.wasLastFloat32ConfirmedLoadStep() ? "true" : "false");
+  json += ",\"float32_confirmed_load_step_count\":" + String(bluetoothScale.getFloat32ConfirmedLoadStepCount());
 
   json += ",\"device_version\":\"" + String(WEIGHMYBRU_VERSION_STRING) + "\"";
   json += ",\"device_board\":\"" + String(WEIGHMYBRU_BOARD_NAME) + "\"";
@@ -568,6 +1124,38 @@ static String buildBrewStatusJson(Scale &scale, FlowRate &flowRate) {
   json += String(scale.getCurrentWeight(), 1);
   json += ",\"f\":";
   json += String(flowRate.getFlowRate(), 1);
+  json += "}";
+  return json;
+}
+
+static String buildLiveSnapshotJson(Scale &scale,
+                                    FlowRate &flowRate,
+                                    Display &display,
+                                    BatteryMonitor &battery) {
+  String json;
+  json.reserve(360);
+  const unsigned long elapsedTime = display.getElapsedTime();
+  const unsigned long minutes = elapsedTime / 60000;
+  const unsigned long seconds = (elapsedTime % 60000) / 1000;
+  const unsigned long milliseconds = elapsedTime % 1000;
+  json += "{";
+  json += "\"ms\":" + String(millis()) + ",";
+  json += "\"seq\":" + String(scale.getSampleSequence()) + ",";
+  json += "\"weight\":" + String(scale.getCurrentWeight(), 2) + ",";
+  json += "\"flowrate\":" + String(flowRate.getFlowRate(), 2) + ",";
+  json += "\"w\":" + String(scale.getCurrentWeight(), 2) + ",";
+  json += "\"f\":" + String(flowRate.getFlowRate(), 2) + ",";
+  json += "\"timer_running\":" + String(display.isTimerRunning() ? "true" : "false") + ",";
+  json += "\"timer_elapsed\":" + String(elapsedTime) + ",";
+  json += "\"timer_display\":\"" + String(minutes) + ":" +
+          (seconds < 10 ? "0" : "") + String(seconds) + "." +
+          (milliseconds < 100 ? (milliseconds < 10 ? "00" : "0") : "") + String(milliseconds) + "\",";
+  json += "\"battery_percentage\":" + String(battery.getBatteryPercentage()) + ",";
+  json += "\"battery_charging\":" + String(battery.isCharging() ? "true" : "false") + ",";
+  json += "\"hx711_connected\":" + String(scale.isHX711Connected() ? "true" : "false") + ",";
+  json += "\"scale_connected\":" + String(scale.isHX711Connected() ? "true" : "false") + ",";
+  json += "\"hx711_rate_hz\":" + String(scale.getDetectedSampleRateHz(), 2) + ",";
+  json += "\"firmware_quality\":" + String(scale.getScaleQualityScore());
   json += "}";
   return json;
 }
@@ -726,7 +1314,7 @@ static String buildSettingsJson(PowerManager &powerManager,
 
 static String buildScaleStatusJson(Scale &scale) {
   String json;
-  json.reserve(2600);
+  json.reserve(3400);
   json += "{";
   json += "\"connected\":" + String(scale.isHX711Connected() ? "true" : "false") + ",";
   json += "\"weight\":" + String(scale.getCurrentWeight(), 2) + ",";
@@ -753,6 +1341,19 @@ static String buildScaleStatusJson(Scale &scale) {
   json += "\"acquisition_estimated_lost_cadence_slots\":" + String(scale.getAcquisitionEstimatedLostCadenceSlots()) + ",";
   json += "\"raw_read_sequence\":" + String(scale.getRawReadSequence()) + ",";
   json += "\"raw_read_count\":" + String(scale.getRawReadCount()) + ",";
+  json += "\"raw_input_count\":" + String(scale.getRawInputSampleCount()) + ",";
+  json += "\"qualified_input_count\":" + String(scale.getQualifiedInputSampleCount()) + ",";
+  json += "\"plausibility_rejected_count\":" + String(scale.getPlausibilityRejectedSampleCount()) + ",";
+  json += "\"last_raw_input_sequence\":" + String(scale.getLastRawInputSequence()) + ",";
+  json += "\"last_qualified_input_sequence\":" + String(scale.getLastQualifiedInputSequence()) + ",";
+  json += "\"last_public_raw_input_sequence\":" + String(scale.getLastPublicRawInputSequence()) + ",";
+  json += "\"raw_to_public_sequence_gap\":" + String(scale.getRawToPublicSequenceGap()) + ",";
+  json += "\"raw_to_public_sequence_lag\":" + String(scale.getRawToPublicSequenceGap()) + ",";
+  json += "\"last_raw_input_ms\":" + String(scale.getLastRawInputMillis()) + ",";
+  json += "\"last_qualified_input_ms\":" + String(scale.getLastQualifiedInputMillis()) + ",";
+  json += "\"last_public_raw_input_ms\":" + String(scale.getLastPublicRawInputMillis()) + ",";
+  json += "\"last_raw_input_g\":" + (scale.hasLastRawInputWeight() ? String(scale.getLastRawInputWeightGrams(), 3) : String("null")) + ",";
+  json += "\"last_qualified_input_g\":" + (scale.hasLastQualifiedInputWeight() ? String(scale.getLastQualifiedInputWeightGrams(), 3) : String("null")) + ",";
   json += "\"raw_read_avg_interval_us\":" + String(scale.getRawReadIntervalAverageMicros()) + ",";
   json += "\"raw_read_expected_interval_us\":" + String(scale.getRawReadIntervalExpectedMicros()) + ",";
   json += "\"raw_read_min_interval_us\":" + String(scale.getRawReadIntervalMinMicros()) + ",";
@@ -807,8 +1408,13 @@ void updateDashboardCache(Scale &scale,
     cachedWeightFastText[liveInactiveIndex] = String(currentWeight, 2);
     cachedBrewWeightText[liveInactiveIndex] = String(currentWeight, 1);
     cachedBrewStatusJson[liveInactiveIndex] = buildBrewStatusJson(scale, flowRate);
+    cachedLiveSnapshotJson[liveInactiveIndex] = buildLiveSnapshotJson(scale, flowRate, display, battery);
     cachedLiveApiActiveIndex = liveInactiveIndex;
     lastLiveApiCacheUpdateMs = now;
+    if (now - lastLiveSseSendMs >= LIVE_SSE_INTERVAL_MS) {
+      liveEvents.send(cachedLiveSnapshotJson[liveInactiveIndex].c_str(), "snapshot", now, LIVE_SSE_INTERVAL_MS * 3);
+      lastLiveSseSendMs = now;
+    }
   }
 
   if (cachedDashboardJson[cachedDashboardActiveIndex].length() > 0 &&
@@ -879,6 +1485,8 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
 
   // Register API route first. Serve a loop-owned cached dashboard snapshot so
   // browser/PWA polling cannot make AsyncTCP walk live HX711/battery state.
+  server.addHandler(&liveEvents);
+
   server.on("/api/dashboard", HTTP_GET, [](AsyncWebServerRequest *request) {
     request->send(200, "application/json", cachedJsonOrWarming(cachedDashboardJson, cachedDashboardActiveIndex));
   });
@@ -975,6 +1583,36 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
     } else {
       request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"Missing 'voltage' parameter. Use ?voltage=4.30\"}");
     }
+  });
+
+  server.on("/api/battery/calibrate-full", HTTP_POST, [&battery](AsyncWebServerRequest *request) {
+    float fullVoltage = 4.20f;
+    if (request->hasParam("voltage", true)) {
+      fullVoltage = request->getParam("voltage", true)->value().toFloat();
+    } else if (request->hasParam("voltage")) {
+      fullVoltage = request->getParam("voltage")->value().toFloat();
+    }
+
+    if (fullVoltage < 4.05f || fullVoltage > 4.30f) {
+      request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"Full calibration voltage must be 4.05-4.30V\"}");
+      return;
+    }
+
+    float beforeVoltage = battery.getBatteryVoltage();
+    int beforePercentage = battery.getBatteryPercentage();
+    battery.calibrateVoltage(fullVoltage);
+    String json = "{";
+    json += "\"status\":\"success\",";
+    json += "\"message\":\"Battery calibrated as full\",";
+    json += "\"before_voltage\":" + String(beforeVoltage, 3) + ",";
+    json += "\"before_percentage\":" + String(beforePercentage) + ",";
+    json += "\"after_voltage\":" + String(battery.getBatteryVoltage(), 3) + ",";
+    json += "\"after_percentage\":" + String(battery.getBatteryPercentage()) + ",";
+    json += "\"target_voltage\":" + String(fullVoltage, 3) + ",";
+    json += "\"calibration_offset\":" + String(battery.getCalibrationOffset(), 3);
+    json += "}";
+    request->send(200, "application/json", json);
+    Serial.printf("Battery calibrated as full: %.3fV (was %.3fV)\n", fullVoltage, beforeVoltage);
   });
 
   // Battery monitoring endpoint (general status). Serve the loop-owned cache so
@@ -1232,6 +1870,12 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
     request->send(202, "text/plain", "Tare scheduled through scale command path.");
   });
 
+  server.on("/api/scale/quality/reset", HTTP_POST, [&scale](AsyncWebServerRequest *request){
+    scale.resetTransientQualityStats();
+    request->send(200, "application/json",
+                  "{\"status\":\"ok\",\"bump_count\":0,\"glitch_count\":0,\"recent_bump\":false,\"recent_glitch\":false}");
+  });
+
   server.on("/api/set-calibrationfactor", HTTP_POST, [&scaleCommandQueue](AsyncWebServerRequest *request){
     if (!request->hasParam("calibrationfactor", true)) {
       request->send(400, "text/plain", "Missing 'calibrationfactor' parameter");
@@ -1304,7 +1948,7 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
   server.on("/api/wifi-creds", HTTP_GET, [](AsyncWebServerRequest *request) {
     String ssid = getStoredSSID();
     const bool hasPassword = getStoredPassword().length() > 0;
-    String json = "{\"ssid\":\"" + ssid + "\",\"password_configured\":" + String(hasPassword ? "true" : "false") + "}";
+    String json = "{\"ssid\":\"" + ssid + "\",\"stored_credentials\":" + String(ssid.length() > 0 ? "true" : "false") + ",\"password_configured\":" + String(hasPassword ? "true" : "false") + "}";
     request->send(200, "application/json", json);
   });
 
@@ -1344,9 +1988,16 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
   server.on("/api/wifi-status", HTTP_GET, [](AsyncWebServerRequest *request) {
     String json = "{";
     json += "\"enabled\":" + String(isWiFiEnabled() ? "true" : "false") + ",";
-    json += "\"connected\":" + String((WiFi.status() == WL_CONNECTED) ? "true" : "false");
+    json += "\"connected\":" + String((WiFi.status() == WL_CONNECTED) ? "true" : "false") + ",";
+    json += "\"stored_credentials\":" + String(hasStoredWiFiCredentials() ? "true" : "false") + ",";
+    json += "\"mode\":" + String(static_cast<int>(WiFi.getMode()));
     if (WiFi.status() == WL_CONNECTED) {
       json += ",\"ssid\":\"" + WiFi.SSID() + "\"";
+    } else {
+      String storedSSID = getStoredSSID();
+      if (storedSSID.length() > 0) {
+        json += ",\"stored_ssid\":\"" + storedSSID + "\"";
+      }
     }
     json += "}";
     request->send(200, "application/json", json);
@@ -1468,6 +2119,76 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
   // Web OTA status and upload endpoints
   server.on("/api/ota/status", HTTP_GET, [](AsyncWebServerRequest *request) {
     request->send(200, "application/json", otaStatusJson());
+  });
+
+  server.on("/api/ota/check", HTTP_POST, [](AsyncWebServerRequest *request) {
+    String error;
+    if (!startRemoteReleaseCheck(error)) {
+      request->send(error.length() == 0 ? 409 : 500, "application/json", otaStatusJson());
+      return;
+    }
+    request->send(202, "application/json", otaStatusJson());
+  });
+
+  server.on("/api/ota/download", HTTP_POST, [](AsyncWebServerRequest *request) {
+    if (otaRemoteTaskRunning) {
+      request->send(409, "application/json", otaStatusJson());
+      return;
+    }
+    if (otaRemotePendingInstall) {
+      otaRemoteStatus = "pending_install";
+      otaRemoteMessage = "Firmware already downloaded; install pending";
+      request->send(200, "application/json", otaStatusJson());
+      return;
+    }
+    if (!otaRemoteUpdateAvailable || otaRemoteFirmwareUrl.length() == 0) {
+      otaRemoteStatus = "idle";
+      otaRemoteMessage = "Check for updates before downloading";
+      request->send(409, "application/json", otaStatusJson());
+      return;
+    }
+
+    OtaDownloadRequest* downloadRequest = new OtaDownloadRequest{
+      otaRemoteFirmwareUrl,
+      otaRemoteLatestVersion,
+      otaRemoteFirmwareName
+    };
+
+    BaseType_t taskStarted = xTaskCreatePinnedToCore(
+      remoteFirmwareDownloadTask,
+      "ota-download",
+      12288,
+      downloadRequest,
+      1,
+      nullptr,
+      1);
+    if (taskStarted != pdPASS) {
+      delete downloadRequest;
+      otaRemoteStatus = "error";
+      otaRemoteMessage = "Could not start OTA download task";
+      request->send(500, "application/json", otaStatusJson());
+      return;
+    }
+    otaRemoteTaskRunning = true;
+    otaRemoteStatus = "downloading";
+    otaRemoteMessage = "Download started";
+    request->send(202, "application/json", otaStatusJson());
+  });
+
+  server.on("/api/ota/install", HTTP_POST, [](AsyncWebServerRequest *request) {
+    if (!otaRemotePendingInstall) {
+      otaRemoteStatus = "idle";
+      otaRemoteMessage = "No downloaded firmware is pending install";
+      request->send(409, "application/json", otaStatusJson());
+      return;
+    }
+    otaRemoteStatus = "installing";
+    otaRemoteMessage = "Installing update; restarting";
+    otaLastMessage = otaRemoteMessage;
+    AsyncWebServerResponse *response = request->beginResponse(200, "application/json", otaStatusJson());
+    response->addHeader("Connection", "close");
+    request->send(response);
+    otaRestartTicker.once(1.5f, restartAfterOta);
   });
 
   server.on("/api/ota/firmware", HTTP_POST,
@@ -1862,6 +2583,10 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
     request->send(LittleFS, "/manifest.webmanifest", "application/manifest+json");
   });
 
+  server.on("/stopmybru.webmanifest", HTTP_GET, [](AsyncWebServerRequest *request) {
+    request->send(LittleFS, "/stopmybru.webmanifest", "application/manifest+json");
+  });
+
   server.on("/sw.js", HTTP_GET, [](AsyncWebServerRequest *request) {
     AsyncWebServerResponse *response = request->beginResponse(LittleFS, "/sw.js", "application/javascript");
     response->addHeader("Service-Worker-Allowed", "/");
@@ -1873,7 +2598,7 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
   });
 
   server.on("/stopmybru.html", HTTP_GET, [](AsyncWebServerRequest *request) {
-    request->send(LittleFS, "/stopmybrew.html", "text/html");
+    request->send(LittleFS, "/stopmybru.html", "text/html");
   });
 
   // Serve static files for non-API paths

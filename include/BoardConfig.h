@@ -41,10 +41,18 @@
   #define HAS_I2C_FUEL_GAUGE       1
   #define FUEL_GAUGE_MAX17048_ADDR 0x36
   #define HAS_USB_POWER_SENSE      1
-  #define USB_POWER_SENSE_PIN      33
+  #ifndef USB_POWER_SENSE_PIN
+    #define USB_POWER_SENSE_PIN    33
+  #endif
   #define HAS_BOARD_RGB_STATUS_LED 1
   #define HAS_RF_ANTENNA_SWITCH    1
   #define RF_ANTENNA_SWITCH_PIN    38
+  #ifndef RGB_PWR
+    #define RGB_PWR 17
+  #endif
+  #ifndef RGB_BUILTIN
+    #define RGB_BUILTIN 18
+  #endif
 #elif defined(BOARD_TYPE_XIAO)
   #define BATTERY_PIN              7   // GPIO7 - Battery voltage monitoring (ADC1_CH6)
   #define HAS_ADC_BATTERY          1

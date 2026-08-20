@@ -7,6 +7,8 @@
 #include "Version.h"
 #include <Arduino.h>
 #include <stdexcept>
+#include <type_traits>
+#include <utility>
 #include <esp_bt.h>
 #include <math.h>
 
@@ -101,6 +103,54 @@ uint16_t clampUnsigned16(int32_t value) {
     }
     return static_cast<uint16_t>(value);
 }
+
+template <typename NotifyReturn>
+struct NotifyPayloadAdapter;
+
+template <typename NotifyReturn>
+struct NotifyCurrentValueAdapter;
+
+template <>
+struct NotifyPayloadAdapter<bool> {
+    static bool notify(NimBLECharacteristic* characteristic, const uint8_t* payload, size_t length) {
+        return characteristic->notify(payload, length);
+    }
+};
+
+template <>
+struct NotifyCurrentValueAdapter<bool> {
+    static bool notify(NimBLECharacteristic* characteristic) {
+        return characteristic->notify();
+    }
+};
+
+template <>
+struct NotifyPayloadAdapter<void> {
+    static bool notify(NimBLECharacteristic* characteristic, const uint8_t* payload, size_t length) {
+        characteristic->notify(payload, length);
+        return true;
+    }
+};
+
+template <>
+struct NotifyCurrentValueAdapter<void> {
+    static bool notify(NimBLECharacteristic* characteristic) {
+        characteristic->notify();
+        return true;
+    }
+};
+
+bool notifyPayloadQueued(NimBLECharacteristic* characteristic, const uint8_t* payload, size_t length) {
+    using NotifyReturn = decltype(std::declval<NimBLECharacteristic*>()->notify(
+        static_cast<const uint8_t*>(nullptr),
+        std::declval<size_t>()));
+    return NotifyPayloadAdapter<NotifyReturn>::notify(characteristic, payload, length);
+}
+
+bool notifyCurrentValueQueued(NimBLECharacteristic* characteristic) {
+    using NotifyReturn = decltype(std::declval<NimBLECharacteristic*>()->notify());
+    return NotifyCurrentValueAdapter<NotifyReturn>::notify(characteristic);
+}
 }
 
 // UUIDs for WeighMyBru protocol - unique to avoid conflicts with Bookoo scales
@@ -119,9 +169,16 @@ BluetoothScale::BluetoothScale()
       commandCharacteristic(nullptr), capabilitiesCharacteristic(nullptr), batteryLevelCharacteristic(nullptr), advertising(nullptr), deviceConnected(false),
       oldDeviceConnected(false), lastHeartbeat(0), lastBatterySent(0),
       lastNotifiedSampleSequence(0), lastNotifiedScaleSampleMillis(0),
-      weightNotifyCount(0), weightNotifyDropCount(0), float32NotifyCount(0), packetSequence(0), batteryNotifyCount(0),
-      lastWeightNotifyMillis(0), lastFloat32NotifyMillis(0), lastBatteryNotifyMillis(0),
+      weightNotifyCount(0), weightNotifyDropCount(0), float32EstimatorTickCount(0), float32NotifyCount(0), float32NotifyDropCount(0), packetSequence(0), batteryNotifyCount(0),
+      lastWeightNotifyMillis(0), lastFloat32NotifyMillis(0), lastFloat32EstimatorMillis(0), lastFloat32ScheduleMillis(0), lastBatteryNotifyMillis(0),
       lastFloat32Weight(0.0f), hasLastFloat32Weight(false),
+      lastFloat32ObservedTareMillis(0), float32SuspectSelectionCount(0),
+      float32ConfirmedLoadStepCount(0), float32StaleSourceCount(0),
+      float32ConsecutiveSuppressedSelectionCount(0),
+      lastFloat32SelectedSourceCount(0), lastFloat32SelectedSourceSequence(0),
+      lastFloat32SelectedSourceAgeMs(0), lastFloat32SelectedWindowRangeGrams(0.0f),
+      lastFloat32SelectedSourceValid(false), lastFloat32SelectionSuspect(false),
+      lastFloat32ConfirmedLoadStep(false), lastFloat32SourceStale(false),
       lastBatteryPercent(255),
       connectionRSSI(-100), connectionHandle(0) {
 }
@@ -384,15 +441,13 @@ void BluetoothScale::update() {
         lastHeartbeat = now;
         lastNotifiedSampleSequence = scale ? scale->getSampleSequence() : 0;
         lastNotifiedScaleSampleMillis = scale ? scale->getLastSampleMillis() : 0;
-        lastFloat32NotifyMillis = now;
-        lastFloat32Weight = scale ? scale->getCurrentWeight() : 0.0f;
-        hasLastFloat32Weight = true;
-        
         // Send initialization response for WeighMyBru client
         delay(100); // Give time for connection to stabilize
         sendNotificationRequest();
         updateBatteryLevel(true);
     }
+
+    updateFloat32Estimator(now);
     
     if (deviceConnected) {
         // Send weight updates only when the scale has produced a fresh public
@@ -405,9 +460,6 @@ void BluetoothScale::update() {
             lastNotifiedSampleSequence = sampleSequence;
             lastNotifiedScaleSampleMillis = scale->getLastSampleMillis();
         }
-
-        updateFloat32CompatibilityStream(now);
-
         if (now - lastBatterySent >= BATTERY_SEND_INTERVAL) {
             updateBatteryLevel(false);
             lastBatterySent = now;
@@ -439,66 +491,294 @@ void BluetoothScale::sendWeightNotification(float weight) {
     }
 }
 
-void BluetoothScale::updateFloat32CompatibilityStream(uint32_t now) {
-    if (!deviceConnected || !weightCharacteristic || !scale) {
+void BluetoothScale::resetFloat32CompatibilityEstimator(float seedWeight) {
+    lastFloat32Weight = isfinite(seedWeight) ? seedWeight : 0.0f;
+    hasLastFloat32Weight = true;
+    lastFloat32ObservedTareMillis = scale ? scale->getLastTareMillis() : 0;
+    lastFloat32SelectedSourceCount = 0;
+    lastFloat32SelectedSourceSequence = 0;
+    lastFloat32SelectedSourceAgeMs = 0;
+    lastFloat32SelectedWindowRangeGrams = 0.0f;
+    lastFloat32SelectedSourceValid = false;
+    lastFloat32SelectionSuspect = false;
+    lastFloat32ConfirmedLoadStep = false;
+    lastFloat32SourceStale = true;
+    float32ConsecutiveSuppressedSelectionCount = 0;
+}
+
+void BluetoothScale::updateFloat32Estimator(uint32_t now) {
+    if (!scale) {
         return;
     }
 
-    if (lastFloat32NotifyMillis == 0) {
-        lastFloat32NotifyMillis = now;
+    if (lastFloat32ScheduleMillis == 0) {
+        lastFloat32ScheduleMillis = now;
+        resetFloat32CompatibilityEstimator(scale->getCurrentWeight());
         lastFloat32Weight = getFloat32CompatibilityWeight(now);
         hasLastFloat32Weight = true;
-        sendBeanConquerorWeight(lastFloat32Weight);
+        lastFloat32EstimatorMillis = now;
+        float32EstimatorTickCount++;
+        if (deviceConnected && weightCharacteristic && lastFloat32SelectedSourceValid) {
+            if (!sendBeanConquerorWeight(lastFloat32Weight)) {
+                float32NotifyDropCount++;
+            }
+        }
         return;
     }
 
-    if (now - lastFloat32NotifyMillis < FLOAT32_COMPAT_INTERVAL_MS) {
+    if (now - lastFloat32ScheduleMillis < FLOAT32_COMPAT_INTERVAL_MS) {
         return;
     }
 
     // Keep the compatibility stream paced at 20 Hz without catch-up bursts.
     // If the loop stalls, publish one current sample and re-anchor the schedule.
-    if (now - lastFloat32NotifyMillis > FLOAT32_COMPAT_INTERVAL_MS * 2) {
-        lastFloat32NotifyMillis = now;
+    if (now - lastFloat32ScheduleMillis > FLOAT32_COMPAT_INTERVAL_MS * 2) {
+        lastFloat32ScheduleMillis = now;
     } else {
-        lastFloat32NotifyMillis += FLOAT32_COMPAT_INTERVAL_MS;
+        lastFloat32ScheduleMillis += FLOAT32_COMPAT_INTERVAL_MS;
     }
 
     lastFloat32Weight = getFloat32CompatibilityWeight(now);
     hasLastFloat32Weight = true;
-    sendBeanConquerorWeight(lastFloat32Weight);
+    lastFloat32EstimatorMillis = now;
+    float32EstimatorTickCount++;
+    if (deviceConnected && weightCharacteristic && lastFloat32SelectedSourceValid) {
+        if (!sendBeanConquerorWeight(lastFloat32Weight)) {
+            float32NotifyDropCount++;
+        }
+    }
+}
+
+float BluetoothScale::selectFloat32WindowWeight(uint32_t now,
+                                                uint8_t* selectedSampleCount,
+                                                float* selectedWindowRange,
+                                                uint32_t* selectedSourceSequence,
+                                                uint32_t* selectedSourceMillis,
+                                                bool* selectedConfirmedLoadStep) {
+    Scale::InputSample sourceSamples[FLOAT32_MAX_SOURCE_SAMPLES];
+    const uint8_t count = scale
+        ? scale->copyRecentQualifiedInputSamples(now, FLOAT32_SELECTION_WINDOW_MS, sourceSamples, FLOAT32_MAX_SOURCE_SAMPLES)
+        : 0;
+    float candidates[FLOAT32_MAX_SOURCE_SAMPLES];
+    float minWeight = 0.0f;
+    float maxWeight = 0.0f;
+
+    for (uint8_t i = 0; i < count; i++) {
+        const float weight = sourceSamples[i].weightGrams;
+        if (i == 0) {
+            minWeight = weight;
+            maxWeight = weight;
+        } else {
+            minWeight = min(minWeight, weight);
+            maxWeight = max(maxWeight, weight);
+        }
+        candidates[i] = weight;
+    }
+
+    if (selectedSampleCount != nullptr) {
+        *selectedSampleCount = count;
+    }
+    if (selectedWindowRange != nullptr) {
+        *selectedWindowRange = count > 0 ? maxWeight - minWeight : 0.0f;
+    }
+    if (selectedSourceSequence != nullptr) {
+        *selectedSourceSequence = 0;
+    }
+    if (selectedSourceMillis != nullptr) {
+        *selectedSourceMillis = 0;
+    }
+    if (selectedConfirmedLoadStep != nullptr) {
+        *selectedConfirmedLoadStep = false;
+    }
+
+    if (count == 0) {
+        return hasLastFloat32Weight ? lastFloat32Weight : (scale ? scale->getCurrentWeight() : 0.0f);
+    }
+
+    for (uint8_t i = 1; i < count; i++) {
+        const float value = candidates[i];
+        int8_t j = i - 1;
+        while (j >= 0 && candidates[j] > value) {
+            candidates[j + 1] = candidates[j];
+            j--;
+        }
+        candidates[j + 1] = value;
+    }
+
+    const float target = (count % 2 == 1)
+        ? candidates[count / 2]
+        : (candidates[count / 2 - 1] + candidates[count / 2]) * 0.5f;
+
+    float bestWeight = target;
+    float bestError = INFINITY;
+    uint32_t bestMillis = 0;
+    uint32_t bestSequence = 0;
+    const float oldestWeight = sourceSamples[0].weightGrams;
+    const uint32_t oldestMillis = sourceSamples[0].sampleMillis;
+    float newestWeight = target;
+    uint32_t newestMillis = 0;
+    uint32_t newestSequence = 0;
+    for (uint8_t i = 0; i < count; i++) {
+        const Scale::InputSample& sample = sourceSamples[i];
+
+        newestWeight = sample.weightGrams;
+        newestMillis = sample.sampleMillis;
+        newestSequence = sample.sourceSequence;
+
+        const float error = fabsf(sample.weightGrams - target);
+        if (error <= bestError) {
+            bestWeight = sample.weightGrams;
+            bestError = error;
+            bestMillis = sample.sampleMillis;
+            bestSequence = sample.sourceSequence;
+        }
+    }
+
+    const auto detectConfirmedLoadStep = [&](float selectedWeight) -> bool {
+        if (!hasLastFloat32Weight || count < FLOAT32_LOAD_STEP_MIN_CLUSTER_SAMPLES) {
+            return false;
+        }
+
+        const float step = selectedWeight - lastFloat32Weight;
+        if (fabsf(step) < FLOAT32_LOAD_STEP_MIN_GRAMS) {
+            return false;
+        }
+
+        const float direction = step >= 0.0f ? 1.0f : -1.0f;
+        uint8_t clusterCount = 0;
+        for (uint8_t i = 0; i < count; i++) {
+            const Scale::InputSample& sample = sourceSamples[i];
+            if (newestMillis >= sample.sampleMillis &&
+                newestMillis - sample.sampleMillis > FLOAT32_LOAD_STEP_RECENT_WINDOW_MS) {
+                continue;
+            }
+            if (fabsf(sample.weightGrams - selectedWeight) > FLOAT32_LOAD_STEP_CLUSTER_GRAMS) {
+                continue;
+            }
+            if ((sample.weightGrams - lastFloat32Weight) * direction < FLOAT32_LOAD_STEP_MIN_GRAMS * 0.60f) {
+                continue;
+            }
+            clusterCount++;
+        }
+        return clusterCount >= FLOAT32_LOAD_STEP_MIN_CLUSTER_SAMPLES;
+    };
+
+    const float windowRange = selectedWindowRange != nullptr ? *selectedWindowRange : 0.0f;
+    const bool flatCoherentWindow =
+        windowRange <= FLOAT32_COHERENT_WINDOW_GRAMS &&
+        fabsf(newestWeight - target) <= FLOAT32_NEWEST_MEDIAN_BAND_GRAMS;
+    bool rampCoherentWindow = false;
+    const uint32_t spanMillis = newestMillis >= oldestMillis ? newestMillis - oldestMillis : 0;
+    if (!flatCoherentWindow && count >= 5 && spanMillis >= FLOAT32_COHERENT_RAMP_MIN_SPAN_MS) {
+        const float slopeGramsPerMs = (newestWeight - oldestWeight) / static_cast<float>(spanMillis);
+        const float slopeGramsPerSecond = slopeGramsPerMs * 1000.0f;
+        float maxResidual = 0.0f;
+        for (uint8_t i = 0; i < count; i++) {
+            const Scale::InputSample& sample = sourceSamples[i];
+            const uint32_t sampleOffset = sample.sampleMillis >= oldestMillis ? sample.sampleMillis - oldestMillis : 0;
+            const float expected = oldestWeight + slopeGramsPerMs * static_cast<float>(sampleOffset);
+            maxResidual = max(maxResidual, fabsf(sample.weightGrams - expected));
+        }
+        rampCoherentWindow =
+            fabsf(slopeGramsPerSecond) <= FLOAT32_COHERENT_RAMP_MAX_RATE_GPS &&
+            maxResidual <= FLOAT32_COHERENT_RAMP_RESIDUAL_GRAMS;
+    }
+
+    if (flatCoherentWindow || rampCoherentWindow) {
+        if (selectedSourceSequence != nullptr) {
+            *selectedSourceSequence = newestSequence;
+        }
+        if (selectedSourceMillis != nullptr) {
+            *selectedSourceMillis = newestMillis;
+        }
+        if (selectedConfirmedLoadStep != nullptr) {
+            *selectedConfirmedLoadStep = detectConfirmedLoadStep(newestWeight);
+        }
+        return newestWeight;
+    }
+
+    if (selectedSourceSequence != nullptr) {
+        *selectedSourceSequence = bestSequence;
+    }
+    if (selectedSourceMillis != nullptr) {
+        *selectedSourceMillis = bestMillis;
+    }
+    if (selectedConfirmedLoadStep != nullptr) {
+        *selectedConfirmedLoadStep = detectConfirmedLoadStep(bestWeight);
+    }
+    return bestWeight;
 }
 
 float BluetoothScale::getFloat32CompatibilityWeight(uint32_t now) {
-    float candidate = scale ? scale->getCurrentWeight() : 0.0f;
+    const uint32_t currentTareMillis = scale ? scale->getLastTareMillis() : 0;
+    if (currentTareMillis != lastFloat32ObservedTareMillis) {
+        resetFloat32CompatibilityEstimator(scale ? scale->getCurrentWeight() : 0.0f);
+    }
+
+    uint8_t selectedSampleCount = 0;
+    float selectedWindowRange = 0.0f;
+    uint32_t selectedSourceSequence = 0;
+    uint32_t selectedSourceMillis = 0;
+    bool selectedConfirmedLoadStep = false;
+    const float selectedWeight = selectFloat32WindowWeight(
+        now,
+        &selectedSampleCount,
+        &selectedWindowRange,
+        &selectedSourceSequence,
+        &selectedSourceMillis,
+        &selectedConfirmedLoadStep);
 
     if (!hasLastFloat32Weight) {
-        return candidate;
+        return selectedWeight;
     }
 
-    const bool timerRunning = display && display->isTimerRunning();
-
-    // Glitches are rejected before they become public scale samples. Keep only
-    // a tiny pre-shot guard on the legacy Float32 lane so handling noise does
-    // not leak, but do not hide real movement once a shot is running.
-    if (!timerRunning && scale && scale->hasRecentGlitch(FLOAT32_GLITCH_HOLD_MS)) {
+    lastFloat32SelectedSourceCount = selectedSampleCount;
+    lastFloat32SelectedWindowRangeGrams = selectedWindowRange;
+    lastFloat32SelectedSourceSequence = selectedSourceSequence;
+    lastFloat32SelectedSourceValid = selectedSourceSequence != 0;
+    lastFloat32SelectedSourceAgeMs =
+        lastFloat32SelectedSourceValid ? now - selectedSourceMillis : 0;
+    lastFloat32SourceStale =
+        !lastFloat32SelectedSourceValid || lastFloat32SelectedSourceAgeMs > FLOAT32_SOURCE_STALE_MS;
+    if (lastFloat32SourceStale) {
+        float32StaleSourceCount++;
+    }
+    lastFloat32ConfirmedLoadStep = selectedConfirmedLoadStep;
+    if (lastFloat32ConfirmedLoadStep) {
+        float32ConfirmedLoadStepCount++;
+    }
+    lastFloat32SelectionSuspect =
+        !lastFloat32ConfirmedLoadStep &&
+        selectedSampleCount > 0 &&
+        selectedWindowRange > FLOAT32_SUSPECT_SELECTION_GRAMS &&
+        fabsf(selectedWeight - lastFloat32Weight) > FLOAT32_SUSPECT_SELECTION_GRAMS;
+    if (lastFloat32SelectionSuspect) {
+        float32SuspectSelectionCount++;
+    }
+    const bool suppressSuspectSelection =
+        !lastFloat32ConfirmedLoadStep &&
+        selectedSampleCount > 0 &&
+        selectedWindowRange > FLOAT32_SUPPRESS_SELECTION_GRAMS &&
+        fabsf(selectedWeight - lastFloat32Weight) > FLOAT32_SUPPRESS_SELECTION_GRAMS;
+    if (suppressSuspectSelection &&
+        float32ConsecutiveSuppressedSelectionCount < FLOAT32_MAX_CONSECUTIVE_SUPPRESSED_SELECTIONS) {
+        // The Float32 lane is a presentation/control-compatible output. When
+        // the selected observed sample would create a large jump from an
+        // incoherent source window, skip this 20 Hz tick rather than publishing
+        // a known-suspect value or inventing an interpolated replacement. The
+        // consecutive cap keeps this from becoming an unbounded output freeze.
+        float32ConsecutiveSuppressedSelectionCount++;
+        lastFloat32SelectedSourceValid = false;
         return lastFloat32Weight;
     }
 
-    // Before the scale timer is running, very short multi-gram disturbances are
-    // more likely cup placement / knock / pre-shot handling than useful brew
-    // signal. Hold briefly; sustained changes come through on the next 20 Hz
-    // ticks once the bump window clears.
-    if (!timerRunning && scale && scale->hasRecentBump(FLOAT32_PRE_SHOT_BUMP_HOLD_MS)) {
-        return lastFloat32Weight;
-    }
-
-    return candidate;
+    float32ConsecutiveSuppressedSelectionCount = 0;
+    return selectedWeight;
 }
 
-void BluetoothScale::sendBeanConquerorWeight(float weight) {
+bool BluetoothScale::sendBeanConquerorWeight(float weight) {
     if (!weightCharacteristic) {
-        return;
+        return false;
     }
     
     try {
@@ -512,14 +792,18 @@ void BluetoothScale::sendBeanConquerorWeight(float weight) {
         
         // ESP32 is little-endian, so bytes are already in correct order for Bean Conqueror
         weightCharacteristic->setValue(weightData.bytes, 4);
-        weightCharacteristic->notify();
+        if (!notifyCurrentValueQueued(weightCharacteristic)) {
+            return false;
+        }
         float32NotifyCount++;
-        lastFloat32NotifyMillis = lastFloat32NotifyMillis == 0 ? millis() : lastFloat32NotifyMillis;
+        lastFloat32NotifyMillis = millis();
+        return true;
         
         //Serial.printf("BluetoothScale: Sent Bean Conqueror weight %.2fg as 4-byte float\n", weight);
     } catch (const std::exception& e) {
         Serial.printf("BluetoothScale: ERROR sending Bean Conqueror weight: %s\n", e.what());
     }
+    return false;
 }
 
 bool BluetoothScale::sendGaggiMateWeight(float weight) {
@@ -633,11 +917,12 @@ bool BluetoothScale::sendGaggiMateWeight(float weight) {
         // Calculate and set checksum (last byte)
         payload[PROTOCOL_LENGTH - 1] = calculateChecksum(payload, PROTOCOL_LENGTH - 1);
         
-        // Count only notifications accepted by the BLE stack as public stream
-        // packets. If the stack is momentarily busy, the next accepted packet
-        // reuses this sequence so clients do not see a phantom public gap.
+        // Count packets after the notify call is accepted by the local NimBLE
+        // API. NimBLE-Arduino versions differ on whether notify(payload, len)
+        // reports a bool; the adapter preserves drop accounting where possible
+        // and treats void-return builds as queued once the call completes.
         gaggiMateWeightCharacteristic->setValue(payload, PROTOCOL_LENGTH);
-        if (!gaggiMateWeightCharacteristic->notify(payload, PROTOCOL_LENGTH)) {
+        if (!notifyPayloadQueued(gaggiMateWeightCharacteristic, payload, PROTOCOL_LENGTH)) {
             return false;
         }
         packetSequence = nextPacketSequence;
@@ -965,10 +1250,19 @@ void BluetoothScale::printDiagnostics() {
     Serial.printf("  batteryService=%s batteryLevel=%s\n", BATTERY_SERVICE_UUID, BATTERY_LEVEL_CHARACTERISTIC_UUID);
     Serial.printf("  connected=%s\n", deviceConnected ? "true" : "false");
     Serial.println("  wmbPlusExtendedCadence=fresh-scale-sample");
-    Serial.printf("  legacyFloat32Cadence=20Hz interval=%lums glitchHold=%lums preShotBumpHold=%lums\n",
+    Serial.printf("  legacyFloat32Cadence=20Hz interval=%lums source=zero-qualified-input selectionWindow=%lums suspectSelection=%.2fg suppressSelection=%.2fg/%u coherentRange=%.2fg newestMedianBand=%.2fg rampResidual=%.2fg rampMaxRate=%.1fg/s loadStep>=%.2fg cluster=%.2fg/%u output=observed-sample-only\n",
                   static_cast<unsigned long>(FLOAT32_COMPAT_INTERVAL_MS),
-                  static_cast<unsigned long>(FLOAT32_GLITCH_HOLD_MS),
-                  static_cast<unsigned long>(FLOAT32_PRE_SHOT_BUMP_HOLD_MS));
+                  static_cast<unsigned long>(FLOAT32_SELECTION_WINDOW_MS),
+                  FLOAT32_SUSPECT_SELECTION_GRAMS,
+                  FLOAT32_SUPPRESS_SELECTION_GRAMS,
+                  FLOAT32_MAX_CONSECUTIVE_SUPPRESSED_SELECTIONS,
+                  FLOAT32_COHERENT_WINDOW_GRAMS,
+                  FLOAT32_NEWEST_MEDIAN_BAND_GRAMS,
+                  FLOAT32_COHERENT_RAMP_RESIDUAL_GRAMS,
+                  FLOAT32_COHERENT_RAMP_MAX_RATE_GPS,
+                  FLOAT32_LOAD_STEP_MIN_GRAMS,
+                  FLOAT32_LOAD_STEP_CLUSTER_GRAMS,
+                  FLOAT32_LOAD_STEP_MIN_CLUSTER_SAMPLES);
     Serial.printf("  scaleSampleSequence=%lu notifiedSequence=%lu scaleSampleMs=%lu\n",
                   static_cast<unsigned long>(scale ? scale->getSampleSequence() : 0),
                   static_cast<unsigned long>(lastNotifiedSampleSequence),
@@ -977,10 +1271,27 @@ void BluetoothScale::printDiagnostics() {
                   static_cast<unsigned long>(weightNotifyCount),
                   static_cast<unsigned long>(weightNotifyDropCount), extendedWeightRate,
                   static_cast<unsigned long>(lastWeightNotifyMillis));
-    Serial.printf("  float32NotifyCount=%lu rate=%.2f/s lastScheduleMs=%lu lastWeight=%.2f\n",
-                  static_cast<unsigned long>(float32NotifyCount), float32Rate,
+    Serial.printf("  float32NotifyCount=%lu dropCount=%lu rate=%.2f/s lastScheduleMs=%lu lastEmissionMs=%lu lastWeight=%.2f suspectSelections=%lu confirmedLoadSteps=%lu staleSources=%lu\n",
+                  static_cast<unsigned long>(float32NotifyCount),
+                  static_cast<unsigned long>(float32NotifyDropCount),
+                  float32Rate,
+                  static_cast<unsigned long>(lastFloat32ScheduleMillis),
                   static_cast<unsigned long>(lastFloat32NotifyMillis),
-                  lastFloat32Weight);
+                  lastFloat32Weight,
+                  static_cast<unsigned long>(float32SuspectSelectionCount),
+                  static_cast<unsigned long>(float32ConfirmedLoadStepCount),
+                  static_cast<unsigned long>(float32StaleSourceCount));
+    Serial.printf("  float32Source valid=%s count=%u ageMs=%lu seq=%lu windowRange=%.3fg limited=%s ageOverTick=%s stale=%s lastSuspect=%s lastConfirmedLoadStep=%s\n",
+                  lastFloat32SelectedSourceValid ? "true" : "false",
+                  lastFloat32SelectedSourceCount,
+                  static_cast<unsigned long>(lastFloat32SelectedSourceAgeMs),
+                  static_cast<unsigned long>(lastFloat32SelectedSourceSequence),
+                  lastFloat32SelectedWindowRangeGrams,
+                  isLastFloat32SourceLimited() ? "true" : "false",
+                  isLastFloat32SourceAgeOverTick() ? "true" : "false",
+                  isLastFloat32SourceStale() ? "true" : "false",
+                  lastFloat32SelectionSuspect ? "true" : "false",
+                  lastFloat32ConfirmedLoadStep ? "true" : "false");
     Serial.printf("  batteryNotifyCount=%lu rate=%.2f/s lastMs=%lu lastPercent=%s\n",
                   static_cast<unsigned long>(batteryNotifyCount), batteryRate,
                   static_cast<unsigned long>(lastBatteryNotifyMillis),

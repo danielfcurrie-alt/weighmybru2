@@ -1,0 +1,117 @@
+{
+  "version": 1,
+  "author": "WMB+",
+  "editor": "wokwi",
+  "parts": [
+    {
+      "type": "wokwi-custom-board",
+      "id": "tinys3d",
+      "top": 0,
+      "left": 0,
+      "attrs": {}
+    },
+    {
+      "type": "chip-hx711-80",
+      "id": "hx711",
+      "top": 185,
+      "left": 250,
+      "attrs": {
+        "sps": "80",
+        "actualSps": "94.22",
+        "jitterMicros": "100",
+        "weight": "0.0",
+        "offset": "0",
+        "countsPerGram": "4200",
+        "glitchEvery": "0",
+        "glitchCounts": "0",
+        "loadAfterMs": "0",
+        "loadWeight": "0.0"
+      }
+    },
+    {
+      "type": "board-ssd1306",
+      "id": "oled",
+      "top": -120,
+      "left": 250,
+      "attrs": {
+        "i2cAddress": "0x3c"
+      }
+    },
+    {
+      "type": "chip-max17048",
+      "id": "fg",
+      "top": 40,
+      "left": 380,
+      "attrs": {
+        "voltage": "3.90",
+        "soc": "70.0"
+      }
+    },
+    {
+      "type": "chip-lis2dw12",
+      "id": "accel",
+      "top": -90,
+      "left": 420,
+      "attrs": {
+        "ax": "0.0",
+        "ay": "0.0",
+        "az": "1.0",
+        "tempC": "25.0",
+        "dataReady": "1"
+      }
+    },
+    {
+      "type": "wokwi-neopixel",
+      "id": "rgb",
+      "top": -160,
+      "left": 380,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-led",
+      "id": "antennaSelect",
+      "top": 145,
+      "left": 420,
+      "attrs": {
+        "color": "blue",
+        "label": "GPIO38 antenna select"
+      }
+    }
+  ],
+  "connections": [
+    ["hx711:VCC", "tinys3d:3V3", "red", []],
+    ["hx711:GND", "tinys3d:GND.1", "black", []],
+    ["hx711:DT", "tinys3d:5", "green", []],
+    ["hx711:SCK", "tinys3d:6", "blue", []],
+
+    ["oled:VCC", "tinys3d:3V3", "red", []],
+    ["oled:GND", "tinys3d:GND.1", "black", []],
+    ["oled:SDA", "tinys3d:8", "green", []],
+    ["oled:SCL", "tinys3d:9", "blue", []],
+
+    ["fg:VCC", "tinys3d:3V3", "red", []],
+    ["fg:GND", "tinys3d:GND.1", "black", []],
+    ["fg:SDA", "tinys3d:8", "green", []],
+    ["fg:SCL", "tinys3d:9", "blue", []],
+    ["fg:ALRT", "tinys3d:$fuelGaugeInterrupt", "magenta", []],
+
+    ["accel:VCC", "tinys3d:3V3", "red", []],
+    ["accel:GND", "tinys3d:GND.1", "black", []],
+    ["accel:SDA", "tinys3d:8", "green", []],
+    ["accel:SCL", "tinys3d:9", "blue", []],
+    ["accel:INT1", "tinys3d:2", "orange", []],
+
+    ["tinys3d:3", "tinys3d:GND.1", "black", ["v-18", "h-20"]],
+    ["tinys3d:4", "tinys3d:GND.1", "black", ["v-24", "h-28"]],
+    ["tinys3d:$vbusSense", "tinys3d:3V3", "red", []],
+
+    ["rgb:DIN", "tinys3d:$rgbData", "green", []],
+    ["rgb:VDD", "tinys3d:$rgbPower", "red", []],
+    ["rgb:VSS", "tinys3d:GND.1", "black", []],
+
+    ["antennaSelect:A", "tinys3d:$antennaSwitch", "blue", []],
+    ["antennaSelect:C", "tinys3d:GND.1", "black", []]
+  ],
+  "dependencies": {},
+  "_comment": "Custom-board candidate using the real TinyS3[D] header and internal GPIO mapping. The GPIO38 LED is instrumentation for switch state, not an RF model. Requires loading wokwi/boards/tinys3d as a custom board before opening this diagram; current wokwi-cli cannot resolve unpublished custom boards."
+}

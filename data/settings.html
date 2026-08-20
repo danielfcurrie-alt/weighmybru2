@@ -6,14 +6,16 @@
   <title>WMB+ Settings</title>
   <meta name="theme-color" content="#47a864">
   <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="WMB+">
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="apple-touch-icon" href="/icons/wmb-plus-192.png">
-  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="icon" type="image/png" href="/icons/wmb-plus-192.png">
   <link rel="stylesheet" href="/output.css">
   <script src="/js/alpine.min.js" defer></script>
   <link rel="stylesheet" href="/css/all.min.css">
+  <script src="/view-mode.js"></script>
 </head>
 <body class="bg-black-background text-white">
 
@@ -21,7 +23,7 @@
   <div @click.away="open = false" class="flex flex-col w-full md:w-64 text-gray-700 bg-black-discord dark-mode:text-gray-200 dark-mode:bg-gray-800 flex-shrink-0" x-data="{ open: false }">
     <div class="flex-shrink-0 px-8 py-4 flex flex-row items-center justify-between">
       <a href="/" class="focus:outline-none focus:shadow-outline" aria-label="WMB+ Dashboard">
-        <img src="/wmb-plus-logo.jpg" alt="WeighMyBru+" style="width: 128px; height: auto; max-width: 170px; border-radius: 12px; object-fit: contain;">
+        <img src="/icons/wmb-plus-512.jpg" alt="WeighMyBru+" style="width: 128px; height: auto; max-width: 170px; border-radius: 12px; object-fit: contain;">
       </a>
       <button class="rounded-lg md:hidden focus:outline-none focus:shadow-outline" @click="open = !open">
         <svg fill="currentColor" viewBox="0 0 20 20" class="w-6 h-6">
@@ -44,7 +46,7 @@
       <h2 class="text-2xl font-semibold mb-4">WiFi Configuration</h2>
       
       <!-- WiFi Power Management -->
-      <div class="mb-6 p-4 bg-black-hover rounded">
+      <div data-wmbp-extended class="mb-6 p-4 bg-black-hover rounded">
         <h3 class="text-lg font-semibold mb-3">WiFi Power Management</h3>
         <p class="text-sm text-gray-400 mb-3">Turn off WiFi to save battery. To turn WiFi back on, hold the touch sensor for 3 seconds.</p>
         <button type="button" onclick="turnOffWiFi()" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded mr-2">Turn Off WiFi</button>
@@ -86,6 +88,7 @@
       </form>
       <div id="displayMessage" class="text-green-400 mb-2"></div>
 
+      <section data-wmbp-extended>
       <h2 class="text-2xl font-semibold mb-4 mt-8">Battery Settings</h2>
       <form id="batteryForm" class="mb-6">
         <label for="batteryCapacityMah" class="block mb-2">Battery capacity:</label>
@@ -115,7 +118,9 @@
       </form>
       <div id="batteryMessage" class="text-green-400 mb-2"></div>
       <p id="batteryStatus" class="text-red-400"></p>
+      </section>
 
+      <section data-wmbp-extended>
       <h2 class="text-2xl font-semibold mb-4 mt-8">Board Hardware</h2>
       <form id="boardHardwareForm" class="mb-6">
         <div class="mb-4 p-4 bg-black-hover rounded">
@@ -146,7 +151,9 @@
       </form>
       <div id="boardHardwareMessage" class="text-green-400 mb-2"></div>
       <p id="boardHardwareStatus" class="text-red-400"></p>
+      </section>
       
+      <section data-wmbp-extended>
       <h2 class="text-2xl font-semibold mb-4 mt-8">Filtering Settings</h2>
       <form id="filterForm" class="mb-6">
         <label for="brewingThreshold" class="block mb-2">Brewing Detection Threshold:</label>
@@ -174,6 +181,7 @@
       </form>
       <div id="filterMessage" class="text-green-400 mb-2"></div>
       <p id="filterStatus" class="text-red-400"></p>
+      </section>
 
       <h2 class="text-2xl font-semibold mb-4 mt-8">Auto Sleep</h2>
       <div class="mb-4 p-4 bg-black-hover rounded">

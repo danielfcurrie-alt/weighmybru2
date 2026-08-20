@@ -6,13 +6,16 @@
   <title>WMB+ Web App</title>
   <meta name="theme-color" content="#47a864">
   <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="WMB+">
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="apple-touch-icon" href="/icons/wmb-plus-192.png">
-  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="icon" type="image/png" href="/icons/wmb-plus-192.png">
   <link rel="stylesheet" href="/output.css">
   <link rel="stylesheet" href="/css/all.min.css">
+  <script src="/view-mode.js"></script>
+  <script src="/live-client.js"></script>
   <style>
     :root {
       color-scheme: dark;
@@ -371,9 +374,9 @@
       <span id="connectionPill" class="status-pill idle">Connecting</span>
     </header>
 
-    <section class="segmented" aria-label="View mode">
-      <button id="simpleTab" onclick="setViewMode('simple')" class="button tab-active">Simple</button>
-      <button id="advancedTab" onclick="setViewMode('advanced')" class="button tab-idle">More Data</button>
+    <section class="segmented" data-wmbp-view-mode-control aria-label="View mode">
+      <button id="simpleTab" type="button" data-wmbp-view-choice="basic" onclick="setViewMode('basic')" class="button tab-active">Basic</button>
+      <button id="advancedTab" type="button" data-wmbp-view-choice="extended" onclick="setViewMode('extended')" class="button tab-idle">Extended</button>
     </section>
 
     <div class="screen-grid">
@@ -471,7 +474,7 @@
       </div>
 
       <aside class="stack">
-        <section id="advancedPanel" class="card hidden-hard">
+        <section id="advancedPanel" data-wmbp-extended class="card hidden-hard">
           <div class="card-content">
           <div class="stop-header">
             <h2 class="section-title">More Data</h2>
@@ -528,7 +531,7 @@
         </section>
 
         <nav class="nav-grid" aria-label="WMB+ tools">
-          <a href="/smb.html" class="nav-button">
+          <a href="/stopmybru.html" class="nav-button">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
               <path d="M7 4v7M17 4v7M5 11h14M8 11v3a4 4 0 0 0 8 0v-3M12 18v2" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
@@ -587,7 +590,7 @@
   }
 
   function shouldPauseLiveRefresh() {
-    return hasActiveTextSelection() || isTextEntryActive();
+    return document.visibilityState === 'hidden' || hasActiveTextSelection() || isTextEntryActive();
   }
 
   function setPill(id, text, mode) {
@@ -646,11 +649,11 @@
   }
 
   function setViewMode(mode) {
-    const selected = mode === 'advanced' ? 'advanced' : 'simple';
-    storage.setItem('wmbp.viewMode', selected);
-    document.getElementById('simpleTab').className = `button ${selected === 'simple' ? 'tab-active' : 'tab-idle'}`;
-    document.getElementById('advancedTab').className = `button ${selected === 'advanced' ? 'tab-active' : 'tab-idle'}`;
-    document.getElementById('advancedPanel').classList.toggle('hidden-hard', selected !== 'advanced');
+    const selected = window.WMBPViewMode?.normalize(mode) || (mode === 'advanced' ? 'extended' : 'basic');
+    window.WMBPViewMode?.set(selected);
+    document.getElementById('simpleTab').className = `button ${selected === 'basic' ? 'tab-active' : 'tab-idle'}`;
+    document.getElementById('advancedTab').className = `button ${selected === 'extended' ? 'tab-active' : 'tab-idle'}`;
+    document.getElementById('advancedPanel').classList.toggle('hidden-hard', selected !== 'extended');
   }
 
   function setPresetTarget(value) {
@@ -662,12 +665,12 @@
   function applyShortcutIntent() {
     const view = new URLSearchParams(window.location.search).get('view');
     if (view === 'data' || view === 'advanced') {
-      setViewMode('advanced');
+      setViewMode('extended');
       setTimeout(() => document.getElementById('advancedPanel')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120);
       return;
     }
     if (view === 'stop' || view === 'smb') {
-      setViewMode('simple');
+      setViewMode('basic');
       setTimeout(() => document.getElementById('stopPanel')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120);
     }
   }
@@ -677,9 +680,12 @@
     if (dashboardInFlight) return;
     dashboardInFlight = true;
     try {
-      const r = await fetch('/api/dashboard', { cache: 'no-store' });
-      if (!r.ok) throw new Error(`dashboard ${r.status}`);
-      const d = await r.json();
+      const d = window.WMBPLive
+        ? await window.WMBPLive.fetchJson('/api/dashboard')
+        : await fetch('/api/dashboard', { cache: 'no-store' }).then(r => {
+            if (!r.ok) throw new Error(`dashboard ${r.status}`);
+            return r.json();
+          });
       lastDashboard = d;
       storage.setItem('wmbp.lastDashboard', JSON.stringify(d));
 
@@ -895,14 +901,29 @@
   }
 
   document.getElementById('targetInput').value = storage.getItem('wmbp.lastTarget') || '36.0';
-  setViewMode(storage.getItem('wmbp.viewMode') || 'simple');
+  setViewMode(storage.getItem('wmbp.viewMode') || 'basic');
   applyShortcutIntent();
   updateInstallCard();
   loadCachedState();
+  window.WMBPLive?.subscribe(d => {
+    if (shouldPauseLiveRefresh()) return;
+    lastDashboard = Object.assign({}, lastDashboard, d);
+    setText('weight', formatNumber(d.weight ?? d.w, 1));
+    setText('flow', formatNumber(d.flowrate ?? d.f, 2));
+    if (Number.isFinite(Number(d.battery_percentage))) {
+      setText('battery', `${Math.round(Number(d.battery_percentage))}%`);
+    }
+    if (Number.isFinite(Number(d.hx711_rate_hz))) {
+      setText('cadence', `${Number(d.hx711_rate_hz).toFixed(1)} Hz`);
+    }
+    if (Number.isFinite(Number(d.firmware_quality))) {
+      setText('quality', `${Math.round(Number(d.firmware_quality))}`);
+    }
+  });
   updateDashboard();
   updateStopMyBru();
   updateOtaStatusForBadge();
-  setInterval(updateDashboard, 1000);
+  setInterval(updateDashboard, 5000);
   setInterval(updateStopMyBru, 3000);
   setInterval(updateOtaStatusForBadge, 300000);
 </script>

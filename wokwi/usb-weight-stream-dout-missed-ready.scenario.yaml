@@ -2,5 +2,9 @@ name: WMB+ USB DOUT missed-ready recovery
 version: 1
 author: WMB+
 steps:
-  # Pair with a diagram that sets hx711 missedReadyEvery > 0.
+  # Requires diagram.xiao-94hz-missed-ready.json (missedReadyEvery=97) AND a
+  # real-HX711 harness env. Bound together in wokwi/matrix.json - run via:
+  #   tools/run-wokwi-matrix.sh dout-missed-ready
+  # A *-sim-* build never reads DT/SCK, so this scenario is meaningless there
+  # (run-wokwi-runtime-smoke.sh now refuses that combination).
   - delay: 25000ms

@@ -1,0 +1,50 @@
+{
+  "id": "/stopmybru.html",
+  "name": "StopMyBru",
+  "short_name": "StopMyBru",
+  "description": "Fast StopMyBru target stop controls for WMB+.",
+  "start_url": "/stopmybru.html",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "launch_handler": {
+    "client_mode": "focus-existing"
+  },
+  "background_color": "#0b1115",
+  "theme_color": "#47a864",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/icons/wmb-plus-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icons/wmb-plus-512.jpg",
+      "sizes": "512x512",
+      "type": "image/jpeg"
+    },
+    {
+      "src": "/icons/wmb-plus-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Advanced StopMyBru",
+      "short_name": "Advanced",
+      "description": "Open pairing, learning, relay, and webhook settings.",
+      "url": "/smb.html",
+      "icons": [{ "src": "/icons/wmb-plus-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "WMB+ Dashboard",
+      "short_name": "WMB+",
+      "description": "Open the WMB+ scale dashboard.",
+      "url": "/app.html",
+      "icons": [{ "src": "/icons/wmb-plus-192.png", "sizes": "192x192" }]
+    }
+  ]
+}

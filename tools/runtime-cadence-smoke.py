@@ -40,13 +40,17 @@ import threading
 import time
 import urllib.error
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Iterable
 
 
 WEIGHT_PREFIX = "WMBP_WEIGHT_V1,"
 HEADER_PREFIX = "WMBP_WEIGHT_V1_HEADER,"
+SOURCE_PREFIX = "WMBP_SOURCE_V1,"
+SOURCE_HEADER_PREFIX = "WMBP_SOURCE_V1_HEADER,"
+FLOAT32_PREFIX = "WMBP_FLOAT32_V1,"
+FLOAT32_HEADER_PREFIX = "WMBP_FLOAT32_V1_HEADER,"
 
 
 @dataclass(frozen=True)
@@ -61,6 +65,36 @@ class Sample:
     battery_percent: int
     hx711_hz: float
     dropped: int
+
+
+@dataclass(frozen=True)
+class SourceSample:
+    host_time: float
+    raw_ms: int
+    raw_sequence: int
+    raw_g: float
+    qualified_sequence: int
+    qualified_g: float
+    public_sequence: int
+    public_raw_sequence: int
+    public_g: float
+    raw_to_public_gap: int
+    rejected: int
+    status_hex: str
+
+
+@dataclass(frozen=True)
+class Float32Sample:
+    host_time: float
+    device_ms: int
+    notify_count: int
+    weight_g: float
+    source_sequence: int
+    source_age_ms: int
+    source_count: int
+    window_range_g: float
+    suspect_count: int
+    status_hex: str
 
 
 @dataclass(frozen=True)
@@ -118,6 +152,10 @@ PROFILE_WORKERS: dict[str, int] = {
 }
 
 ACQUISITION_KEYS = [
+    "scale_sample_sequence",
+    "scale_cadence_stats_count",
+    "scale_long_gap_count",
+    "scale_estimated_lost_cadence_slots",
     "acquisition_model",
     "acquisition_poll_count",
     "acquisition_ready_count",
@@ -125,17 +163,90 @@ ACQUISITION_KEYS = [
     "acquisition_accepted_count",
     "acquisition_raw_read_count",
     "acquisition_estimated_lost_cadence_slots",
+    "raw_read_sequence",
+    "raw_read_count",
+    "raw_input_count",
+    "qualified_input_count",
+    "plausibility_rejected_count",
+    "last_raw_input_sequence",
+    "last_qualified_input_sequence",
+    "last_public_raw_input_sequence",
+    "raw_to_public_sequence_gap",
+    "last_raw_input_ms",
+    "last_qualified_input_ms",
+    "last_public_raw_input_ms",
+    "last_raw_input_g",
+    "last_qualified_input_g",
     "raw_read_expected_interval_us",
     "raw_read_avg_interval_us",
+    "raw_read_min_interval_us",
     "raw_read_max_interval_us",
+    "raw_read_long_gap_count",
+    "raw_read_stats_count",
     "raw_read_estimated_lost_cadence_slots",
     "raw_read_max_duration_us",
     "acquisition_rejected_count",
     "acquisition_read_error_count",
     "acquisition_disconnected_count",
     "acquisition_data_ready_notifications",
+    "acquisition_task_wake_count",
+    "acquisition_ready_recovered_by_level_poll_count",
+    "acquisition_dout_high_timeout_count",
+    "acquisition_spurious_ready_count",
     "acquisition_busy_skip_count",
     "acquisition_timeout_count",
+    "diagnostic_event_count",
+    "float32_notify_count",
+    "float32_source_valid",
+    "float32_source_sample_count",
+    "float32_source_sequence",
+    "float32_source_age_ms",
+    "float32_source_window_ms",
+    "float32_source_window_range_g",
+    "float32_source_limited",
+    "float32_source_age_over_tick",
+    "float32_source_reused",
+    "float32_source_stale",
+    "float32_stale_source_count",
+    "float32_last_emission_ms",
+    "float32_last_schedule_ms",
+    "float32_last_selection_suspect",
+    "float32_suspect_selection_count",
+    "float32_last_confirmed_load_step",
+    "float32_confirmed_load_step_count",
+]
+
+COUNTER_DELTA_KEYS = [
+    key
+    for key in ACQUISITION_KEYS
+    if key not in {
+        "acquisition_model",
+        "raw_read_expected_interval_us",
+        "raw_read_avg_interval_us",
+        "raw_read_min_interval_us",
+        "raw_read_max_interval_us",
+        "raw_read_max_duration_us",
+        "raw_to_public_sequence_gap",
+        "last_raw_input_ms",
+        "last_qualified_input_ms",
+        "last_public_raw_input_ms",
+        "last_raw_input_g",
+        "last_qualified_input_g",
+        "float32_source_valid",
+        "float32_source_sample_count",
+        "float32_source_sequence",
+        "float32_source_age_ms",
+        "float32_source_window_ms",
+        "float32_source_window_range_g",
+        "float32_source_limited",
+        "float32_source_age_over_tick",
+        "float32_source_reused",
+        "float32_source_stale",
+        "float32_last_emission_ms",
+        "float32_last_schedule_ms",
+        "float32_last_selection_suspect",
+        "float32_last_confirmed_load_step",
+    }
 ]
 
 
@@ -177,6 +288,54 @@ def parse_weight_line(line: str, host_time: float) -> Sample | None:
         return None
 
 
+def parse_source_line(line: str, host_time: float) -> SourceSample | None:
+    if not line.startswith(SOURCE_PREFIX):
+        return None
+    row = next(csv.reader([line]))
+    if len(row) != 12:
+        return None
+    try:
+        return SourceSample(
+            host_time=host_time,
+            raw_ms=int(row[1]),
+            raw_sequence=int(row[2]),
+            raw_g=float(row[3]),
+            qualified_sequence=int(row[4]),
+            qualified_g=float(row[5]),
+            public_sequence=int(row[6]),
+            public_raw_sequence=int(row[7]),
+            public_g=float(row[8]),
+            raw_to_public_gap=int(row[9]),
+            rejected=int(row[10]),
+            status_hex=row[11],
+        )
+    except (ValueError, IndexError):
+        return None
+
+
+def parse_float32_line(line: str, host_time: float) -> Float32Sample | None:
+    if not line.startswith(FLOAT32_PREFIX):
+        return None
+    row = next(csv.reader([line]))
+    if len(row) != 10:
+        return None
+    try:
+        return Float32Sample(
+            host_time=host_time,
+            device_ms=int(row[1]),
+            notify_count=int(row[2]),
+            weight_g=float(row[3]),
+            source_sequence=int(row[4]),
+            source_age_ms=int(row[5]),
+            source_count=int(row[6]),
+            window_range_g=float(row[7]),
+            suspect_count=int(row[8]),
+            status_hex=row[9],
+        )
+    except (ValueError, IndexError):
+        return None
+
+
 def discover_port() -> str:
     try:
         import serial.tools.list_ports  # type: ignore
@@ -204,8 +363,12 @@ class SerialReader:
 
         self.serial = serial.Serial(port, baudrate=baud, timeout=0.2)
         self.samples: list[Sample] = []
+        self.source_samples: list[SourceSample] = []
+        self.float32_samples: list[Float32Sample] = []
         self.other_lines: list[str] = []
         self._queue: queue.Queue[Sample] = queue.Queue()
+        self._source_queue: queue.Queue[SourceSample] = queue.Queue()
+        self._float32_queue: queue.Queue[Float32Sample] = queue.Queue()
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._read_loop, name="serial-reader", daemon=True)
 
@@ -230,6 +393,24 @@ class SerialReader:
                 break
         return drained
 
+    def drain_source_samples(self) -> list[SourceSample]:
+        drained: list[SourceSample] = []
+        while True:
+            try:
+                drained.append(self._source_queue.get_nowait())
+            except queue.Empty:
+                break
+        return drained
+
+    def drain_float32_samples(self) -> list[Float32Sample]:
+        drained: list[Float32Sample] = []
+        while True:
+            try:
+                drained.append(self._float32_queue.get_nowait())
+            except queue.Empty:
+                break
+        return drained
+
     def _read_loop(self) -> None:
         while not self._stop.is_set():
             raw = self.serial.readline()
@@ -237,12 +418,27 @@ class SerialReader:
                 continue
             host_time = time.monotonic()
             line = raw.decode("utf-8", errors="replace").strip()
-            if not line or line.startswith(HEADER_PREFIX):
+            if (
+                not line
+                or line.startswith(HEADER_PREFIX)
+                or line.startswith(SOURCE_HEADER_PREFIX)
+                or line.startswith(FLOAT32_HEADER_PREFIX)
+            ):
                 continue
             sample = parse_weight_line(line, host_time)
             if sample is not None:
                 self.samples.append(sample)
                 self._queue.put(sample)
+                continue
+            source_sample = parse_source_line(line, host_time)
+            if source_sample is not None:
+                self.source_samples.append(source_sample)
+                self._source_queue.put(source_sample)
+                continue
+            float32_sample = parse_float32_line(line, host_time)
+            if float32_sample is not None:
+                self.float32_samples.append(float32_sample)
+                self._float32_queue.put(float32_sample)
             elif len(self.other_lines) < 200:
                 self.other_lines.append(line)
 
@@ -268,6 +464,26 @@ def ensure_usb_stream(reader: SerialReader, settle_s: float = 2.0) -> bool:
         time.sleep(0.05)
 
     raise SystemExit("USB weight stream did not produce WMBP_WEIGHT_V1 samples after sending 'w'")
+
+
+def ensure_source_stream(reader: SerialReader, settle_s: float = 2.0) -> bool:
+    """Enable supplemental source diagnostics if they are not already active."""
+    reader.drain_source_samples()
+    reader.drain_float32_samples()
+    deadline = time.monotonic() + settle_s
+    while time.monotonic() < deadline:
+        if reader.drain_source_samples():
+            return False
+        time.sleep(0.05)
+
+    reader.write_line("s")
+    deadline = time.monotonic() + settle_s
+    while time.monotonic() < deadline:
+        if reader.drain_source_samples():
+            return True
+        time.sleep(0.05)
+
+    raise SystemExit("USB source diagnostics did not produce WMBP_SOURCE_V1 samples after sending 's'")
 
 
 def poll_worker(
@@ -321,6 +537,21 @@ def acquisition_snapshot(dashboard: dict[str, object]) -> dict[str, object]:
     return {key: dashboard.get(key, "-") for key in ACQUISITION_KEYS}
 
 
+def dashboard_counter_deltas(
+    before: dict[str, object],
+    after: dict[str, object],
+) -> dict[str, object]:
+    delta: dict[str, object] = {}
+    for key in COUNTER_DELTA_KEYS:
+        before_value = before.get(key)
+        after_value = after.get(key)
+        if isinstance(before_value, (int, float)) and isinstance(after_value, (int, float)):
+            delta[key] = after_value - before_value
+        else:
+            delta[key] = None
+    return delta
+
+
 def analyze(samples: list[Sample]) -> dict[str, object]:
     if len(samples) < 2:
         return {"samples": len(samples), "valid": False}
@@ -346,6 +577,15 @@ def analyze(samples: list[Sample]) -> dict[str, object]:
     dropped_delta = samples[-1].dropped - samples[0].dropped
     hx_values = [sample.hx711_hz for sample in samples if math.isfinite(sample.hx711_hz)]
     quality_values = [sample.quality for sample in samples]
+    reported_hx711_hz_avg = statistics.fmean(hx_values) if hx_values else None
+    expected_public_interval_ms = (
+        1000.0 / reported_hx711_hz_avg
+        if reported_hx711_hz_avg is not None and reported_hx711_hz_avg > 0.0
+        else None
+    )
+    public_gap_3x_threshold_ms = (
+        expected_public_interval_ms * 3.0 if expected_public_interval_ms is not None else None
+    )
 
     return {
         "valid": True,
@@ -360,13 +600,102 @@ def analyze(samples: list[Sample]) -> dict[str, object]:
         "device_max_ms": max(device_intervals_ms) if device_intervals_ms else None,
         "device_gaps_over_100ms": sum(1 for value in device_intervals_ms if value > 100.0),
         "device_gaps_over_250ms": sum(1 for value in device_intervals_ms if value > 250.0),
+        "device_expected_interval_ms": expected_public_interval_ms,
+        "device_gap_3x_threshold_ms": public_gap_3x_threshold_ms,
+        "device_gaps_over_3x_expected": (
+            sum(1 for value in device_intervals_ms if value > public_gap_3x_threshold_ms)
+            if public_gap_3x_threshold_ms is not None
+            else None
+        ),
         "missing_sequence": missing_sequence,
         "dropped_delta": dropped_delta,
-        "reported_hx711_hz_avg": statistics.fmean(hx_values) if hx_values else None,
+        "reported_hx711_hz_avg": reported_hx711_hz_avg,
         "reported_hx711_hz_min": min(hx_values) if hx_values else None,
         "reported_hx711_hz_max": max(hx_values) if hx_values else None,
         "quality_avg": statistics.fmean(quality_values) if quality_values else None,
         "quality_min": min(quality_values) if quality_values else None,
+    }
+
+
+def status_bit_is_set(status_hex: str, bit: int) -> bool:
+    try:
+        return (int(status_hex, 16) & bit) != 0
+    except ValueError:
+        return False
+
+
+def analyze_source(samples: list[SourceSample]) -> dict[str, object]:
+    if not samples:
+        return {"samples": 0, "valid": False}
+
+    raw_gaps = [sample.raw_to_public_gap for sample in samples]
+    raw_sequence_delta = samples[-1].raw_sequence - samples[0].raw_sequence
+    qualified_sequence_delta = samples[-1].qualified_sequence - samples[0].qualified_sequence
+    public_raw_sequence_delta = samples[-1].public_raw_sequence - samples[0].public_raw_sequence
+    rejected_delta = samples[-1].rejected - samples[0].rejected
+    raw_valid_count = sum(1 for sample in samples if status_bit_is_set(sample.status_hex, 0x0001))
+    qualified_valid_count = sum(1 for sample in samples if status_bit_is_set(sample.status_hex, 0x0002))
+    public_current_count = sum(1 for sample in samples if status_bit_is_set(sample.status_hex, 0x0004))
+    raw_span_s = (samples[-1].raw_ms - samples[0].raw_ms) / 1000.0
+
+    return {
+        "samples": len(samples),
+        "valid": True,
+        "raw_rate_hz": raw_sequence_delta / raw_span_s if raw_span_s > 0 else 0.0,
+        "raw_sequence_delta": raw_sequence_delta,
+        "qualified_sequence_delta": qualified_sequence_delta,
+        "public_raw_sequence_delta": public_raw_sequence_delta,
+        "source_to_public_loss_delta": raw_sequence_delta - public_raw_sequence_delta,
+        "rejected_delta": rejected_delta,
+        "raw_to_public_gap_p50": percentile(raw_gaps, 0.50),
+        "raw_to_public_gap_p95": percentile(raw_gaps, 0.95),
+        "raw_to_public_gap_max": max(raw_gaps),
+        "raw_valid_pct": raw_valid_count * 100.0 / len(samples),
+        "qualified_valid_pct": qualified_valid_count * 100.0 / len(samples),
+        "public_current_pct": public_current_count * 100.0 / len(samples),
+    }
+
+
+def analyze_float32(samples: list[Float32Sample]) -> dict[str, object]:
+    if not samples:
+        return {"samples": 0, "valid": False}
+
+    source_counts = [sample.source_count for sample in samples]
+    source_ages = [sample.source_age_ms for sample in samples if status_bit_is_set(sample.status_hex, 0x0001)]
+    report_source_ages = source_ages or [0]
+    window_ranges = [sample.window_range_g for sample in samples]
+    source_valid_count = sum(1 for sample in samples if status_bit_is_set(sample.status_hex, 0x0001))
+    source_limited_count = sum(1 for sample in samples if status_bit_is_set(sample.status_hex, 0x0002))
+    source_age_over_tick_count = sum(1 for sample in samples if status_bit_is_set(sample.status_hex, 0x0004))
+    selection_suspect_count = sum(1 for sample in samples if status_bit_is_set(sample.status_hex, 0x0008))
+    confirmed_load_step_count = sum(1 for sample in samples if status_bit_is_set(sample.status_hex, 0x0020))
+    source_stale_count = sum(1 for sample in samples if status_bit_is_set(sample.status_hex, 0x0040))
+    notify_delta = samples[-1].notify_count - samples[0].notify_count
+    device_span_s = (samples[-1].device_ms - samples[0].device_ms) / 1000.0
+    row_delta = max(0, len(samples) - 1)
+
+    return {
+        "samples": len(samples),
+        "valid": True,
+        "notify_delta": notify_delta,
+        "rate_hz": row_delta / device_span_s if device_span_s > 0 else 0.0,
+        "notify_rate_hz": notify_delta / device_span_s if device_span_s > 0 else 0.0,
+        "source_count_p50": percentile(source_counts, 0.50),
+        "source_count_min": min(source_counts),
+        "source_count_max": max(source_counts),
+        "source_age_p50_ms": percentile(report_source_ages, 0.50),
+        "source_age_p95_ms": percentile(report_source_ages, 0.95),
+        "source_age_max_ms": max(report_source_ages),
+        "window_range_p95_g": percentile(window_ranges, 0.95),
+        "window_range_max_g": max(window_ranges),
+        "source_valid_pct": source_valid_count * 100.0 / len(samples),
+        "source_limited_pct": source_limited_count * 100.0 / len(samples),
+        "source_age_over_tick_pct": source_age_over_tick_count * 100.0 / len(samples),
+        "source_reused_pct": source_age_over_tick_count * 100.0 / len(samples),
+        "source_stale_pct": source_stale_count * 100.0 / len(samples),
+        "selection_suspect_pct": selection_suspect_count * 100.0 / len(samples),
+        "confirmed_load_step_pct": confirmed_load_step_count * 100.0 / len(samples),
+        "suspect_delta": samples[-1].suspect_count - samples[0].suspect_count,
     }
 
 
@@ -387,9 +716,46 @@ def print_summary(
     )
     print(
         "gaps>100ms={device_gaps_over_100ms} gaps>250ms={device_gaps_over_250ms} "
+        "gaps>3x={device_gaps_over_3x_expected} "
         "missingSeq={missing_sequence} droppedDelta={dropped_delta} "
         "reportedHx711={reported_hx711_hz_avg:.2f}Hz qualityAvg={quality_avg:.1f} minQuality={quality_min}".format(**result)
     )
+    if result.get("device_gap_3x_threshold_ms") is not None:
+        print(
+            "gap3xThreshold={device_gap_3x_threshold_ms:.1f}ms expectedInterval={device_expected_interval_ms:.2f}ms".format(
+                **result
+            )
+        )
+    source = result.get("source")
+    if isinstance(source, dict) and source.get("valid"):
+        print(
+            "source: samples={samples} rawRate={raw_rate_hz:.2f}Hz rawDelta={raw_sequence_delta} "
+            "qualifiedDelta={qualified_sequence_delta} publicRawDelta={public_raw_sequence_delta} "
+            "lossDelta={source_to_public_loss_delta} rejectedDelta={rejected_delta}".format(**source)
+        )
+        print(
+            "source gaps p50/p95/max={raw_to_public_gap_p50:.1f}/{raw_to_public_gap_p95:.1f}/{raw_to_public_gap_max} "
+            "rawValid={raw_valid_pct:.1f}% qualifiedValid={qualified_valid_pct:.1f}% publicCurrent={public_current_pct:.1f}%".format(
+                **source
+            )
+        )
+    float32 = result.get("float32")
+    if isinstance(float32, dict) and float32.get("valid"):
+        print(
+            "float32: samples={samples} rowRate={rate_hz:.2f}Hz notifyRate={notify_rate_hz:.2f}Hz notifyDelta={notify_delta} "
+            "sourceCount p50/min/max={source_count_p50:.1f}/{source_count_min}/{source_count_max} "
+            "sourceAge p50/p95/max={source_age_p50_ms:.1f}/{source_age_p95_ms:.1f}/{source_age_max_ms}ms".format(
+                **float32
+            )
+        )
+        print(
+            "float32 source: valid={source_valid_pct:.1f}% limited={source_limited_pct:.1f}% "
+            "ageOverTick={source_age_over_tick_pct:.1f}% stale={source_stale_pct:.1f}% suspect={selection_suspect_pct:.1f}% "
+            "confirmedLoadStep={confirmed_load_step_pct:.1f}% "
+            "suspectDelta={suspect_delta} windowRangeP95={window_range_p95_g:.3f}g max={window_range_max_g:.3f}g".format(
+                **float32
+            )
+        )
     if poll_stats:
         total_requests = sum(int(stats["ok"]) + int(stats["error"]) for stats in poll_stats.values())
         print(f"polling: total={total_requests}")
@@ -413,6 +779,16 @@ def print_summary(
             "dataReady={acquisition_data_ready_notifications} busySkips={acquisition_busy_skip_count} "
             "timeouts={acquisition_timeout_count}".format(**acquisition)
         )
+        deltas = result.get("acquisition_delta")
+        if isinstance(deltas, dict):
+            print(
+                "acquisition delta: accepted={acquisition_accepted_count} raw={acquisition_raw_read_count} "
+                "rawLongGaps={raw_read_long_gap_count} rawLostSlots={raw_read_estimated_lost_cadence_slots} "
+                "readErrors={acquisition_read_error_count} disconnected={acquisition_disconnected_count} "
+                "dataReady={acquisition_data_ready_notifications} taskWakes={acquisition_task_wake_count} "
+                "levelRecovered={acquisition_ready_recovered_by_level_poll_count} busySkips={acquisition_busy_skip_count} "
+                "timeouts={acquisition_timeout_count}".format(**deltas)
+            )
 
 
 def assert_pass(profile: str, result: dict[str, object], args: argparse.Namespace) -> list[str]:
@@ -449,12 +825,21 @@ def assert_polling_pass(
     return failures
 
 
-def run_profile(reader: SerialReader, base_url: str, profile: str, duration_s: float) -> tuple[dict[str, object], dict[str, dict[str, int | float]]]:
+def run_profile(
+    reader: SerialReader,
+    base_url: str,
+    profile: str,
+    duration_s: float,
+    include_samples: bool = False,
+) -> tuple[dict[str, object], dict[str, dict[str, int | float]]]:
     requests = PROFILES[profile]
     stop_event = threading.Event()
     poll_stats: dict[str, dict[str, int | float]] = {}
     stats_lock = threading.Lock()
     poll_threads: list[threading.Thread] = []
+
+    dashboard_before = fetch_dashboard_snapshot(base_url)
+    dashboard_before_time = time.monotonic()
     if requests:
         for worker_index in range(PROFILE_WORKERS.get(profile, 1)):
             poll_thread = threading.Thread(
@@ -467,17 +852,49 @@ def run_profile(reader: SerialReader, base_url: str, profile: str, duration_s: f
             poll_threads.append(poll_thread)
 
     reader.drain_samples()
+    reader.drain_source_samples()
+    reader.drain_float32_samples()
     collected: list[Sample] = []
+    source_collected: list[SourceSample] = []
+    float32_collected: list[Float32Sample] = []
+    capture_start = time.monotonic()
     deadline = time.monotonic() + duration_s
     while time.monotonic() < deadline:
         collected.extend(reader.drain_samples())
+        source_collected.extend(reader.drain_source_samples())
+        float32_collected.extend(reader.drain_float32_samples())
         time.sleep(0.05)
     collected.extend(reader.drain_samples())
+    source_collected.extend(reader.drain_source_samples())
+    float32_collected.extend(reader.drain_float32_samples())
+    capture_end = time.monotonic()
 
     stop_event.set()
     for poll_thread in poll_threads:
         poll_thread.join(timeout=2.0)
-    return analyze(collected), poll_stats
+
+    dashboard_after = fetch_dashboard_snapshot(base_url)
+    dashboard_after_time = time.monotonic()
+
+    result = analyze(collected)
+    result["source"] = analyze_source(source_collected)
+    result["float32"] = analyze_float32(float32_collected)
+    result["capture_start_monotonic"] = capture_start
+    result["capture_end_monotonic"] = capture_end
+    result["capture_wall_seconds"] = capture_end - capture_start
+    result["dashboard_before_monotonic"] = dashboard_before_time
+    result["dashboard_after_monotonic"] = dashboard_after_time
+    result["dashboard_counter_window_seconds"] = dashboard_after_time - dashboard_before_time
+    result["dashboard_before"] = dashboard_before
+    result["dashboard_after"] = dashboard_after
+    result["acquisition"] = acquisition_snapshot(dashboard_after)
+    result["acquisition_before"] = acquisition_snapshot(dashboard_before)
+    result["acquisition_delta"] = dashboard_counter_deltas(dashboard_before, dashboard_after)
+    if include_samples:
+        result["captured_weight_samples"] = [asdict(sample) for sample in collected]
+        result["captured_source_samples"] = [asdict(sample) for sample in source_collected]
+        result["captured_float32_samples"] = [asdict(sample) for sample in float32_collected]
+    return result, poll_stats
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -494,10 +911,20 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--duration", type=float, default=20.0, help="Seconds per profile")
     parser.add_argument("--warmup", type=float, default=2.0, help="Initial sample warmup seconds")
+    parser.add_argument(
+        "--source-stream",
+        action="store_true",
+        help="Enable supplemental WMBP_SOURCE_V1 rows during the capture",
+    )
     parser.add_argument("--min-device-rate-hz", type=float, default=78.0)
     parser.add_argument("--max-device-gap-ms", type=float, default=150.0)
     parser.add_argument("--max-gaps-over-100ms", type=int, default=0)
     parser.add_argument("--no-fail", action="store_true", help="Print failures but exit 0")
+    parser.add_argument(
+        "--save-samples",
+        action="store_true",
+        help="Include per-frame USB weight/source/Float32 rows in --json-output.",
+    )
     parser.add_argument(
         "--leave-stream-on",
         action="store_true",
@@ -516,6 +943,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     reader = SerialReader(port, args.baud)
     reader.start()
     stream_was_enabled_by_test = False
+    source_was_enabled_by_test = False
     all_results: dict[str, dict[str, object]] = {}
     all_poll_stats: dict[str, dict[str, dict[str, int | float]]] = {}
     failures: list[str] = []
@@ -523,18 +951,26 @@ def main(argv: Iterable[str] | None = None) -> int:
     try:
         stream_was_enabled_by_test = ensure_usb_stream(reader)
         print("USB WMBP_WEIGHT_V1 stream active")
+        if args.source_stream:
+            source_was_enabled_by_test = ensure_source_stream(reader)
+            print("USB WMBP_SOURCE_V1 diagnostics active")
         if args.warmup > 0:
             time.sleep(args.warmup)
             reader.drain_samples()
+            reader.drain_source_samples()
+            reader.drain_float32_samples()
 
         for profile in profiles:
-            result, poll_stats = run_profile(reader, args.base_url, profile, args.duration)
+            result, poll_stats = run_profile(
+                reader,
+                args.base_url,
+                profile,
+                args.duration,
+                include_samples=args.save_samples,
+            )
             all_results[profile] = result
             all_poll_stats[profile] = poll_stats
-            dashboard = fetch_dashboard_snapshot(args.base_url)
-            acquisition = acquisition_snapshot(dashboard)
-            if acquisition:
-                result["acquisition"] = acquisition
+            acquisition = result.get("acquisition")
             print_summary(profile, result, poll_stats, acquisition)
             if profile not in {"aggressive-repro", "static-repro", "dashboard-2hz-repro"}:
                 failures.extend(assert_pass(profile, result, args))
@@ -547,6 +983,11 @@ def main(argv: Iterable[str] | None = None) -> int:
                 encoding="utf-8",
             )
     finally:
+        if source_was_enabled_by_test and not args.leave_stream_on:
+            try:
+                reader.write_line("s")
+            except Exception:
+                pass
         if stream_was_enabled_by_test and not args.leave_stream_on:
             try:
                 reader.write_line("w")

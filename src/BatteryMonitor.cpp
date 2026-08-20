@@ -847,6 +847,10 @@ void BatteryMonitor::calibrateVoltage(float actualVoltage) {
     preferences.begin("battery", false);
     saveCalibration();
     preferences.end();
+
+    hasReading = false;
+    lastUpdate = 0;
+    update();
     
     Serial.printf("Battery calibrated: offset = %.3fV\n", calibrationOffset);
 }

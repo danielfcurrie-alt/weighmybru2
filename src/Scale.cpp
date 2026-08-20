@@ -199,8 +199,10 @@ void Scale::tare(uint8_t times) {
     lastSampleMicros = 0;
     hasLastRawSampleWeight = false;
     lastTareMillis = lastSampleMillis;
+    resetInputStageDiagnostics();
     resetPlausibilityGate();
     resetZeroQualification();
+    resetTransientQualityStats();
     persistQualityStatsIfNeeded(true);
     samplesInitialized = false;
 
@@ -263,8 +265,10 @@ void Scale::tare(uint8_t times) {
     }
     hasLastRawSampleWeight = false;
     lastTareMillis = millis();
+    resetInputStageDiagnostics();
     resetPlausibilityGate();
     resetZeroQualification();
+    resetTransientQualityStats();
     persistQualityStatsIfNeeded(true);
 
     // Reinitialize sample buffer
@@ -313,6 +317,7 @@ float Scale::getWeight() {
     
     unsigned long currentTime = millis();
     uint32_t acceptedSampleMicros = micros();
+    unsigned long acceptedSampleMillis = currentTime;
 
 #if WMBP_SIMULATION_MODE
     const uint32_t currentMicros = micros();
@@ -326,8 +331,10 @@ float Scale::getWeight() {
     simulationLastSampleMicros = currentMicros;
     simulationLastSampleMillis = currentTime;
     acceptedSampleMicros = currentMicros;
+    acceptedSampleMillis = currentTime;
     recordRawReadCadence(currentMicros, 0);
     float rawReading = simulatedRawWeight(currentTime) - simulationTareOffset;
+    recordRawInputSample(rawReadSequence, acceptedSampleMillis, rawReading);
     lastRawValueCounts = lroundf(rawReading * calibrationFactor);
     hasLastRawValueCounts = true;
 #else
@@ -335,13 +342,19 @@ float Scale::getWeight() {
     int32_t rawCounts = 0;
     uint32_t sampleMicros = 0;
     uint32_t readDurationMicros = 0;
-    if (!popAcquiredRawSample(rawCounts, sampleMicros, readDurationMicros)) {
+    uint32_t sourceSequence = 0;
+    if (!popAcquiredRawSample(rawCounts, sampleMicros, readDurationMicros, &sourceSequence)) {
         acquisitionNotReadyCount++;
         return currentWeight;  // Return last known value if not ready
     }
     acquisitionReadyCount++;
     acceptedSampleMicros = sampleMicros;
-    recordRawReadCadence(sampleMicros, readDurationMicros);
+    {
+        const uint32_t processingMicros = micros();
+        const unsigned long processingMillis = millis();
+        acceptedSampleMillis = processingMillis - ((processingMicros - acceptedSampleMicros) / 1000UL);
+    }
+    recordRawReadCadence(sampleMicros, readDurationMicros, sourceSequence);
 #else
     if (!hx711Acquisition.isReady()) {
         acquisitionNotReadyCount++;
@@ -366,11 +379,17 @@ float Scale::getWeight() {
         return currentWeight;
     }
     acceptedSampleMicros = micros();
+    {
+        const uint32_t processingMicros = micros();
+        const unsigned long processingMillis = millis();
+        acceptedSampleMillis = processingMillis - ((processingMicros - acceptedSampleMicros) / 1000UL);
+    }
     recordRawReadCadence(acceptedSampleMicros, readDurationMicros);
 #endif
     lastRawValueCounts = static_cast<long>(rawCounts - tareOffsetCounts);
     hasLastRawValueCounts = true;
     float rawReading = rawCountsToGrams(rawCounts);
+    recordRawInputSample(rawReadSequence, acceptedSampleMillis, rawReading);
 #endif
     
     // Handle NaN or invalid readings
@@ -380,8 +399,9 @@ float Scale::getWeight() {
     }
 
     float qualifiedRawReading = rawReading;
-    if (!qualifyRawReading(currentTime, rawReading, qualifiedRawReading)) {
+    if (!qualifyRawReading(acceptedSampleMillis, rawReading, qualifiedRawReading)) {
         acquisitionRejectedCount++;
+        plausibilityRejectedSampleCount++;
         return currentWeight;
     }
     rawReading = qualifiedRawReading;
@@ -389,10 +409,14 @@ float Scale::getWeight() {
     // Initialize sample buffer on first valid reading
     if (!samplesInitialized) {
         initializeSamples(rawReading);
-        currentWeight = applyZeroQualification(currentTime, rawReading, rawReading);
+        currentWeight = applyZeroQualification(acceptedSampleMillis, rawReading, rawReading);
+        recordQualifiedInputSample(
+            rawReadSequence,
+            acceptedSampleMillis,
+            applyCurrentZeroStateToObservedSample(rawReading));
         lastStableWeight = currentWeight;
         currentFilterState = STABLE;
-        recordAcceptedSample(currentTime, acceptedSampleMicros, rawReading, currentWeight);
+        recordAcceptedSample(acceptedSampleMillis, acceptedSampleMicros, rawReading, currentWeight);
         return currentWeight;
     }
     
@@ -410,16 +434,16 @@ float Scale::getWeight() {
         if (weightChange > brewingThreshold) {
             brewingDetected = true;
             currentFilterState = BREWING;
-            lastBrewingActivity = currentTime;
+            lastBrewingActivity = acceptedSampleMillis;
         }
     } else if (currentFilterState == BREWING) {
         // Continue monitoring for brewing activity
         if (weightChange > brewingThreshold) {
             brewingDetected = true;
-            lastBrewingActivity = currentTime;
+            lastBrewingActivity = acceptedSampleMillis;
         } else {
             // Check if we should transition to stable
-            if (currentTime - lastBrewingActivity > stabilityTimeout) {
+            if (acceptedSampleMillis - lastBrewingActivity > stabilityTimeout) {
                 currentFilterState = TRANSITIONING;
             }
         }
@@ -429,8 +453,8 @@ float Scale::getWeight() {
             // Activity detected again - back to brewing
             brewingDetected = true;
             currentFilterState = BREWING;
-            lastBrewingActivity = currentTime;
-        } else if (currentTime - lastBrewingActivity > stabilityTimeout * 2) {
+            lastBrewingActivity = acceptedSampleMillis;
+        } else if (acceptedSampleMillis - lastBrewingActivity > stabilityTimeout * 2) {
             // Extended stability confirmed - switch to stable mode
             currentFilterState = STABLE;
             lastStableWeight = currentWeight;
@@ -459,12 +483,16 @@ float Scale::getWeight() {
         // Update state appropriately
         if (currentFilterState == STABLE) {
             currentFilterState = BREWING;
-            lastBrewingActivity = currentTime;
+            lastBrewingActivity = acceptedSampleMillis;
         }
     }
     
-    currentWeight = applyZeroQualification(currentTime, rawReading, filteredWeight);
-    recordAcceptedSample(currentTime, acceptedSampleMicros, rawReading, currentWeight);
+    currentWeight = applyZeroQualification(acceptedSampleMillis, rawReading, filteredWeight);
+    recordQualifiedInputSample(
+        rawReadSequence,
+        acceptedSampleMillis,
+        applyCurrentZeroStateToObservedSample(rawReading));
+    recordAcceptedSample(acceptedSampleMillis, acceptedSampleMicros, rawReading, currentWeight);
     return currentWeight;
 }
 
@@ -472,14 +500,72 @@ float Scale::getCurrentWeight() {
     return currentWeight;
 }
 
-void Scale::recordRawReadCadence(uint32_t sampleMicros, uint32_t readDurationMicros) {
-    rawReadSequence++;
+void Scale::recordRawReadCadence(uint32_t sampleMicros, uint32_t readDurationMicros, uint32_t sourceSequence) {
+    if (sourceSequence > 0) {
+        rawReadSequence = sourceSequence;
+    } else {
+        rawReadSequence++;
+    }
     rawReadCount++;
     rawCadenceTracker.recordSampleMicros(sampleMicros);
     lastRawReadDurationMicros = readDurationMicros;
     if (readDurationMicros > maxRawReadDurationMicros) {
         maxRawReadDurationMicros = readDurationMicros;
     }
+}
+
+void Scale::recordRawInputSample(uint32_t sourceSequence, unsigned long sampleMillis, float rawReading) {
+    rawInputSampleCount++;
+    lastRawInputSequence = sourceSequence;
+    lastRawInputMillis = sampleMillis;
+    lastRawInputWeightGrams = rawReading;
+    hasLastRawInputWeightGrams = isfinite(rawReading);
+}
+
+void Scale::recordQualifiedInputSample(uint32_t sourceSequence, unsigned long sampleMillis, float qualifiedReading) {
+    qualifiedInputSampleCount++;
+    lastQualifiedInputSequence = sourceSequence;
+    lastQualifiedInputMillis = sampleMillis;
+    lastQualifiedInputWeightGrams = qualifiedReading;
+    hasLastQualifiedInputWeightGrams = isfinite(qualifiedReading);
+    if (!hasLastQualifiedInputWeightGrams) {
+        return;
+    }
+
+    qualifiedInputWindow[qualifiedInputWindowWriteIndex] = {
+        sourceSequence,
+        static_cast<uint32_t>(lastQualifiedInputMillis),
+        qualifiedReading
+    };
+    qualifiedInputWindowWriteIndex =
+        (qualifiedInputWindowWriteIndex + 1) % QUALIFIED_INPUT_WINDOW_CAPACITY;
+    if (qualifiedInputWindowCount < QUALIFIED_INPUT_WINDOW_CAPACITY) {
+        qualifiedInputWindowCount++;
+    }
+}
+
+uint8_t Scale::copyRecentQualifiedInputSamples(uint32_t nowMillis,
+                                               uint32_t windowMillis,
+                                               InputSample* outSamples,
+                                               uint8_t maxSamples) const {
+    if (outSamples == nullptr || maxSamples == 0 || qualifiedInputWindowCount == 0) {
+        return 0;
+    }
+
+    uint8_t copied = 0;
+    const uint8_t sourceCount = min(qualifiedInputWindowCount, maxSamples);
+    const uint8_t skippedOldSamples = qualifiedInputWindowCount - sourceCount;
+    for (uint8_t i = skippedOldSamples; i < qualifiedInputWindowCount && copied < maxSamples; i++) {
+        const uint8_t index =
+            (qualifiedInputWindowWriteIndex + QUALIFIED_INPUT_WINDOW_CAPACITY - qualifiedInputWindowCount + i) %
+            QUALIFIED_INPUT_WINDOW_CAPACITY;
+        const InputSample& sample = qualifiedInputWindow[index];
+        if (nowMillis - sample.sampleMillis > windowMillis) {
+            continue;
+        }
+        outSamples[copied++] = sample;
+    }
+    return copied;
 }
 
 float Scale::rawCountsToGrams(int32_t rawCounts) const {
@@ -525,7 +611,7 @@ bool Scale::readRawCountsWithTimeout(uint32_t timeoutMs, int32_t& rawCounts, Hx7
     return false;
 }
 
-bool Scale::popAcquiredRawSample(int32_t& rawCounts, uint32_t& sampleMicros, uint32_t& readDurationMicros) {
+bool Scale::popAcquiredRawSample(int32_t& rawCounts, uint32_t& sampleMicros, uint32_t& readDurationMicros, uint32_t* sourceSequence) {
 #if WMBP_ACQUISITION_TASK
     Hx711Acquisition::RawSample sample;
     if (!hx711Acquisition.popSample(sample)) {
@@ -534,11 +620,17 @@ bool Scale::popAcquiredRawSample(int32_t& rawCounts, uint32_t& sampleMicros, uin
     rawCounts = sample.rawCounts;
     sampleMicros = sample.readEndMicros;
     readDurationMicros = sample.readDurationMicros;
+    if (sourceSequence != nullptr) {
+        *sourceSequence = sample.sequence;
+    }
     return true;
 #else
     (void)rawCounts;
     (void)sampleMicros;
     (void)readDurationMicros;
+    if (sourceSequence != nullptr) {
+        *sourceSequence = 0;
+    }
     return false;
 #endif
 }
@@ -561,10 +653,11 @@ bool Scale::performRawTare(uint8_t times, uint32_t timeoutMs) {
             int32_t rawCounts = 0;
             uint32_t sampleMicros = 0;
             uint32_t readDurationMicros = 0;
-            if (popAcquiredRawSample(rawCounts, sampleMicros, readDurationMicros)) {
+            uint32_t sourceSequence = 0;
+            if (popAcquiredRawSample(rawCounts, sampleMicros, readDurationMicros, &sourceSequence)) {
                 total += rawCounts;
                 samples++;
-                recordRawReadCadence(sampleMicros, readDurationMicros);
+                recordRawReadCadence(sampleMicros, readDurationMicros, sourceSequence);
             } else {
                 delay(1);
             }
@@ -615,7 +708,9 @@ void Scale::recordSampleCadence(uint32_t sampleMicros) {
 void Scale::recordAcceptedSample(unsigned long sampleMillis, uint32_t sampleMicros, float rawReading, float publicWeight) {
     sampleSequence++;
     lastSampleMicros = sampleMicros;
-    lastSampleMillis = sampleMicros / 1000UL;
+    lastSampleMillis = sampleMillis;
+    lastPublicRawInputSequence = lastQualifiedInputSequence;
+    lastPublicRawInputMillis = lastQualifiedInputMillis;
     lifetimeSampleCount++;
     samplesSinceQualityPersist++;
     recordSampleCadence(sampleMicros);
@@ -723,6 +818,24 @@ void Scale::recordRejectedGlitch(unsigned long sampleMillis, float magnitudeGram
     persistQualityStatsIfNeeded(false);
 }
 
+void Scale::resetInputStageDiagnostics() {
+    rawInputSampleCount = 0;
+    qualifiedInputSampleCount = 0;
+    plausibilityRejectedSampleCount = 0;
+    lastRawInputSequence = 0;
+    lastQualifiedInputSequence = 0;
+    lastPublicRawInputSequence = 0;
+    lastRawInputMillis = 0;
+    lastQualifiedInputMillis = 0;
+    lastPublicRawInputMillis = 0;
+    lastRawInputWeightGrams = 0.0f;
+    lastQualifiedInputWeightGrams = 0.0f;
+    hasLastRawInputWeightGrams = false;
+    hasLastQualifiedInputWeightGrams = false;
+    qualifiedInputWindowWriteIndex = 0;
+    qualifiedInputWindowCount = 0;
+}
+
 void Scale::resetPlausibilityGate() {
     plausibilityCandidateActive = false;
     plausibilityCandidateCount = 0;
@@ -806,6 +919,10 @@ float Scale::applyZeroQualification(unsigned long sampleMillis, float rawReading
     return zeroClampActive ? 0.0f : correctedWeight;
 }
 
+float Scale::applyCurrentZeroStateToObservedSample(float observedWeight) const {
+    return zeroClampActive ? 0.0f : observedWeight - autoZeroCorrectionGrams;
+}
+
 void Scale::resetZeroQualification() {
     zeroClampActive = false;
     autoZeroActive = false;
@@ -814,6 +931,16 @@ void Scale::resetZeroQualification() {
     zeroWindowMinGrams = 0.0f;
     zeroWindowMaxGrams = 0.0f;
     autoZeroCorrectionGrams = 0.0f;
+}
+
+void Scale::resetTransientQualityStats() {
+    bumpCount = 0;
+    lastBumpMillis = 0;
+    lastBumpMagnitudeGrams = 0.0f;
+    glitchCount = 0;
+    lastGlitchMillis = 0;
+    lastGlitchMagnitudeGrams = 0.0f;
+    Serial.println("Transient bump/glitch quality counters reset");
 }
 
 void Scale::resetSampleCadenceStats() {
@@ -825,12 +952,7 @@ void Scale::resetSampleCadenceStats() {
     sampleIntervalMinMicros = 0;
     sampleIntervalMaxMicros = 0;
     sampleIntervalLongGapCount = 0;
-    bumpCount = 0;
-    lastBumpMillis = 0;
-    lastBumpMagnitudeGrams = 0.0f;
-    glitchCount = 0;
-    lastGlitchMillis = 0;
-    lastGlitchMagnitudeGrams = 0.0f;
+    resetTransientQualityStats();
     acquisitionPollCount = 0;
     acquisitionReadyCount = 0;
     acquisitionNotReadyCount = 0;
@@ -840,6 +962,7 @@ void Scale::resetSampleCadenceStats() {
     acquisitionTimeoutCount = 0;
     rawReadSequence = 0;
     rawReadCount = 0;
+    resetInputStageDiagnostics();
     lastRawReadDurationMicros = 0;
     maxRawReadDurationMicros = 0;
     rawCadenceTracker.reset();

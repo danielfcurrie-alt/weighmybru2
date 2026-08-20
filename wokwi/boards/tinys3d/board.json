@@ -1,0 +1,48 @@
+{
+  "name": "Unexpected Maker TinyS3[D]",
+  "version": 1,
+  "description": "Unexpected Maker TinyS3[D] ESP32-S3 board with 8 MB flash, 8 MB PSRAM, MAX17048 fuel gauge, RGB LED, and antenna switch",
+  "author": "WMB+ project",
+  "mcu": "esp32-s3",
+  "fqbn": "esp32:esp32:um_tinys3",
+  "width": 18.0,
+  "height": 33.0,
+  "mcuAttrs": {
+    "flashSize": "8",
+    "psramSize": "8",
+    "psramType": "quad",
+    "serialInterface": "USB_SERIAL_JTAG"
+  },
+  "pins": {
+    "35": { "x": 1.4, "y": 2.8, "target": "GPIO35" },
+    "37": { "x": 1.4, "y": 5.34, "target": "GPIO37" },
+    "36": { "x": 1.4, "y": 7.88, "target": "GPIO36" },
+    "34": { "x": 1.4, "y": 10.42, "target": "GPIO34" },
+    "9": { "x": 1.4, "y": 12.96, "target": "GPIO9" },
+    "8": { "x": 1.4, "y": 15.5, "target": "GPIO8" },
+    "7": { "x": 1.4, "y": 18.04, "target": "GPIO7" },
+    "6": { "x": 1.4, "y": 20.58, "target": "GPIO6" },
+    "RST": { "x": 1.4, "y": 23.12, "target": "CHIP_PU" },
+    "GND.1": { "x": 1.4, "y": 25.66, "target": "GND" },
+    "TX": { "x": 1.4, "y": 28.2, "target": "GPIO43" },
+    "RX": { "x": 1.4, "y": 30.74, "target": "GPIO44" },
+
+    "BAT": { "x": 16.6, "y": 2.8, "target": "power(3.7)" },
+    "GND.2": { "x": 16.6, "y": 5.34, "target": "GND" },
+    "5V": { "x": 16.6, "y": 7.88, "target": "power(5)" },
+    "3V3": { "x": 16.6, "y": 10.42, "target": "power(3.3)" },
+    "1": { "x": 16.6, "y": 12.96, "target": "GPIO1" },
+    "2": { "x": 16.6, "y": 15.5, "target": "GPIO2" },
+    "3": { "x": 16.6, "y": 18.04, "target": "GPIO3" },
+    "4": { "x": 16.6, "y": 20.58, "target": "GPIO4" },
+    "5": { "x": 16.6, "y": 23.12, "target": "GPIO5" },
+    "21": { "x": 16.6, "y": 25.66, "target": "GPIO21" },
+    "0": { "x": 16.6, "y": 28.2, "target": "GPIO0" },
+
+    "$vbusSense": { "target": "GPIO33" },
+    "$fuelGaugeInterrupt": { "target": "GPIO10" },
+    "$rgbPower": { "target": "GPIO17" },
+    "$rgbData": { "target": "GPIO18" },
+    "$antennaSwitch": { "target": "GPIO38" }
+  }
+}

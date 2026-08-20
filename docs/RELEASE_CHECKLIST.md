@@ -31,6 +31,7 @@ Use the primary XIAO reference unit and start from the previous published beta w
 - Upload the candidate `xiao-app.bin` through the local Updates page.
 - Confirm upload completes, the scale restarts, and the version/boot log reports the candidate version.
 - Confirm the active OTA app partition changed and the next OTA partition remains available.
+- If GitHub self-update is enabled for this beta, stage a test prerelease or release candidate asset and confirm Check, Download, pending install, Install, restart, and post-restart version reporting all work from the Updates page.
 - Upload the candidate `xiao-littlefs.bin` through the local Updates page.
 - Confirm upload completes and the web UI remains available after restart/reload.
 - Confirm the Updates page shows candidate UI text/assets.
@@ -63,13 +64,13 @@ After GitHub Actions publishes the release:
 - Confirm SuperMini `factory-full.bin` is 4,194,304 bytes.
 - Confirm `manifest-xiao.json` has `new_install_prompt_erase: false` and LittleFS offset `0x610000`.
 - Confirm `manifest-tinys3d.json` has `new_install_prompt_erase: false` and LittleFS offset `0x610000`.
-- Confirm `manifest-supermini.json` has `new_install_prompt_erase: false` and LittleFS offset `0x310000`.
+- Confirm `manifest-supermini.json` has `new_install_prompt_erase: false` and LittleFS offset `0x350000`.
 - Confirm the published SHA-256 file is present.
 
 ## Communication
 
 - State clearly whether OTA means manual browser-upload OTA or GitHub self-update.
 - State that first install / partition migration uses `factory-full.bin` over USB at `0x0`.
-- State that later app updates use `-app.bin` from the local Updates page.
+- State that later app updates can use GitHub app self-update or a manually uploaded `-app.bin` from the local Updates page.
 - State that later web UI updates use `-littlefs.bin` from the local Updates page.
 - State that normal beta updates should not use `erase_flash`.

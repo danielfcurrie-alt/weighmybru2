@@ -1,0 +1,5 @@
+name: WMB+ DevKitC bounded boot/serial probe
+version: 1
+author: WMB+
+steps:
+  - delay: 15000ms

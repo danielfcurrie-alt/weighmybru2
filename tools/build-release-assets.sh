@@ -92,7 +92,7 @@ board_name_for_env() {
 littlefs_offset_for_env() {
   case "$1" in
     esp32s3-xiao|esp32s3-tinys3d) echo "0x610000" ;;
-    esp32s3-supermini) echo "0x310000" ;;
+    esp32s3-supermini) echo "0x350000" ;;
     *) return 1 ;;
   esac
 }

@@ -52,7 +52,9 @@ ScaleCommandQueue scaleCommandQueue;
 static constexpr uint32_t BATTERY_BENCH_LOG_INTERVAL_MS = 30000;
 static bool batteryBenchLoggingEnabled = true;
 static bool usbWeightStreamEnabled = false;
+static bool usbSourceStreamEnabled = false;
 static uint32_t usbWeightDroppedFrames = 0;
+static uint32_t usbSupplementalDroppedFrames = 0;
 
 struct SleepSnapshot {
   uint32_t magic;
@@ -77,6 +79,22 @@ enum UsbWeightStatusFlags : uint16_t {
   USB_WEIGHT_STATUS_BATTERY_VALID = 1U << 6,
   USB_WEIGHT_STATUS_CHARGING = 1U << 7,
   USB_WEIGHT_STATUS_WIFI_RADIO_ON = 1U << 8
+};
+
+enum UsbSourceStatusFlags : uint16_t {
+  USB_SOURCE_STATUS_RAW_VALID = 1U << 0,
+  USB_SOURCE_STATUS_QUALIFIED_VALID = 1U << 1,
+  USB_SOURCE_STATUS_PUBLIC_CURRENT = 1U << 2
+};
+
+enum UsbFloat32StatusFlags : uint16_t {
+  USB_FLOAT32_STATUS_SOURCE_VALID = 1U << 0,
+  USB_FLOAT32_STATUS_SOURCE_LIMITED = 1U << 1,
+  USB_FLOAT32_STATUS_SOURCE_AGE_OVER_TICK = 1U << 2,
+  USB_FLOAT32_STATUS_SELECTION_SUSPECT = 1U << 3,
+  USB_FLOAT32_STATUS_BLE_CONNECTED = 1U << 4,
+  USB_FLOAT32_STATUS_CONFIRMED_LOAD_STEP = 1U << 5,
+  USB_FLOAT32_STATUS_SOURCE_STALE = 1U << 6
 };
 
 static const char* boolText(bool value) {
@@ -322,6 +340,8 @@ static void printBatteryBenchmarkLog(bool force = false) {
   const uint32_t scaleSequence = scale.getSampleSequence();
   const uint32_t extendedNotifyCount = bluetoothScale.getExtendedWeightNotifyCount();
   const uint32_t float32NotifyCount = bluetoothScale.getFloat32NotifyCount();
+  const uint32_t float32NotifyDropCount = bluetoothScale.getFloat32NotifyDropCount();
+  const uint32_t float32SuspectSelectionCount = bluetoothScale.getFloat32SuspectSelectionCount();
   const uint32_t batteryNotifyCount = bluetoothScale.getBatteryNotifyCount();
 
   const float scaleHz = (scaleSequence - lastScaleSequence) / elapsedSeconds;
@@ -349,7 +369,7 @@ static void printBatteryBenchmarkLog(bool force = false) {
       "learnedDischargePctPerHour=%.3f learnedChargePctPerHour=%.3f learnedDischargeObs=%u learnedChargeObs=%u learningConfidence=%s "
       "cpuMHz=%u wifiEnabled=%s wifiMode=%s wifiSleep=%s bleConnected=%s display=%s hx711=%s hx711Hz=%.2f hx711Mode=%s usbWeightStream=%s "
       "scaleHz=%.2f extendedNotifyHz=%.2f float32NotifyHz=%.2f batteryNotifyHz=%.2f "
-      "sampleSequence=%lu extendedNotifies=%lu float32Notifies=%lu batteryNotifies=%lu heap=%lu psram=%lu\n",
+      "sampleSequence=%lu extendedNotifies=%lu float32Notifies=%lu float32NotifyDrops=%lu float32SuspectSelections=%lu batteryNotifies=%lu heap=%lu psram=%lu\n",
       static_cast<unsigned long>(now),
       now / 60000.0f,
       batteryMonitor.getBatteryBackend().c_str(),
@@ -412,6 +432,8 @@ static void printBatteryBenchmarkLog(bool force = false) {
       static_cast<unsigned long>(scaleSequence),
       static_cast<unsigned long>(extendedNotifyCount),
       static_cast<unsigned long>(float32NotifyCount),
+      static_cast<unsigned long>(float32NotifyDropCount),
+      static_cast<unsigned long>(float32SuspectSelectionCount),
       static_cast<unsigned long>(batteryNotifyCount),
       static_cast<unsigned long>(ESP.getFreeHeap()),
       static_cast<unsigned long>(ESP.getFreePsram()));
@@ -425,6 +447,8 @@ static void printBatteryBenchmarkLog(bool force = false) {
 
 static void printUsbWeightStreamHeader() {
   Serial.println("WMBP_WEIGHT_V1_HEADER,ms,seq,weight_g,flow_gps,status,quality,battery_pct,hx711_hz,dropped");
+  Serial.println("WMBP_SOURCE_V1_HEADER,ms,raw_seq,raw_g,qualified_seq,qualified_g,public_seq,public_raw_seq,public_g,raw_to_public_gap,rejected,status");
+  Serial.println("WMBP_FLOAT32_V1_HEADER,ms,notify_count,weight_g,source_seq,source_age_ms,source_count,window_range_g,suspect_count,status");
 }
 
 static uint16_t usbWeightStatusFlags() {
@@ -461,6 +485,137 @@ static uint16_t usbWeightStatusFlags() {
   return status;
 }
 
+static uint16_t usbSourceStatusFlags() {
+  uint16_t status = 0;
+
+  if (scale.hasLastRawInputWeight()) {
+    status |= USB_SOURCE_STATUS_RAW_VALID;
+  }
+  if (scale.hasLastQualifiedInputWeight()) {
+    status |= USB_SOURCE_STATUS_QUALIFIED_VALID;
+  }
+  if (scale.getLastPublicRawInputSequence() == scale.getLastQualifiedInputSequence() &&
+      scale.getLastPublicRawInputSequence() != 0) {
+    status |= USB_SOURCE_STATUS_PUBLIC_CURRENT;
+  }
+
+  return status;
+}
+
+static void printUsbSourceSample(bool force = false) {
+  static uint32_t lastPrintedRawInputSequence = 0;
+
+  if (!force && (!usbWeightStreamEnabled || !usbSourceStreamEnabled)) {
+    return;
+  }
+  const uint32_t rawInputSequence = scale.getLastRawInputSequence();
+  if (!force && rawInputSequence == lastPrintedRawInputSequence) {
+    return;
+  }
+
+  char line[192];
+  const int length = snprintf(
+      line,
+      sizeof(line),
+      "WMBP_SOURCE_V1,%lu,%lu,%.3f,%lu,%.3f,%lu,%lu,%.3f,%lu,%lu,0x%04X\n",
+      static_cast<unsigned long>(scale.getLastRawInputMillis()),
+      static_cast<unsigned long>(scale.getLastRawInputSequence()),
+      scale.hasLastRawInputWeight() ? scale.getLastRawInputWeightGrams() : 0.0f,
+      static_cast<unsigned long>(scale.getLastQualifiedInputSequence()),
+      scale.hasLastQualifiedInputWeight() ? scale.getLastQualifiedInputWeightGrams() : 0.0f,
+      static_cast<unsigned long>(scale.getSampleSequence()),
+      static_cast<unsigned long>(scale.getLastPublicRawInputSequence()),
+      scale.getCurrentWeight(),
+      static_cast<unsigned long>(scale.getRawToPublicSequenceGap()),
+      static_cast<unsigned long>(scale.getPlausibilityRejectedSampleCount()),
+      usbSourceStatusFlags());
+
+  if (length <= 0 || length >= static_cast<int>(sizeof(line))) {
+    usbSupplementalDroppedFrames++;
+    return;
+  }
+
+  if (!force && Serial.availableForWrite() < length) {
+    usbSupplementalDroppedFrames++;
+    return;
+  }
+
+  Serial.write(reinterpret_cast<const uint8_t*>(line), length);
+  lastPrintedRawInputSequence = rawInputSequence;
+}
+
+static uint16_t usbFloat32StatusFlags() {
+  uint16_t status = 0;
+
+  if (bluetoothScale.hasLastFloat32SelectedSource()) {
+    status |= USB_FLOAT32_STATUS_SOURCE_VALID;
+  }
+  if (bluetoothScale.isLastFloat32SourceLimited()) {
+    status |= USB_FLOAT32_STATUS_SOURCE_LIMITED;
+  }
+  if (bluetoothScale.isLastFloat32SourceAgeOverTick()) {
+    status |= USB_FLOAT32_STATUS_SOURCE_AGE_OVER_TICK;
+  }
+  if (bluetoothScale.wasLastFloat32SelectionSuspect()) {
+    status |= USB_FLOAT32_STATUS_SELECTION_SUSPECT;
+  }
+  if (bluetoothScale.isConnected()) {
+    status |= USB_FLOAT32_STATUS_BLE_CONNECTED;
+  }
+  if (bluetoothScale.wasLastFloat32ConfirmedLoadStep()) {
+    status |= USB_FLOAT32_STATUS_CONFIRMED_LOAD_STEP;
+  }
+  if (bluetoothScale.isLastFloat32SourceStale()) {
+    status |= USB_FLOAT32_STATUS_SOURCE_STALE;
+  }
+
+  return status;
+}
+
+static void printUsbFloat32Sample(bool force = false) {
+  static uint32_t lastPrintedFloat32EstimatorTickCount = 0;
+
+  if (!force && (!usbWeightStreamEnabled || !usbSourceStreamEnabled)) {
+    return;
+  }
+
+  const uint32_t estimatorTickCount = bluetoothScale.getFloat32EstimatorTickCount();
+  if (!force && estimatorTickCount == lastPrintedFloat32EstimatorTickCount) {
+    return;
+  }
+  const uint32_t notifyCount = bluetoothScale.getFloat32NotifyCount();
+
+  char line[192];
+  const int length = snprintf(
+      line,
+      sizeof(line),
+      "WMBP_FLOAT32_V1,%lu,%lu,%.3f,%lu,%lu,%u,%.3f,%lu,0x%04X\n",
+      static_cast<unsigned long>(bluetoothScale.getLastFloat32EstimatorMillis()),
+      static_cast<unsigned long>(notifyCount),
+      bluetoothScale.getLastFloat32Weight(),
+      static_cast<unsigned long>(bluetoothScale.getLastFloat32SelectedSourceSequence()),
+      static_cast<unsigned long>(bluetoothScale.hasLastFloat32SelectedSource()
+                                     ? bluetoothScale.getLastFloat32SelectedSourceAgeMs()
+                                     : 0),
+      bluetoothScale.getLastFloat32SelectedSourceCount(),
+      bluetoothScale.getLastFloat32SelectedWindowRangeGrams(),
+      static_cast<unsigned long>(bluetoothScale.getFloat32SuspectSelectionCount()),
+      usbFloat32StatusFlags());
+
+  if (length <= 0 || length >= static_cast<int>(sizeof(line))) {
+    usbSupplementalDroppedFrames++;
+    return;
+  }
+
+  if (!force && Serial.availableForWrite() < length) {
+    usbSupplementalDroppedFrames++;
+    return;
+  }
+
+  Serial.write(reinterpret_cast<const uint8_t*>(line), length);
+  lastPrintedFloat32EstimatorTickCount = estimatorTickCount;
+}
+
 static void printUsbWeightSample(float weight, bool force = false) {
   if (!force && !usbWeightStreamEnabled) {
     return;
@@ -492,6 +647,10 @@ static void printUsbWeightSample(float weight, bool force = false) {
   }
 
   Serial.write(reinterpret_cast<const uint8_t*>(line), length);
+  if (force) {
+    printUsbSourceSample(true);
+    printUsbFloat32Sample(true);
+  }
 }
 
 static void printConfigDiagnostics() {
@@ -611,12 +770,15 @@ static void printConfigDiagnostics() {
                 batteryDrainSession.getConfidence(),
                 static_cast<unsigned long>(batteryDrainSession.getSamples()),
                 static_cast<unsigned long>(batteryDrainSession.getInvalidSamples()));
-  Serial.printf("USB weight stream: enabled=%s dropped=%lu format=WMBP_WEIGHT_V1\n",
+  Serial.printf("USB weight stream: enabled=%s source=%s dropped=%lu format=WMBP_WEIGHT_V1\n",
                 boolText(usbWeightStreamEnabled),
+                boolText(usbSourceStreamEnabled),
                 static_cast<unsigned long>(usbWeightDroppedFrames));
+  Serial.printf("USB supplemental diagnostics: dropped=%lu formats=WMBP_SOURCE_V1,WMBP_FLOAT32_V1\n",
+                static_cast<unsigned long>(usbSupplementalDroppedFrames));
   Serial.println("Board hardware: " + boardHardware.toJson());
   diagnosticEventLog.printTo(Serial, 12);
-  Serial.println("Commands: z=config diagnostics, e=print diagnostic events, E=clear diagnostic events, b=toggle battery benchmark log, B=print battery benchmark now, d=reset battery drain session, t=queue tare, w=toggle USB weight stream, W=print one USB weight sample");
+  Serial.println("Commands: z=config diagnostics, e=print diagnostic events, E=clear diagnostic events, b=toggle battery benchmark log, B=print battery benchmark now, d=reset battery drain session, t=queue tare, w=toggle USB weight stream, s=toggle USB source diagnostics, W=print one USB weight/source sample");
   Serial.println("============================================");
 }
 
@@ -646,6 +808,12 @@ static void handleSerialCommands() {
       usbWeightStreamEnabled = !usbWeightStreamEnabled;
       Serial.printf("USB weight stream %s\n", usbWeightStreamEnabled ? "enabled" : "disabled");
       if (usbWeightStreamEnabled) {
+        printUsbWeightStreamHeader();
+      }
+    } else if (command == 's') {
+      usbSourceStreamEnabled = !usbSourceStreamEnabled;
+      Serial.printf("USB source diagnostics %s\n", usbSourceStreamEnabled ? "enabled" : "disabled");
+      if (usbSourceStreamEnabled) {
         printUsbWeightStreamHeader();
       }
     } else if (command == 'W') {
@@ -697,12 +865,13 @@ void setup() {
   bluetoothScale.setTouchSensor(&touchSensor);
   bluetoothScale.setFlowRate(&flowRate);
   
-  // Check for factory reset request (hold touch pin during boot)
+  // Do not clear WiFi credentials from the tare touch pin during boot.
+  // GPIO4 can be high during reset/flashing or while the mounted touch module
+  // settles, and wiping credentials here strands beta test devices in AP mode.
   pinMode(touchPin, INPUT_PULLDOWN);
   if (digitalRead(touchPin) == HIGH) {
-    Serial.println("FACTORY RESET: Touch pin held during boot - clearing WiFi credentials");
-    clearWiFiCredentials();
-    delay(1000);
+    Serial.println("NOTICE: Tare touch pin was HIGH during boot; ignoring for WiFi credential safety.");
+    Serial.println("Use Settings > Clear WiFi Credentials for an intentional credential reset.");
   }
 
   // Initialize battery before BLE so the standard Battery Service can publish
@@ -780,7 +949,9 @@ void setup() {
   } else {
     Serial.println("Scale initialized successfully");
   }
+  bluetoothScale.setScale(&scale);
   usbWeightStreamEnabled = true;
+  usbSourceStreamEnabled = true;
   printUsbWeightStreamHeader();
   return;
 #endif
@@ -969,6 +1140,9 @@ void loop() {
 
 #if WMBP_WOKWI_RUNTIME_HARNESS
   batteryMonitor.update();
+  bluetoothScale.updateFloat32Estimator(millis());
+  printUsbSourceSample();
+  printUsbFloat32Sample();
   if (freshScaleSample) {
     printUsbWeightSample(weight);
   }
@@ -989,6 +1163,8 @@ void loop() {
   // Scale advances its fresh-sample sequence, so this does not create duplicate
   // timer-driven weight packets.
   bluetoothScale.update();
+  printUsbSourceSample();
+  printUsbFloat32Sample();
   
   // Drive StopMyBru pairing state machine
   smbComms.update();

@@ -56,6 +56,7 @@ static bool filesystemAvailable = false;
 static bool filesystemChecked = false;
 static unsigned long lastFilesystemError = 0;
 const unsigned long FILESYSTEM_ERROR_COOLDOWN = 30000; // Show error message every 30 seconds max
+const unsigned long AP_STORED_CREDENTIAL_RETRY_INTERVAL = 30000; // Retry STA from idle AP mode every 30 seconds
 
 // AP credentials
 const char* ap_ssid = WMB_PLUS_AP_SSID;
@@ -343,6 +344,10 @@ String getStoredPassword() {
     return cachedPassword;
 }
 
+bool hasStoredWiFiCredentials() {
+    return getStoredSSID().length() > 0;
+}
+
 void setupWiFi() {
     // Debug: Show what state we're loading
     Serial.println("=== WiFi SETUP DEBUG ===");
@@ -625,10 +630,33 @@ void maintainWiFi() {
             }
         } else if (currentMode == WIFI_AP) {
             // We're in AP mode - just ensure it's still running properly
-            if (WiFi.softAPgetStationNum() == 0) {
+            const int connectedClients = WiFi.softAPgetStationNum();
+            if (connectedClients == 0) {
                 Serial.println("AP mode active - '" + String(ap_ssid) + "' ready for configuration");
+
+                static unsigned long lastStoredCredentialRetry = 0;
+                if (millis() - lastStoredCredentialRetry >= AP_STORED_CREDENTIAL_RETRY_INTERVAL) {
+                    lastStoredCredentialRetry = millis();
+
+                    char ssid[33] = {0};
+                    char password[65] = {0};
+                    loadWiFiCredentials(ssid, password, sizeof(ssid));
+
+                    if (strlen(ssid) > 0) {
+                        Serial.println("Stored WiFi credentials still exist while in AP mode.");
+                        Serial.println("Retrying home WiFi before staying in setup AP...");
+                        if (attemptSTAConnection(ssid, password)) {
+                            Serial.println("Recovered STA connection from AP fallback.");
+                            startWebServer();
+                            return;
+                        }
+
+                        Serial.println("Stored WiFi retry failed; restoring setup AP without clearing credentials.");
+                        switchToAPMode();
+                    }
+                }
             } else {
-                Serial.println("AP mode active - " + String(WiFi.softAPgetStationNum()) + " clients connected");
+                Serial.println("AP mode active - " + String(connectedClients) + " clients connected");
             }
         } else if (currentMode == WIFI_OFF) {
             Serial.println("CRITICAL: WiFi is OFF! This should not happen - restarting AP mode");

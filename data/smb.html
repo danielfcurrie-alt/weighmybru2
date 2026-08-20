@@ -6,14 +6,16 @@
   <title>WMB+ – StopMyBru</title>
   <meta name="theme-color" content="#47a864">
   <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="WMB+">
-  <link rel="manifest" href="/manifest.webmanifest">
+  <meta name="apple-mobile-web-app-title" content="StopMyBru">
+  <link rel="manifest" href="/stopmybru.webmanifest">
   <link rel="apple-touch-icon" href="/icons/wmb-plus-192.png">
-  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="icon" type="image/png" href="/icons/wmb-plus-192.png">
   <link rel="stylesheet" href="/output.css">
   <script src="/js/alpine.min.js" defer></script>
   <link rel="stylesheet" href="/css/all.min.css">
+  <script src="/view-mode.js"></script>
 </head>
 <body class="bg-black-background text-white">
 
@@ -24,7 +26,7 @@
   <div @click.away="open = false" class="flex flex-col w-full md:w-64 text-gray-700 bg-black-discord dark-mode:text-gray-200 dark-mode:bg-gray-800 flex-shrink-0" x-data="{ open: false }">
     <div class="flex-shrink-0 px-8 py-4 flex flex-row items-center justify-between">
       <a href="/" class="focus:outline-none focus:shadow-outline" aria-label="WMB+ Dashboard">
-        <img src="/wmb-plus-logo.jpg" alt="WeighMyBru+" style="width: 128px; height: auto; max-width: 170px; border-radius: 12px; object-fit: contain;">
+        <img src="/icons/wmb-plus-512.jpg" alt="WeighMyBru+" style="width: 128px; height: auto; max-width: 170px; border-radius: 12px; object-fit: contain;">
       </a>
       <button class="rounded-lg md:hidden focus:outline-none focus:shadow-outline" @click="open = !open">
         <svg fill="currentColor" viewBox="0 0 20 20" class="w-6 h-6">
@@ -48,6 +50,24 @@
     <p class="text-gray-400 text-sm mb-6">Relay module that cuts the brew pump when your target weight is reached.</p>
 
     <div class="space-y-6 max-w-xl">
+      <div id="stopInstallCard" class="bg-black-select p-6 rounded shadow">
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <h2 id="stopInstallTitle" class="text-xl font-semibold mb-1">Add StopMyBru App</h2>
+            <p id="stopInstallText" class="text-gray-400 text-sm">
+              Install the quick StopMyBru remote from this page, or add it to your home screen for fast target stop controls.
+            </p>
+          </div>
+          <a href="/stopmybru.html"
+             class="bg-gray-600 hover:bg-button-green active:bg-green-900 text-white px-4 py-2 rounded whitespace-nowrap">
+            Open Remote
+          </a>
+        </div>
+        <button id="stopInstallButton"
+                class="hidden mt-4 bg-button-green active:bg-green-900 text-white px-4 py-2 rounded font-semibold">
+          Install StopMyBru
+        </button>
+      </div>
 
       <!-- ── Status card ─────────────────────────────────────────────────── -->
       <div class="bg-black-select p-6 rounded shadow">
@@ -105,7 +125,7 @@
         </div>
         <p x-show="setpointMsg" x-text="setpointMsg" class="text-green-400 text-sm mt-2"></p>
 
-        <div class="mt-5 pt-4 border-t border-gray-700">
+        <div data-wmbp-extended class="mt-5 pt-4 border-t border-gray-700">
           <h3 class="font-semibold mb-2">Learning Offset</h3>
           <p class="text-gray-400 text-sm mb-3">
             Learns how much weight arrives after power is cut. Positive offset cuts early; negative offset cuts slightly late.
@@ -162,7 +182,7 @@
       </div>
 
       <!-- ── Invert card ─────────────────────────────────────────────────── -->
-      <div class="bg-black-select p-6 rounded shadow">
+      <div data-wmbp-extended class="bg-black-select p-6 rounded shadow">
         <h2 class="text-xl font-semibold mb-1">Relay Polarity</h2>
         <p class="text-gray-400 text-sm mb-4">
           Most relay boards are <strong>active-LOW</strong> (relay energised when signal is LOW).
@@ -202,7 +222,7 @@
       </div>
 
       <!-- ── HTTP webhook relay card ─────────────────────────────────────── -->
-      <div class="bg-black-select p-6 rounded shadow">
+      <div data-wmbp-extended class="bg-black-select p-6 rounded shadow">
         <h2 class="text-xl font-semibold mb-1">HTTP Webhook Relay</h2>
         <p class="text-gray-400 text-sm mb-4">
           Use a local HTTP relay such as Tasmota or Shelly as a StopMyBru target.
@@ -339,7 +359,7 @@
       </div>
 
       <!-- ── SMB diagnostic link ─────────────────────────────────────────── -->
-      <div class="bg-black-select p-4 rounded shadow flex items-center gap-3" x-show="status.paired">
+      <div data-wmbp-extended class="bg-black-select p-4 rounded shadow flex items-center gap-3" x-show="status.paired">
         <i class="fa fa-external-link text-gray-400"></i>
         <div>
           <p class="text-sm text-gray-300">Open the StopMyBru built-in dashboard to view its internal diagnostics.</p>
@@ -353,6 +373,47 @@
 </div>
 
 <script>
+let stopDeferredInstallPrompt = null;
+
+function stopMyBruStandalone() {
+  return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+}
+
+function setStopInstallCopy(title, text) {
+  const titleEl = document.getElementById('stopInstallTitle');
+  const textEl = document.getElementById('stopInstallText');
+  if (titleEl) titleEl.textContent = title;
+  if (textEl) textEl.textContent = text;
+}
+
+window.addEventListener('beforeinstallprompt', event => {
+  event.preventDefault();
+  stopDeferredInstallPrompt = event;
+  document.getElementById('stopInstallButton')?.classList.remove('hidden');
+  setStopInstallCopy('Install StopMyBru', 'This browser can install the StopMyBru quick remote as an app.');
+});
+
+document.getElementById('stopInstallButton')?.addEventListener('click', async () => {
+  if (!stopDeferredInstallPrompt) return;
+  stopDeferredInstallPrompt.prompt();
+  await stopDeferredInstallPrompt.userChoice;
+  stopDeferredInstallPrompt = null;
+  document.getElementById('stopInstallButton')?.classList.add('hidden');
+});
+
+if (stopMyBruStandalone()) {
+  document.getElementById('stopInstallCard')?.classList.add('hidden');
+} else if (!window.isSecureContext) {
+  setStopInstallCopy(
+    'Add StopMyBru to Home Screen',
+    'Local scale pages usually use a browser home-screen shortcut. Open the quick remote, then use Share or the browser menu and choose Add to Home Screen.'
+  );
+}
+
+if ('serviceWorker' in navigator && window.isSecureContext) {
+  navigator.serviceWorker.register('/sw.js').catch(() => undefined);
+}
+
 function smbApp() {
   return {
     status: {
@@ -411,6 +472,7 @@ function smbApp() {
     },
 
     async fetchStatus() {
+      if (document.visibilityState === 'hidden') return;
       try {
         const r = await fetch('/api/smb/status');
         if (!r.ok) return;

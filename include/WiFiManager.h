@@ -16,6 +16,7 @@ void loadWiFiCredentials(char* ssid, char* password, size_t maxLen);
 bool loadWiFiCredentialsFromEEPROM(); // Load and cache WiFi credentials from EEPROM
 String getStoredSSID();
 String getStoredPassword();
+bool hasStoredWiFiCredentials();
 void setupWiFi(); // Setup WiFi based on saved preferences
 void setupWiFiForced(); // Force WiFi setup regardless of saved state (for power optimization)
 void setupmDNS(); // Setup mDNS for WMB+ hostname

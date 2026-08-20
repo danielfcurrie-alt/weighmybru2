@@ -3,4 +3,7 @@ version: 1
 author: WMB+
 steps:
   # Uses diagram attrs actualSps=94.22 to mirror the reference XIAO HX711.
+  # actualSps only applies to real-HX711 harness envs; *-sim-* envs ignore the
+  # diagram and use the WMBP_SIM_HX711_HZ build flag instead.
+  # Run via: tools/run-wokwi-matrix.sh clean-94hz
   - delay: 25000ms

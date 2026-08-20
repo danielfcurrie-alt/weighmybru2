@@ -4,6 +4,8 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 baseline_ref="${WMBP_BETA6_REF:-c043e1a76aca}"
 env_name="${WMBP_WOKWI_ENV:-esp32s3-xiao-sim-80sps}"
+diagram_file="${WMBP_WOKWI_DIAGRAM:-${repo_root}/diagram.json}"
+scenario_file="${WMBP_WOKWI_SCENARIO:-${repo_root}/wokwi/usb-weight-stream.scenario.yaml}"
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
 out_root="${repo_root}/.pio/wokwi-compare/${timestamp}"
 baseline_tree="${out_root}/beta6-worktree"
@@ -37,6 +39,31 @@ EOF
   exit 2
 fi
 
+# ---------------------------------------------------------------------------
+# Scope limit: this comparison can ONLY run on an env that BOTH refs can build.
+#
+# beta6 (c043e1a) has no wokwi/ directory, no diagrams, and no
+# *-wokwi-hx711-dout-interrupt envs - only the *-sim-* envs. A sim build never
+# reads DT/SCK, so this comparison is structurally incapable of exercising the
+# DOUT acquisition path, and its results must not be read as DOUT evidence.
+# It is a non-acquisition regression check.
+# ---------------------------------------------------------------------------
+case "${env_name}" in
+  *-sim-*) ;;
+  *)
+    cat >&2 <<EOF
+REFUSING TO RUN: '${env_name}' is not a simulation env.
+
+The beta6 baseline (${baseline_ref}) predates the Wokwi HX711 harness and cannot
+build this environment. Only *-sim-* envs exist in both refs.
+
+For acquisition/DOUT coverage use the single-ref smoke instead:
+  tools/run-wokwi-runtime-smoke.sh esp32s3-xiao-wokwi-hx711-dout-interrupt
+EOF
+    exit 2
+    ;;
+esac
+
 mkdir -p "${out_root}"
 
 cleanup() {
@@ -47,10 +74,18 @@ cleanup() {
 trap cleanup EXIT
 
 copy_harness_into_baseline() {
-  cp "${repo_root}/diagram.json" "${baseline_tree}/diagram.json"
-  cp "${repo_root}/wokwi.toml" "${baseline_tree}/wokwi.toml"
+  # Both refs must run the SAME diagram and scenario or the comparison is
+  # meaningless. Previously this hardcoded diagram.json +
+  # usb-weight-stream.scenario.yaml, so setting WMBP_WOKWI_DIAGRAM or
+  # WMBP_WOKWI_SCENARIO silently fed beta6 and beta7 different inputs.
   mkdir -p "${baseline_tree}/wokwi" "${baseline_tree}/tools"
-  cp "${repo_root}/wokwi/usb-weight-stream.scenario.yaml" "${baseline_tree}/wokwi/usb-weight-stream.scenario.yaml"
+  cp "${diagram_file}" "${baseline_tree}/$(basename "${diagram_file}")"
+  cp "${scenario_file}" "${baseline_tree}/wokwi/$(basename "${scenario_file}")"
+  # Custom chip sources: beta6 has no wokwi/ dir of its own.
+  for chip_file in "${repo_root}"/wokwi/*.chip.c "${repo_root}"/wokwi/*.chip.json; do
+    [[ -e "${chip_file}" ]] || continue
+    cp "${chip_file}" "${baseline_tree}/wokwi/"
+  done
   cp "${repo_root}/tools/analyze-wmbp-serial-log.py" "${baseline_tree}/tools/analyze-wmbp-serial-log.py"
   cp "${repo_root}/tools/run-wokwi-runtime-smoke.sh" "${baseline_tree}/tools/run-wokwi-runtime-smoke.sh"
   chmod +x "${baseline_tree}/tools/analyze-wmbp-serial-log.py" "${baseline_tree}/tools/run-wokwi-runtime-smoke.sh"
@@ -65,7 +100,10 @@ run_one() {
   echo "== Running ${label} (${env_name}) =="
   (
     cd "${worktree}"
-    WMBP_WOKWI_NO_FAIL=1 tools/run-wokwi-runtime-smoke.sh "${env_name}"
+    WMBP_WOKWI_NO_FAIL=1 \
+      WMBP_WOKWI_DIAGRAM="${worktree}/$(basename "${diagram_file}")" \
+      WMBP_WOKWI_SCENARIO="${worktree}/wokwi/$(basename "${scenario_file}")" \
+      tools/run-wokwi-runtime-smoke.sh "${env_name}"
   )
 
   mkdir -p "${output_dir}"
@@ -77,6 +115,9 @@ echo "Output: ${out_root}"
 echo "Baseline ref: ${baseline_ref}"
 echo "Environment: ${env_name}"
 echo "Baseline cache: ${baseline_cache}"
+echo "Diagram:  ${diagram_file}"
+echo "Scenario: ${scenario_file}"
+echo "SCOPE: simulation env - acquisition/DOUT path is NOT exercised."
 
 mkdir -p "${beta6_out}"
 if [[ "${refresh_baseline}" != "1" && -f "${baseline_cache}" ]]; then
@@ -122,7 +163,7 @@ fields = [
     ("missing_sequence", "missing seq"),
     ("dropped_delta", "dropped"),
     ("reported_hx711_hz_avg", "reported HX Hz"),
-    ("quality_avg", "quality avg"),
+    ("quality_avg", "quality avg *"),
 ]
 
 print("\n== Wokwi Beta 6 vs Beta 7 ==")
@@ -136,9 +177,15 @@ for key, label in fields:
     else:
         print(f"{label:<18} {str(a):>14} {str(b):>14} {'-':>14}")
 
+print("\n* quality_avg is INFORMATIONAL ONLY.")
+print("  The score computation may differ between the two refs, so a delta here")
+print("  is not necessarily a regression - diff the scoring code before acting.")
+print("  It is deliberately excluded from the regression gate below.")
+
 if beta6_failures or beta7_failures:
     print("\nAbsolute-profile failures:")
     print("These are expected when Wokwi cannot sustain the real 80 SPS serial stream.")
+    print("(Sim builds observed ~40 Hz; the smoke script now uses a 35 Hz floor for them.)")
     print("The comparison pass/fail below is based on Beta 7 regression vs Beta 6.")
     if beta6_failures:
         print("beta6:")

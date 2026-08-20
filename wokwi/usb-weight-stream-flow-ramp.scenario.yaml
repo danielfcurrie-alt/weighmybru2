@@ -1,0 +1,418 @@
+name: WMB+ Float32 selector flow ramp
+version: 1
+author: WMB+
+steps:
+  # Sweeps applied weight through the Float32 selector's coherence gates.
+  # FLOAT32_NEWEST_MEDIAN_BAND_GRAMS/300ms bound the flat path near 3.3 g/s;
+  # FLOAT32_COHERENT_RAMP_MAX_RATE_GPS bounds the ramp path at 12 g/s.
+  # Watch lastFloat32SelectedSourceAgeMs step up as each bound is crossed.
+  - delay: 6000ms
+  # ---- 2 g/s ----
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 0.20
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 0.40
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 0.60
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 0.80
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 1.00
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 1.20
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 1.40
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 1.60
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 1.80
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 2.00
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 2.20
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 2.40
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 2.60
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 2.80
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 3.00
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 3.20
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 3.40
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 3.60
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 3.80
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 4.00
+  - delay: 100ms
+  - delay: 500ms
+  # ---- 4 g/s ----
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 4.40
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 4.80
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 5.20
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 5.60
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 6.00
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 6.40
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 6.80
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 7.20
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 7.60
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 8.00
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 8.40
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 8.80
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 9.20
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 9.60
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 10.00
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 10.40
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 10.80
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 11.20
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 11.60
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 12.00
+  - delay: 100ms
+  - delay: 500ms
+  # ---- 8 g/s ----
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 12.80
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 13.60
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 14.40
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 15.20
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 16.00
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 16.80
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 17.60
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 18.40
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 19.20
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 20.00
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 20.80
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 21.60
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 22.40
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 23.20
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 24.00
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 24.80
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 25.60
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 26.40
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 27.20
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 28.00
+  - delay: 100ms
+  - delay: 500ms
+  # ---- 14 g/s ----
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 29.40
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 30.80
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 32.20
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 33.60
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 35.00
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 36.40
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 37.80
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 39.20
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 40.60
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 42.00
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 43.40
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 44.80
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 46.20
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 47.60
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 49.00
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 50.40
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 51.80
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 53.20
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 54.60
+  - delay: 100ms
+  - set-control:
+      part-id: hx711
+      control: weight
+      value: 56.00
+  - delay: 100ms
+  - delay: 500ms
+  - delay: 2000ms
