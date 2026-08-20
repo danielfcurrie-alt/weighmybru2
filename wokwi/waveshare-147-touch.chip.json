@@ -1,0 +1,50 @@
+{
+  "name": "Waveshare 1.47in Touch LCD (JD9853 + AXS5106L)",
+  "author": "WMB+",
+  "pins": [
+    "TP_RST", "TP_SDA", "TP_SCL", "TP_INT", "LCD_BL", "LCD_RST",
+    "LCD_CS", "LCD_DC", "MISO", "MOSI", "SCLK", "GND", "VCC"
+  ],
+  "controls": [
+    {
+      "id": "touchCount",
+      "label": "Touch points",
+      "type": "range",
+      "min": 0,
+      "max": 2,
+      "step": 1
+    },
+    {
+      "id": "touch1X",
+      "label": "Touch 1 X",
+      "type": "range",
+      "min": 0,
+      "max": 171,
+      "step": 1
+    },
+    {
+      "id": "touch1Y",
+      "label": "Touch 1 Y",
+      "type": "range",
+      "min": 0,
+      "max": 319,
+      "step": 1
+    },
+    {
+      "id": "touch2X",
+      "label": "Touch 2 X",
+      "type": "range",
+      "min": 0,
+      "max": 171,
+      "step": 1
+    },
+    {
+      "id": "touch2Y",
+      "label": "Touch 2 Y",
+      "type": "range",
+      "min": 0,
+      "max": 319,
+      "step": 1
+    }
+  ]
+}

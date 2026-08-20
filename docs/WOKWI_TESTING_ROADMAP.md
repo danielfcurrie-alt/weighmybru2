@@ -12,7 +12,7 @@ Use Wokwi for:
 - USB serial weight stream validation;
 - scenario-driven tare/load/disconnect/glitch tests;
 - early TinyS3[D] firmware-feature proxy testing with simulated MAX17048/LIS2DW12 pieces and
-  separately isolated experimental ST7789 wiring.
+  a separately isolated JD9853/AXS5106L display/touch model.
 
 The current TinyS3[D] firmware-feature proxy runs on Wokwi's XIAO ESP32-S3
 board model. It is not a TinyS3[D] hardware or board-variant model. It has two
@@ -20,8 +20,9 @@ distinct coverage levels:
 
 - MAX17048: current firmware probes and reads VCELL/SOC, so the baseline proves
   the fuel-gauge backend is selected and basic register decoding works.
-- LIS2DW12: the model and I2C wiring exist, but firmware integration has not
-  started. It is test-bed infrastructure, not passing accelerometer coverage.
+- LIS2DW12: a standalone firmware driver and I2C model exist, but production
+  firmware does not instantiate the driver. It is test-bed infrastructure, not
+  passing accelerometer product coverage.
 
 A second `tinys3d-devkitc-feature-proxy` runtime target uses Wokwi's DevKitC
 Arduino variant with TinyS3[D] feature macros. This makes GPIO17/18 and the
@@ -38,9 +39,10 @@ target must first be checked with Wokwi's interactive custom-board loader and
 then registered upstream before it can replace the proxies in the guarded CLI
 matrix.
 
-The ST7789 placeholder is not part of the active TinyS3[D] profile until its
-real SPI pin assignment is known. Keeping speculative display wiring out avoids
-false pin conflicts while fuel-gauge and accelerometer work proceeds.
+The builder's module is a JD9853 display with AXS5106L touch, not ST7789. Its
+13-pin protocol model remains outside the active TinyS3[D] profile until the
+real GPIO assignment is known. This keeps speculative wiring out while driver,
+fuel-gauge, and accelerometer work proceeds.
 
 ## TinyS3[D] sensor-to-product roadmap
 
@@ -53,8 +55,8 @@ its local-first, interoperable design: <https://oscalla.com/>.
 
 ### Phase 1: sensor foundation
 
-- Add LIS2DW12 discovery, identity validation, configuration, XYZ readings,
-  interrupt status, and configurable motion/tap thresholds.
+- Integrate the staged LIS2DW12 discovery, identity validation, configuration,
+  XYZ reading, and data-ready support; then add configurable motion/tap logic.
 - Expose bounded accelerometer diagnostics through USB and the dashboard before
   allowing it to change scale behavior.
 - Add MAX17048 register-level checks for VCELL, SOC, CRATE, QuickStart, alert
@@ -139,8 +141,8 @@ Do not use Wokwi as final evidence for:
 - Delayed load support so boot tare can start at 0 g and later place a simulated object.
 - Jitter, glitch, and missed-ready controls.
 - Wokwi scenarios for clean stream, midstream tare, and missed-ready recovery.
-- TinyS3[D] feature-proxy pieces for fuel gauge and future accelerometer integration;
-  experimental ST7789 wiring is kept out of the active profile.
+- TinyS3[D] feature-proxy pieces for fuel gauge and accelerometer integration;
+  JD9853/AXS5106L wiring is kept out of the active profile pending verified pins.
 - Runtime serial analyzer output under `.pio/wokwi/runs/<profile>/analysis.json`.
 
 ## Current important red test
@@ -246,7 +248,7 @@ Use these for fast PR checks. Use full analyzer scenarios for deeper checks.
 
 ## TBD: screenshots and display regression
 
-For OLED/ST7789 display work, add screenshot tests only after the acquisition path is stable.
+For OLED/JD9853 display work, add screenshot tests only after the acquisition path is stable.
 
 Potential checks:
 

@@ -210,15 +210,15 @@ or board-variant model:
 - board identity path reports `TinyS3[D]`;
 - custom HX711 model supports selectable 10 SPS / 80 SPS timing;
 - MAX17048 fuel gauge is simulated at I2C address `0x36`;
-- LIS2DW12 accelerometer is wired at I2C address `0x19`, but current firmware
-  does not initialize or consume it yet; the profile is ready for that work but
-  a green baseline is not accelerometer evidence;
+- LIS2DW12 accelerometer is wired at I2C address `0x19`; a standalone firmware
+  driver now exists, but production firmware does not instantiate or consume it
+  yet, so a green baseline is still not accelerometer evidence;
 - battery percent should come from the fuel-gauge path, not ADC fallback;
 - owned HX711 DOUT-interrupt acquisition starts and produces ordered samples.
 
-The active proxy omits the unverified ST7789 placeholder wiring. Its provisional
-SPI pins conflicted with the shared I2C bus and did not improve fuel-gauge or
-accelerometer coverage. Display wiring remains a separate hardware task.
+The active proxy omits the unverified display/touch wiring. The builder's module
+is now identified as a JD9853 SPI display plus AXS5106L I2C touch controller,
+not ST7789. Display wiring remains separate until the GPIO table is confirmed.
 
 The proxy intentionally skips BLE, WiFi, web server, and display initialization
 inside `WMBP_WOKWI_RUNTIME_HARNESS` so the test remains focused on acquisition,
@@ -267,10 +267,12 @@ The WMB+ Wokwi diagrams use custom chips under `wokwi/`:
   `jitterMicros`, `glitchEvery`, `glitchCounts`, and `missedReadyEvery`
   controls.
 - `chip-max17048`: TinyS3[D] fuel-gauge model.
-- `chip-lis2dw12`: accelerometer model for future hardware bump detection.
-- `chip-st7789-172x320`: Tiny TFT wiring placeholder with the real 8-pin
-  ST7789 module header. It is a recognized Wokwi part for wiring/build
-  validation, not a pixel-rendering display driver yet.
+- `chip-lis2dw12`: accelerometer model for driver and future motion testing.
+- `chip-waveshare-147-touch`: protocol-level model of the 13-pin Waveshare
+  JD9853/AXS5106L module. It checks SPI/I2C framing and touch coordinates; it
+  does not render pixels.
+- `chip-st7789-172x320`: retired provisional model for a different 8-pin
+  display. Do not use it for the builder's current hardware.
 
 Outputs:
 
@@ -331,18 +333,17 @@ Important limits:
 
 ## TinyS3[D] display note
 
-The planned TinyS3[D] build pairs with a 1.47 inch ST7789 SPI TFT display,
-172×320 pixels, with an 8-pin module header:
+The builder's current module is Waveshare's 1.47-inch Touch LCD: a 172x320
+JD9853 SPI display plus AXS5106L I2C touch controller, with a 13-pin header:
 
 ```text
-GND VDD SCL SDA RES DC CS BL
+TP_RST TP_SDA TP_SCL TP_INT LCD_BL LCD_RST LCD_CS LCD_DC MISO MOSI SCLK GND VCC
 ```
 
-This is not the same display path as the current SSD1306 I2C OLED. The Tiny
-display work should be implemented behind a display abstraction rather than
-special-casing OLED calls throughout the firmware. The Wokwi runtime harness
-currently skips display initialization; display driver validation belongs in a
-separate ST7789 task once the TinyS3[D] hardware/display wiring is finalized.
+This is not the same display path as the current SSD1306 I2C OLED. Standalone
+JD9853 and AXS5106L drivers now compile, but are deliberately not instantiated.
+UI integration should use a display abstraction rather than special-casing OLED
+calls throughout the firmware. See `docs/TINYS3D_PERIPHERAL_DRIVERS.md`.
 
 The current builder-supplied TinyS3[D] pinout screenshot should be treated as a
 wiring reference, not a source file. Before hard-coding the TFT/LIS2DW12 GPIOs

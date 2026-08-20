@@ -25,6 +25,7 @@
 #include <string.h>
 
 #define REG_WHO_AM_I 0x0F
+#define REG_OUT_T_H 0x0E
 #define REG_CTRL1 0x20
 #define REG_CTRL2 0x21
 #define REG_CTRL3 0x22
@@ -96,8 +97,10 @@ static int16_t axis_raw(chip_state_t *chip, uint32_t attr_id) {
   const uint8_t fs = (chip->regs[REG_CTRL6] >> 4) & 0x03;
   const float full_scale_g = (float)(2 << fs);
   const float counts_per_g = 4096.0f / (float)(1 << fs);
-  const float g = clampf_local(attr_read_float(attr_id), -full_scale_g, full_scale_g);
-  return (int16_t)lroundf(g * counts_per_g);
+  const float max_g = full_scale_g - (1.0f / counts_per_g);
+  const float g = clampf_local(attr_read_float(attr_id), -full_scale_g, max_g);
+  // High-performance samples are 14-bit values left-aligned in 16-bit output.
+  return (int16_t)(lroundf(g * counts_per_g) * 4);
 }
 
 static uint8_t axis_byte(chip_state_t *chip, uint32_t attr_id, bool high_byte) {
@@ -109,6 +112,7 @@ static uint8_t read_register(chip_state_t *chip, uint8_t reg) {
   switch (reg) {
     case REG_WHO_AM_I:
       return 0x44;
+    case REG_OUT_T_H:
     case REG_OUT_T: {
       const float temp_c = clampf_local(attr_read_float(chip->temp_attr), -40.0f, 85.0f);
       return (uint8_t)(int8_t)lroundf(temp_c - 25.0f);
