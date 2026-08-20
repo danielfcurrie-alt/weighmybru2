@@ -293,7 +293,7 @@ static bool parseLatestRelease(const String& payload, OtaReleaseInfo& info, Stri
 
         if (!draft && prerelease && wmbBeta) {
             info.version = tag.startsWith("v") || tag.startsWith("V") ? tag.substring(1) : tag;
-            info.releaseUrl = extractJsonStringAfter(releaseBlock, 0, "\"html_url\"");
+            info.releaseUrl = "https://github.com/danielfcurrie-alt/weighmybru2/releases/tag/" + tag;
             const bool hasApp = extractAssetInfo(releaseBlock, "-" + suffix + "-app.bin", info.firmwareName, info.firmwareUrl);
             const bool hasLittlefs = extractAssetInfo(releaseBlock, "-" + suffix + "-littlefs.bin", info.littlefsName, info.littlefsUrl);
             if (!hasApp) {
@@ -314,7 +314,7 @@ static bool parseLatestRelease(const String& payload, OtaReleaseInfo& info, Stri
 }
 
 static String updateCheckEndpoint() {
-    return "https://api.github.com/repos/danielfcurrie-alt/weighmybru2/releases?per_page=2";
+    return "https://api.github.com/repos/danielfcurrie-alt/weighmybru2/releases?per_page=5&_=" + String(millis());
 }
 
 static bool fetchLatestOtaRelease(OtaReleaseInfo& info, String& error) {
@@ -336,6 +336,8 @@ static bool fetchLatestOtaRelease(OtaReleaseInfo& info, String& error) {
     }
     http.addHeader("User-Agent", "WMBPlus-OTA");
     http.addHeader("Accept", "application/vnd.github+json");
+    http.addHeader("Cache-Control", "no-cache");
+    http.addHeader("Pragma", "no-cache");
 
     const int code = http.GET();
     if (code != HTTP_CODE_OK) {
