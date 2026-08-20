@@ -60,6 +60,7 @@ fi
 
 out_dir="build-output/${version}"
 mkdir -p "${out_dir}"
+mkdir -p ota
 
 build_number="${WMBP_BUILD_NUMBER:-0}"
 commit_hash="$(git rev-parse --short HEAD)"
@@ -181,6 +182,17 @@ EOF
 }
 EOF
 done
+
+cat > "ota/wmb-plus-beta-latest.json" <<EOF
+{
+  "schema": 1,
+  "channel": "wmb-plus-beta",
+  "version": "${version}",
+  "tag": "v${version}",
+  "release_url": "https://github.com/danielfcurrie-alt/weighmybru2/releases/tag/v${version}",
+  "assets_base_url": "https://github.com/danielfcurrie-alt/weighmybru2/releases/download/v${version}"
+}
+EOF
 
 (
   cd "${out_dir}"

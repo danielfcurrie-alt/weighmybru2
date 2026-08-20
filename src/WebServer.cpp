@@ -223,52 +223,6 @@ static String extractJsonStringAfter(const String& text, int start, const char* 
     return value;
 }
 
-static bool extractAssetInfo(const String& releaseBlock,
-                             const String& filenameSuffix,
-                             String& assetName,
-                             String& assetUrl) {
-    int searchPos = 0;
-    while (true) {
-        const int nameKeyPos = releaseBlock.indexOf("\"name\"", searchPos);
-        if (nameKeyPos < 0) {
-            break;
-        }
-
-        const String candidateName = extractJsonStringAfter(releaseBlock, nameKeyPos, "\"name\"");
-        if (candidateName.endsWith(filenameSuffix)) {
-            const String candidateUrl = extractJsonStringAfter(releaseBlock, nameKeyPos, "\"browser_download_url\"");
-            if (candidateUrl.length() > 0) {
-                assetName = candidateName;
-                assetUrl = candidateUrl;
-                return true;
-            }
-        }
-
-        searchPos = nameKeyPos + 6;
-    }
-
-    int suffixPos = releaseBlock.indexOf(filenameSuffix);
-    while (suffixPos >= 0) {
-        int valueStart = suffixPos;
-        while (valueStart > 0 && releaseBlock[valueStart - 1] != '"') {
-            valueStart--;
-        }
-        const int valueEnd = releaseBlock.indexOf('"', suffixPos);
-        if (valueEnd > valueStart) {
-            const String candidateUrl = releaseBlock.substring(valueStart, valueEnd);
-            if (candidateUrl.startsWith("http")) {
-                const int slashPos = candidateUrl.lastIndexOf('/');
-                assetName = slashPos >= 0 ? candidateUrl.substring(slashPos + 1) : candidateUrl;
-                assetUrl = candidateUrl;
-                return true;
-            }
-        }
-        suffixPos = releaseBlock.indexOf(filenameSuffix, suffixPos + filenameSuffix.length());
-    }
-
-    return false;
-}
-
 static bool parseLatestRelease(const String& payload, OtaReleaseInfo& info, String& error) {
     const String suffix = boardReleaseSuffix();
     if (suffix.length() == 0) {
@@ -276,45 +230,44 @@ static bool parseLatestRelease(const String& payload, OtaReleaseInfo& info, Stri
         return false;
     }
 
-    int searchPos = 0;
-    while (true) {
-        const int tagPos = payload.indexOf("\"tag_name\"", searchPos);
-        if (tagPos < 0) {
-            error = "No WMB+ beta release found";
-            return false;
-        }
-
-        const int nextTagPos = payload.indexOf("\"tag_name\"", tagPos + 10);
-        const String releaseBlock = payload.substring(tagPos, nextTagPos >= 0 ? nextTagPos : payload.length());
-        const String tag = extractJsonStringAfter(payload, tagPos, "\"tag_name\"");
-        const bool draft = releaseBlock.indexOf("\"draft\":true") >= 0;
-        const bool prerelease = releaseBlock.indexOf("\"prerelease\":true") >= 0;
-        const bool wmbBeta = tag.startsWith("0.2.0-beta.") || tag.startsWith("v0.2.0-beta.");
-
-        if (!draft && prerelease && wmbBeta) {
-            info.version = tag.startsWith("v") || tag.startsWith("V") ? tag.substring(1) : tag;
-            info.releaseUrl = "https://github.com/danielfcurrie-alt/weighmybru2/releases/tag/" + tag;
-            const bool hasApp = extractAssetInfo(releaseBlock, "-" + suffix + "-app.bin", info.firmwareName, info.firmwareUrl);
-            const bool hasLittlefs = extractAssetInfo(releaseBlock, "-" + suffix + "-littlefs.bin", info.littlefsName, info.littlefsUrl);
-            if (!hasApp) {
-                info.firmwareName = "wmb-plus-" + info.version + "-" + suffix + "-app.bin";
-                info.firmwareUrl = "https://github.com/danielfcurrie-alt/weighmybru2/releases/download/" +
-                                   tag + "/" + info.firmwareName;
-            }
-            if (!hasLittlefs) {
-                info.littlefsName = "wmb-plus-" + info.version + "-" + suffix + "-littlefs.bin";
-                info.littlefsUrl = "https://github.com/danielfcurrie-alt/weighmybru2/releases/download/" +
-                                   tag + "/" + info.littlefsName;
-            }
-            return true;
-        }
-
-        searchPos = tagPos + 10;
+    String version = extractJsonStringAfter(payload, 0, "\"version\"");
+    String tag = extractJsonStringAfter(payload, 0, "\"tag\"");
+    if (version.length() == 0 && tag.length() > 0) {
+        version = tag.startsWith("v") || tag.startsWith("V") ? tag.substring(1) : tag;
     }
+    if (tag.length() == 0 && version.length() > 0) {
+        tag = "v" + version;
+    }
+
+    const bool wmbBeta = version.startsWith("0.2.0-beta.") || tag.startsWith("v0.2.0-beta.");
+    if (!wmbBeta) {
+        error = "No WMB+ beta release found";
+        return false;
+    }
+
+    String releaseUrl = extractJsonStringAfter(payload, 0, "\"release_url\"");
+    if (releaseUrl.length() == 0) {
+        releaseUrl = "https://github.com/danielfcurrie-alt/weighmybru2/releases/tag/" + tag;
+    }
+    String assetsBaseUrl = extractJsonStringAfter(payload, 0, "\"assets_base_url\"");
+    if (assetsBaseUrl.length() == 0) {
+        assetsBaseUrl = "https://github.com/danielfcurrie-alt/weighmybru2/releases/download/" + tag;
+    }
+    if (assetsBaseUrl.endsWith("/")) {
+        assetsBaseUrl.remove(assetsBaseUrl.length() - 1);
+    }
+
+    info.version = version;
+    info.releaseUrl = releaseUrl;
+    info.firmwareName = "wmb-plus-" + version + "-" + suffix + "-app.bin";
+    info.firmwareUrl = assetsBaseUrl + "/" + info.firmwareName;
+    info.littlefsName = "wmb-plus-" + version + "-" + suffix + "-littlefs.bin";
+    info.littlefsUrl = assetsBaseUrl + "/" + info.littlefsName;
+    return true;
 }
 
 static String updateCheckEndpoint() {
-    return "https://api.github.com/repos/danielfcurrie-alt/weighmybru2/releases?per_page=5&_=" + String(millis());
+    return "https://raw.githubusercontent.com/danielfcurrie-alt/weighmybru2/wmb-plus/beta-0.2.0/ota/wmb-plus-beta-latest.json?_=" + String(millis());
 }
 
 static bool fetchLatestOtaRelease(OtaReleaseInfo& info, String& error) {
@@ -335,7 +288,7 @@ static bool fetchLatestOtaRelease(OtaReleaseInfo& info, String& error) {
         return false;
     }
     http.addHeader("User-Agent", "WMBPlus-OTA");
-    http.addHeader("Accept", "application/vnd.github+json");
+    http.addHeader("Accept", "application/json");
     http.addHeader("Cache-Control", "no-cache");
     http.addHeader("Pragma", "no-cache");
 
@@ -347,7 +300,7 @@ static bool fetchLatestOtaRelease(OtaReleaseInfo& info, String& error) {
     }
 
     const int contentLength = http.getSize();
-    if (contentLength > 0 && contentLength > 131072) {
+    if (contentLength > 0 && contentLength > 8192) {
         error = "Release check response too large";
         http.end();
         return false;
