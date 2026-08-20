@@ -11,8 +11,12 @@
   let heartbeatTimer = null;
   let reconnectTimer = null;
   let reconnectDelayMs = 500;
+  let staleTimer = null;
+  let lastSnapshotAt = 0;
+  let offlinePublished = false;
   const FALLBACK_INTERVAL_MS = 1000;
   const SSE_RECONNECT_MAX_MS = 10000;
+  const STALE_SNAPSHOT_MS = 6500;
 
   function visible() {
     return document.visibilityState !== 'hidden';
@@ -29,7 +33,44 @@
     });
   }
 
+  function scheduleStaleCheck() {
+    if (staleTimer) {
+      clearTimeout(staleTimer);
+      staleTimer = null;
+    }
+    if (!visible() || !lastSnapshotAt) return;
+    staleTimer = setTimeout(() => {
+      staleTimer = null;
+      if (!visible() || !lastSnapshotAt) return;
+      const staleMs = Date.now() - lastSnapshotAt;
+      if (staleMs >= STALE_SNAPSHOT_MS) {
+        publishOffline('stale', staleMs);
+      } else {
+        scheduleStaleCheck();
+      }
+    }, STALE_SNAPSHOT_MS + 150);
+  }
+
+  function noteOnlineSnapshot() {
+    lastSnapshotAt = Date.now();
+    offlinePublished = false;
+    scheduleStaleCheck();
+  }
+
+  function publishOffline(reason, staleMs = Date.now() - lastSnapshotAt) {
+    if (offlinePublished) return;
+    offlinePublished = true;
+    const snapshot = {
+      __wmbpOffline: true,
+      __wmbpReason: reason || 'offline',
+      __wmbpStaleMs: Math.max(0, staleMs || 0)
+    };
+    notify(snapshot);
+    post({ type: 'snapshot', snapshot });
+  }
+
   function publish(snapshot) {
+    if (!snapshot.__wmbpOffline) noteOnlineSnapshot();
     notify(snapshot);
     post({ type: 'snapshot', snapshot });
   }
@@ -53,13 +94,19 @@
       clearInterval(fallbackTimer);
       fallbackTimer = null;
     }
+    if (staleTimer) {
+      clearTimeout(staleTimer);
+      staleTimer = null;
+    }
   }
 
   async function pollFallbackSnapshot() {
     if (!isLeader || !visible()) return;
     try {
       publish(await directJson('/api/dashboard'));
-    } catch (_) { /* next interval retries */ }
+    } catch (_) {
+      publishOffline('fetch_failed');
+    }
   }
 
   function startFallback(intervalMs) {
@@ -101,6 +148,9 @@
         if (eventSource) {
           eventSource.close();
           eventSource = null;
+        }
+        if (!lastSnapshotAt || Date.now() - lastSnapshotAt >= STALE_SNAPSHOT_MS) {
+          publishOffline('sse_error');
         }
         startFallback(FALLBACK_INTERVAL_MS);
         scheduleSseReconnect();
@@ -186,6 +236,7 @@
         return;
       }
       if (message.type === 'snapshot') {
+        if (message.snapshot && !message.snapshot.__wmbpOffline) noteOnlineSnapshot();
         notify(message.snapshot);
         return;
       }
@@ -213,6 +264,10 @@
 
   document.addEventListener('visibilitychange', () => {
     if (visible()) {
+      if (lastSnapshotAt && Date.now() - lastSnapshotAt >= STALE_SNAPSHOT_MS) {
+        publishOffline('stale');
+      }
+      scheduleStaleCheck();
       scheduleElection(50);
     } else {
       resignLeader();

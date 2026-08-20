@@ -601,6 +601,11 @@
     el.className = `status-pill ${normalized}`;
   }
 
+  function markAppOffline(message = 'Could not reach WMB+. Showing last snapshot.') {
+    setPill('connectionPill', 'Offline', 'bad');
+    setText('statusText', message);
+  }
+
   function formatNumber(value, digits) {
     const n = Number(value);
     return Number.isFinite(n) ? n.toFixed(digits) : '—';
@@ -708,8 +713,7 @@
       setPill('connectionPill', 'Online', 'ok');
       updateAppBadge();
     } catch (e) {
-      setPill('connectionPill', 'Offline', 'bad');
-      setText('statusText', 'Could not reach WMB+. Check WiFi/AP connection.');
+      markAppOffline('Could not reach WMB+. Check WiFi/AP connection.');
       loadCachedState();
     } finally {
       dashboardInFlight = false;
@@ -907,6 +911,11 @@
   loadCachedState();
   window.WMBPLive?.subscribe(d => {
     if (shouldPauseLiveRefresh()) return;
+    if (d.__wmbpOffline) {
+      markAppOffline();
+      return;
+    }
+    setPill('connectionPill', 'Online', 'ok');
     lastDashboard = Object.assign({}, lastDashboard, d);
     setText('weight', formatNumber(d.weight ?? d.w, 1));
     setText('flow', formatNumber(d.flowrate ?? d.f, 2));

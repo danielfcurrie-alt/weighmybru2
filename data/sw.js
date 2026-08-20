@@ -1,6 +1,6 @@
 // Bump this cache name whenever WMBP_SHELL assets are added, removed, renamed,
 // or meaningfully changed so installed PWAs refresh their offline shell.
-const WMBP_CACHE = 'wmb-plus-shell-v8';
+const WMBP_CACHE = 'wmb-plus-shell-v9';
 const WMBP_SHELL = [
   '/',
   '/index.html',

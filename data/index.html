@@ -767,17 +767,37 @@
     setText('systemDiagnostics', diagParts.length ? diagParts.join(' · ') : 'no diagnostic data yet');
   }
 
-  function updateCoreBasicPanel(data, weight, flowrate) {
-    setText('coreBasicWeight', weight.toFixed(decimalPlaces));
-    setText('coreBasicFlow', flowrate.toFixed(1));
-
-    const connected = data.scale_connected === true || data.scale_connected === 'true';
-    setText('coreBasicConnection', connected ? 'Connected' : 'Offline');
+  function setCoreBasicConnection(connected, label) {
+    setText('coreBasicConnection', label || (connected ? 'Connected' : 'Offline'));
     const connection = document.getElementById('coreBasicConnection');
     if (connection) {
       connection.style.background = connected ? 'rgba(34, 197, 94, 0.18)' : 'rgba(239, 68, 68, 0.18)';
       connection.style.color = connected ? '#86efac' : '#fecaca';
     }
+  }
+
+  function markDashboardOffline(message = 'Scale unreachable; showing last snapshot.') {
+    setCoreBasicConnection(false, 'Offline');
+    setText('coreBasicSubtitle', 'Last snapshot');
+    setText('coreBasicStatus', message);
+    const scaleStatus = document.getElementById('scaleStatus');
+    if (scaleStatus) {
+      scaleStatus.innerText = 'HX711 Offline';
+      scaleStatus.className = 'px-3 py-1 bg-red-600 text-white rounded-full text-xs font-medium';
+    }
+  }
+
+  function updateCoreBasicPanel(data, weight, flowrate) {
+    if (data.__wmbpOffline) {
+      markDashboardOffline();
+      return;
+    }
+
+    setText('coreBasicWeight', weight.toFixed(decimalPlaces));
+    setText('coreBasicFlow', flowrate.toFixed(1));
+
+    const connected = data.scale_connected === true || data.scale_connected === 'true';
+    setCoreBasicConnection(connected);
 
     const usbOnlyPower = data.usb_only_power === true || data.usb_only_power === 'true';
     if (usbOnlyPower) {
@@ -1008,6 +1028,11 @@
   let updateTimer = null;
 
   function applyLiveSnapshot(data, options = {}) {
+    if (data.__wmbpOffline) {
+      markDashboardOffline();
+      return;
+    }
+
     let weight = parseFloat(data.weight ?? data.w);
     let flowrate = parseFloat(data.flowrate ?? data.f);
     if (isNaN(weight)) weight = 0;
@@ -1209,7 +1234,10 @@
           }
         }
       })
-      .catch(err => console.error("Dashboard fetch error:", err))
+      .catch(err => {
+        console.error("Dashboard fetch error:", err);
+        markDashboardOffline('Could not reach WMB+. Showing last snapshot.');
+      })
       .finally(() => {
         dashboardFetchInFlight = false;
       });
