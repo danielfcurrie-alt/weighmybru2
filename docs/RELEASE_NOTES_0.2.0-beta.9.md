@@ -1,8 +1,8 @@
 # WMB+ 0.2.0-beta.9 release notes
 
-Beta 9 is a release candidate focused on cleaner compatibility output, self-update readiness, and a smaller web UI footprint.
+Beta 9 is focused on cleaner compatibility output, self-update readiness, and a smaller web UI footprint.
 
-## What changed from beta 5
+## What changed from beta 8
 
 - Reworked the Bean Conqueror Float32 compatibility path into a clean 20 Hz stream derived from plausibility-qualified source samples.
 - Removed the unbounded Float32 freeze/release behavior seen on noisy machine captures.
@@ -10,6 +10,7 @@ Beta 9 is a release candidate focused on cleaner compatibility output, self-upda
 - Added GitHub app self-update support from the scale while it is connected to home WiFi: check latest release, download the matching board app image to the inactive OTA slot, show a pending install, then reboot only when the user taps Install.
 - Kept manual browser-upload OTA for app firmware and LittleFS web UI images as the fallback path.
 - Tightened the PWA/web UI payload with smaller icons/assets and a simpler Basic/Extended view model.
+- Fixed installed PWA/live-dashboard stale-state handling so a sleeping or unreachable scale is marked offline/stale instead of showing a stale green Connected state.
 - Reclaimed SuperMini app space by moving the SuperMini LittleFS partition to `0x350000`.
 - Expanded Wokwi hardware models for TinyS3[D] validation work, including MAX17048 and LIS2DW12 behavior.
 
@@ -24,13 +25,18 @@ Beta 9 supports two OTA paths after the matching dual-OTA factory layout is inst
 
 Do not use `erase_flash` for normal beta updates. NVS stores calibration, WiFi credentials, and learned settings.
 
-## Validation priorities before public announcement
+## Final beta9 release validation
 
-- Build all supported board assets and verify manifests, image sizes, and board-specific LittleFS offsets.
-- Run the release-blocking browser OTA smoke on the XIAO reference unit.
-- Smoke-test GitHub app self-update against a published prerelease or release candidate asset before announcing broadly.
-- Run the StopMyBru webhook smoke test on the same local network as the scale.
-- Capture at least one quiet countertop pour and one machine pour after beta9 is flashed, then compare ScaleBench/USB diagnostics against beta8/beta9 development captures.
+- Published release tag `v0.2.0-beta.9` points at `d1c1e13`.
+- All XIAO, SuperMini, and TinyS3[D] release assets were rebuilt from a clean `d1c1e13` worktree.
+- The published release is a GitHub prerelease, not a draft.
+- `wmb-plus-0.2.0-beta.9-sha256.txt` validates the local and MacBook release artifact folders.
+- Manifests keep `new_install_prompt_erase: false` and the expected board-specific LittleFS offsets: XIAO/TinyS3[D] at `0x610000`, SuperMini at `0x350000`.
+- Factory-full image sizes were verified: XIAO and TinyS3[D] are 8,388,608 bytes; SuperMini is 4,194,304 bytes.
+- XIAO reference hardware was flashed and exercised with beta9 firmware plus the final web UI bundle.
+- Quiet countertop and noisy machine pours were captured with ScaleBench after beta9 Float32 changes.
+- OTA refresh/download/pending-install behavior was fixed and smoke-tested on the reference unit.
+- PWA sleep/offline behavior was fixed and tested on the reference unit.
 
 ## Upgrade path
 

@@ -1,6 +1,6 @@
 # WMB+ 0.2.0-beta.6 internal notes
 
-Beta 6 is an internal hardening checkpoint. It is intentionally not a public GitHub Release; the next planned public GitHub Release target is beta 8.
+Beta 6 is an internal hardening checkpoint. It is intentionally not a public GitHub Release. It was followed by beta7 and beta8 internal/tester checkpoints before beta9 became the next public GitHub prerelease.
 
 ## Main changes
 
@@ -20,9 +20,9 @@ Beta 6 is an internal hardening checkpoint. It is intentionally not a public Git
 - Do not create a GitHub Release for beta 6.
 - Do not update the public README's "Current beta release" section to beta 6.
 - Use beta 6 locally to validate hardening, OTA upload behavior, full factory image size/offset correctness, and web UI asset packaging.
-- Target beta 8 as the next public GitHub Release after beta 7 feature work and a beta 8 hardening pass.
+- Use beta 7 and beta 8 as internal/tester checkpoints before the next public GitHub prerelease.
 
-## Required validation before beta 8
+## Required validation before the next public beta
 
 - Full regression script.
 - Local release-asset build for XIAO, SuperMini, and TinyS3[D].

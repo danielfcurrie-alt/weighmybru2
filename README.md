@@ -48,6 +48,13 @@ Latest beta:
 
 - [WMB+ 0.2.0-beta.9 release](https://github.com/danielfcurrie-alt/weighmybru2/releases/tag/v0.2.0-beta.9)
 
+Final beta9 release provenance:
+
+- Release tag: `v0.2.0-beta.9`
+- Firmware/web asset commit: `d1c1e13`
+- Published as a GitHub prerelease, not a draft.
+- Release assets were rebuilt from a clean `d1c1e13` worktree and verified against `wmb-plus-0.2.0-beta.9-sha256.txt`.
+
 Supported beta boards:
 
 - **Primary tested reference:** Seeed Studio XIAO ESP32S3
@@ -160,6 +167,7 @@ Hardware-tested on the XIAO ESP32S3 reference build:
 - Battery/USB state reporting includes charging detection on the tested reference unit.
 - WiFi can remain disabled for battery-focused use.
 - Local web UI works in access-point mode and can also use saved local WiFi credentials.
+- Dashboard and PWA live snapshots mark the scale offline/stale after sleep or lost connectivity instead of showing a stale green Connected state.
 - Manual browser-upload OTA works for app firmware.
 - GitHub app self-update check/download/pending-install is implemented for WiFi-connected scales.
 - Manual browser-upload OTA works for LittleFS web UI updates.
@@ -202,7 +210,16 @@ If you see a regression in Bean Conqueror, GaggiMate, or Gaggiuino compared with
 - [Release checklist](docs/RELEASE_CHECKLIST.md)
 - [USB serial protocol](docs/USB_SERIAL.md)
 - [WMB+ BLE protocol](docs/WMB_PLUS_PROTOCOL.md)
-- [Release notes](docs/RELEASE_NOTES_0.2.0-beta.9.md)
+- Release notes:
+  - [0.2.0-beta.9](docs/RELEASE_NOTES_0.2.0-beta.9.md)
+  - [0.2.0-beta.8 internal](docs/RELEASE_NOTES_0.2.0-beta.8.md)
+  - [0.2.0-beta.7 internal](docs/RELEASE_NOTES_0.2.0-beta.7.md)
+  - [0.2.0-beta.6 internal](docs/RELEASE_NOTES_0.2.0-beta.6.md)
+  - [0.2.0-beta.5](docs/RELEASE_NOTES_0.2.0-beta.5.md)
+  - [0.2.0-beta.4](docs/RELEASE_NOTES_0.2.0-beta.4.md)
+  - [0.2.0-beta.3](docs/RELEASE_NOTES_0.2.0-beta.3.md)
+  - [0.2.0-beta.2](docs/RELEASE_NOTES_0.2.0-beta.2.md)
+  - [0.2.0-beta.1](docs/RELEASE_NOTES_0.2.0-beta.1.md)
 
 ## Quick flash commands
 
