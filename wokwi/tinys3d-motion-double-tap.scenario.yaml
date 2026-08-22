@@ -1,0 +1,15 @@
+name: TinyS3D proxy LIS2DW12 double-tap pattern
+version: 1
+author: WMB+
+steps:
+  - wait-serial: 'WMBP_TINY_LIS_RANGES_OK'
+  - set-control:
+      part-id: accel
+      control: pattern
+      value: 5
+  - set-control:
+      part-id: accel
+      control: amplitudeG
+      value: 0.8
+  - wait-serial: 'WMBP_TINY_MOTION_DOUBLE_TAP_OK'
+  - delay: 5000ms

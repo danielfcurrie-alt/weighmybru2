@@ -1,0 +1,10 @@
+name: TinyS3D proxy MAX17048 low-SOC alert
+version: 1
+author: WMB+
+steps:
+  - set-control:
+      part-id: fg
+      control: soc
+      value: 1
+  - wait-serial: 'WMBP_TINY_MAX17048_ALERT_OK'
+  - delay: 5000ms

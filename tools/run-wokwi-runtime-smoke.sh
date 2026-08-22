@@ -111,6 +111,16 @@ EOF
   exit 127
 fi
 
+token_env_file="${WMBP_WOKWI_TOKEN_ENV:-${HOME}/.wokwi/cli-token.env}"
+if [[ -z "${WOKWI_CLI_TOKEN:-}" && -r "${token_env_file}" ]]; then
+  set -a
+  # This user-owned file contains only the local Wokwi CLI credential.
+  # shellcheck disable=SC1090
+  source "${token_env_file}"
+  set +a
+  echo "Loaded Wokwi CLI credential from ${token_env_file}."
+fi
+
 if [[ -z "${WOKWI_CLI_TOKEN:-}" ]]; then
   cat >&2 <<'EOF'
 WOKWI_CLI_TOKEN is not set.
@@ -212,16 +222,35 @@ if [[ "${WMBP_WOKWI_VCD:-0}" == "1" ]]; then
 fi
 
 outer_timeout_seconds="$(( simulation_timeout_seconds * ${WMBP_WOKWI_WALL_TIME_MULTIPLIER:-3} + ${WMBP_WOKWI_CLI_GRACE_SECONDS:-30} ))"
+startup_wall_timeout_seconds="${WMBP_WOKWI_STARTUP_WALL_TIMEOUT_SECONDS:-45}"
+case "${startup_wall_timeout_seconds}" in
+  ''|*[!0-9]*) echo "WMBP_WOKWI_STARTUP_WALL_TIMEOUT_SECONDS must be a positive integer." >&2; exit 2 ;;
+esac
 wokwi-cli "${wokwi_args[@]}" \
   >"${wokwi_stdout_file}" 2>&1 &
 wokwi_pid="$!"
 wokwi_status=0
 wokwi_started_at="${SECONDS}"
 wokwi_watchdog_fired=0
+wokwi_watchdog_reason=""
 
 while kill -0 "${wokwi_pid}" >/dev/null 2>&1; do
-  if (( SECONDS - wokwi_started_at > outer_timeout_seconds )); then
+  elapsed_wall_seconds="$(( SECONDS - wokwi_started_at ))"
+  if (( elapsed_wall_seconds > startup_wall_timeout_seconds )) &&
+     ! grep -qE 'CPU frequency set|WMBP_' "${log_file}" 2>/dev/null; then
+    echo "No application serial within ${startup_wall_timeout_seconds}s; stopping boot-stalled Wokwi run." >&2
+    wokwi_watchdog_reason="startup"
+    kill "${wokwi_pid}" >/dev/null 2>&1 || true
+    sleep 2
+    kill -9 "${wokwi_pid}" >/dev/null 2>&1 || true
+    wait "${wokwi_pid}" >/dev/null 2>&1 || true
+    tail -n 160 "${wokwi_stdout_file}" >&2 || true
+    wokwi_watchdog_fired=1
+    break
+  fi
+  if (( elapsed_wall_seconds > outer_timeout_seconds )); then
     echo "Wokwi CLI did not exit within ${outer_timeout_seconds}s; stopping hung run." >&2
+    wokwi_watchdog_reason="overall"
     kill "${wokwi_pid}" >/dev/null 2>&1 || true
     sleep 2
     kill -9 "${wokwi_pid}" >/dev/null 2>&1 || true
@@ -239,11 +268,12 @@ if [[ "${wokwi_watchdog_fired}" == "0" ]]; then
   wokwi_status="$?"
   set -e
 else
-  wokwi_status=124
+  [[ "${wokwi_watchdog_reason}" == "startup" ]] && wokwi_status=125 || wokwi_status=124
 fi
 
 if [[ "${wokwi_status}" != "0" ]]; then
-  if [[ "${wokwi_status}" == "124" && -s "${log_file}" && "${WMBP_WOKWI_ANALYZE_AFTER_WATCHDOG:-1}" == "1" ]]; then
+  if { [[ "${wokwi_status}" == "124" ]] || [[ "${wokwi_status}" == "125" ]]; } &&
+     [[ -s "${log_file}" && "${WMBP_WOKWI_ANALYZE_AFTER_WATCHDOG:-1}" == "1" ]]; then
     echo "Wokwi CLI was stopped by watchdog; analyzing captured serial log." >&2
   else
     tail -n 160 "${wokwi_stdout_file}" >&2 || true

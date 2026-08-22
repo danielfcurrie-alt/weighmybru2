@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "author": "WMB+",
+  "editor": "wokwi",
+  "parts": [
+    {
+      "type": "board-esp32-s3-devkitc-1",
+      "id": "esp",
+      "top": 0,
+      "left": 0,
+      "attrs": {
+        "flashSize": "8",
+        "psramSize": "8",
+        "psramType": "quad"
+      }
+    }
+  ],
+  "connections": [
+    ["$serialMonitor:RX", "esp:TX", "", []]
+  ],
+  "dependencies": {},
+  "_comment": "Board-only serial sentinel using the same DevKitC flash and QSPI PSRAM configuration as the TinyS3D feature proxy. Wokwi's serial monitor is explicitly connected one-way to UART0 TX so it can read Arduino Serial without driving the GPIO44/RX tare input."
+}

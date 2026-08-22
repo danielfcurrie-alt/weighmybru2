@@ -2,7 +2,7 @@
   "name": "WMB+",
   "short_name": "WMB+",
   "id": "/app.html",
-  "description": "WeighMyBru+ scale controls, StopMyBru target stop, calibration, diagnostics, and OTA.",
+  "description": "WeighMyBru+ scale controls, guided pour-over recipes, StopMyBru target stop, calibration, diagnostics, and OTA.",
   "start_url": "/app.html",
   "scope": "/",
   "display": "standalone",
@@ -32,6 +32,13 @@
     }
   ],
   "shortcuts": [
+    {
+      "name": "Pour Over",
+      "short_name": "Pour Over",
+      "description": "Open guided pour-over recipes and live brew stages.",
+      "url": "/pourover.html",
+      "icons": [{ "src": "/icons/wmb-plus-192.png", "sizes": "192x192" }]
+    },
     {
       "name": "StopMyBru",
       "short_name": "Stop",

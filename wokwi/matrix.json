@@ -100,7 +100,227 @@
       "minDeviceRateHz": 78.0,
       "maxDeviceGapMs": 150.0,
       "maxGapsOver100ms": 0,
-      "why": "TinyS3[D] firmware-feature proxy matched to Wokwi's DevKitC Arduino variant. Runs HX711 acquisition, MAX17048, Float32, GPIO17/18 wiring, and the GPIO35 USB-sense substitute. It is not a TinyS3[D] hardware model: GPIO35 cannot validate physical GPIO33, GPIO38 remains unconnected, and the real TinyS3 Arduino variant is covered only by separate builds/hardware."
+      "why": "TinyS3[D] firmware-feature proxy matched to Wokwi's DevKitC Arduino variant. Uses the builder-confirmed external pins except for DevKitC-only LCD_CS GPIO39 and USB-sense GPIO47 substitutes for unavailable physical GPIO34/GPIO33. The exact map is retained by the custom Tiny board and production build."
+    },
+    {
+      "name": "tinys3d-lis-identity",
+      "env": "esp32s3-tinys3d-wokwi-xiao-carrier-hx711-dout-interrupt",
+      "diagram": "diagram.tinys3d.json",
+      "scenario": "wokwi/tinys3d-lis-identity.scenario.yaml",
+      "timeoutMs": 25000,
+      "minDeviceRateHz": 78.0,
+      "maxDeviceGapMs": 150.0,
+      "maxGapsOver100ms": 0,
+      "why": "Checks LIS2DW12 identity, bounded soft reset, all four XYZ scale ranges, routed data-ready, and continued HX711 output."
+    },
+    {
+      "name": "tinys3d-motion-sequence",
+      "env": "esp32s3-tinys3d-wokwi-xiao-carrier-hx711-dout-interrupt",
+      "diagram": "diagram.tinys3d.json",
+      "scenario": "wokwi/tinys3d-motion-sequence.scenario.yaml",
+      "timeoutMs": 35000,
+      "minDeviceRateHz": 78.0,
+      "maxDeviceGapMs": 150.0,
+      "maxGapsOver100ms": 0,
+      "why": "Compact daily gate for quiet, vibration, knock, cup-placement impact, and double-tap diagnostics while HX711 acquisition continues."
+    },
+    {
+      "name": "tinys3d-motion-quiet",
+      "env": "esp32s3-tinys3d-wokwi-xiao-carrier-hx711-dout-interrupt",
+      "diagram": "diagram.tinys3d.json",
+      "scenario": "wokwi/tinys3d-motion-quiet.scenario.yaml",
+      "timeoutMs": 25000,
+      "minDeviceRateHz": 78.0,
+      "maxDeviceGapMs": 150.0,
+      "maxGapsOver100ms": 0,
+      "why": "Feeds the deterministic quiet waveform into the diagnostic-only motion analyzer."
+    },
+    {
+      "name": "tinys3d-motion-vibration",
+      "env": "esp32s3-tinys3d-wokwi-xiao-carrier-hx711-dout-interrupt",
+      "diagram": "diagram.tinys3d.json",
+      "scenario": "wokwi/tinys3d-motion-vibration.scenario.yaml",
+      "timeoutMs": 25000,
+      "minDeviceRateHz": 78.0,
+      "maxDeviceGapMs": 150.0,
+      "maxGapsOver100ms": 0,
+      "why": "Feeds sustained vibration while checking motion activity and HX711 cadence."
+    },
+    {
+      "name": "tinys3d-motion-knock",
+      "env": "esp32s3-tinys3d-wokwi-xiao-carrier-hx711-dout-interrupt",
+      "diagram": "diagram.tinys3d.json",
+      "scenario": "wokwi/tinys3d-motion-knock.scenario.yaml",
+      "timeoutMs": 25000,
+      "minDeviceRateHz": 78.0,
+      "maxDeviceGapMs": 150.0,
+      "maxGapsOver100ms": 0,
+      "why": "Checks bounded impact and tap-candidate diagnostics from the deterministic knock waveform."
+    },
+    {
+      "name": "tinys3d-motion-cup",
+      "env": "esp32s3-tinys3d-wokwi-xiao-carrier-hx711-dout-interrupt",
+      "diagram": "diagram.tinys3d.json",
+      "scenario": "wokwi/tinys3d-motion-cup.scenario.yaml",
+      "timeoutMs": 25000,
+      "minDeviceRateHz": 78.0,
+      "maxDeviceGapMs": 150.0,
+      "maxGapsOver100ms": 0,
+      "why": "Checks impact plus ring-down activity from the deterministic cup-placement waveform."
+    },
+    {
+      "name": "tinys3d-motion-double-tap",
+      "env": "esp32s3-tinys3d-wokwi-xiao-carrier-hx711-dout-interrupt",
+      "diagram": "diagram.tinys3d.json",
+      "scenario": "wokwi/tinys3d-motion-double-tap.scenario.yaml",
+      "timeoutMs": 25000,
+      "minDeviceRateHz": 78.0,
+      "maxDeviceGapMs": 150.0,
+      "maxGapsOver100ms": 0,
+      "why": "Checks diagnostic double-tap candidates without connecting them to tare behavior."
+    },
+    {
+      "name": "tinys3d-max17048-discharge",
+      "env": "esp32s3-tinys3d-wokwi-xiao-carrier-hx711-dout-interrupt",
+      "diagram": "diagram.tinys3d.json",
+      "scenario": "wokwi/tinys3d-max17048-discharge.scenario.yaml",
+      "timeoutMs": 25000,
+      "minDeviceRateHz": 78.0,
+      "maxDeviceGapMs": 150.0,
+      "maxGapsOver100ms": 0,
+      "why": "Checks MAX17048 signed CRATE direction for discharge."
+    },
+    {
+      "name": "tinys3d-max17048-sequence",
+      "env": "esp32s3-tinys3d-wokwi-xiao-carrier-hx711-dout-interrupt",
+      "diagram": "diagram.tinys3d.json",
+      "scenario": "wokwi/tinys3d-max17048-sequence.scenario.yaml",
+      "timeoutMs": 25000,
+      "minDeviceRateHz": 78.0,
+      "maxDeviceGapMs": 150.0,
+      "maxGapsOver100ms": 0,
+      "why": "Compact daily gate for signed discharge and charge rates plus low-SOC alert behavior. Missing-at-boot remains a separate row."
+    },
+    {
+      "name": "tinys3d-max17048-charge",
+      "env": "esp32s3-tinys3d-wokwi-xiao-carrier-hx711-dout-interrupt",
+      "diagram": "diagram.tinys3d.json",
+      "scenario": "wokwi/tinys3d-max17048-charge.scenario.yaml",
+      "timeoutMs": 25000,
+      "minDeviceRateHz": 78.0,
+      "maxDeviceGapMs": 150.0,
+      "maxGapsOver100ms": 0,
+      "why": "Checks MAX17048 signed CRATE direction for charging."
+    },
+    {
+      "name": "tinys3d-max17048-alert",
+      "env": "esp32s3-tinys3d-wokwi-xiao-carrier-hx711-dout-interrupt",
+      "diagram": "diagram.tinys3d.json",
+      "scenario": "wokwi/tinys3d-max17048-alert.scenario.yaml",
+      "timeoutMs": 30000,
+      "minDeviceRateHz": 78.0,
+      "maxDeviceGapMs": 150.0,
+      "maxGapsOver100ms": 0,
+      "why": "Drives low SOC and waits for the modeled latched MAX17048 alert path."
+    },
+    {
+      "name": "tinys3d-max17048-missing",
+      "env": "esp32s3-tinys3d-wokwi-xiao-carrier-hx711-dout-interrupt",
+      "diagram": "diagram.tinys3d.json",
+      "scenario": "wokwi/tinys3d-max17048-missing.scenario.yaml",
+      "timeoutMs": 15000,
+      "minDeviceRateHz": 78.0,
+      "maxDeviceGapMs": 150.0,
+      "maxGapsOver100ms": 0,
+      "why": "Takes the MAX17048 model offline before firmware discovery and checks the explicit missing-gauge backend."
+    },
+    {
+      "name": "tinys3d-devkitc-integration",
+      "env": "esp32s3-tinys3d-wokwi-devkitc-board-hx711-dout-interrupt",
+      "diagram": "diagram.tinys3d-devkitc.json",
+      "scenario": "wokwi/tinys3d-devkitc-integration.scenario.yaml",
+      "timeoutMs": 40000,
+      "minDeviceRateHz": 65.0,
+      "maxDeviceGapMs": 250.0,
+      "maxGapsOver100ms": 5,
+      "why": "Single DevKitC one-way UART0 gate for display checkpoints, touch page selection, LIS/MAX traffic, full-frame SPI updates, and HX711 cadence."
+    },
+    {
+      "name": "tinys3d-devkitc-boot-no-color",
+      "env": "esp32s3-tinys3d-wokwi-devkitc-boot-no-color",
+      "diagram": "diagram.tinys3d-devkitc.json",
+      "scenario": "wokwi/tinys3d-lis-identity.scenario.yaml",
+      "timeoutMs": 12000,
+      "minDeviceRateHz": 65.0,
+      "maxDeviceGapMs": 250.0,
+      "maxGapsOver100ms": 5,
+      "why": "DevKitC boot A/B control: full custom-chip diagram with color UI construction and execution disabled."
+    },
+    {
+      "name": "tinys3d-devkitc-boot-color",
+      "env": "esp32s3-tinys3d-wokwi-devkitc-board-hx711-dout-interrupt",
+      "diagram": "diagram.tinys3d-devkitc.json",
+      "scenario": "wokwi/tinys3d-lis-identity.scenario.yaml",
+      "timeoutMs": 12000,
+      "minDeviceRateHz": 65.0,
+      "maxDeviceGapMs": 250.0,
+      "maxGapsOver100ms": 5,
+      "why": "DevKitC boot A/B treatment: same diagram and chips as the control, with color UI enabled."
+    },
+    {
+      "name": "tinys3d-devkitc-boot-no-peripherals",
+      "env": "esp32s3-tinys3d-wokwi-devkitc-boot-no-peripherals",
+      "diagram": "diagram.tinys3d-devkitc.json",
+      "scenario": "wokwi/devkitc-boot-probe-15s.scenario.yaml",
+      "timeoutMs": 12000,
+      "minDeviceRateHz": 65.0,
+      "maxDeviceGapMs": 250.0,
+      "maxGapsOver100ms": 5,
+      "why": "DevKitC boot isolation control: deterministic Wokwi/HX711 runtime retained while the complete Tiny peripheral coordinator is compiled out."
+    },
+    {
+      "name": "tinys3d-devkitc-serial-sentinel",
+      "env": "esp32s3-tinys3d-wokwi-devkitc-serial-sentinel",
+      "diagram": "diagram.devkitc-serial-sentinel.json",
+      "scenario": "wokwi/devkitc-serial-sentinel.scenario.yaml",
+      "timeoutMs": 6000,
+      "minDeviceRateHz": 80.0,
+      "maxDeviceGapMs": 30.0,
+      "maxGapsOver100ms": 0,
+      "why": "Six-second board-only discriminator for DevKitC flash/PSRAM application boot and explicit one-way UART0 serial capture, independent of the full firmware and all peripheral models."
+    },
+    {
+      "name": "tinys3d-display-checkpoints",
+      "env": "esp32s3-tinys3d-wokwi-devkitc-board-hx711-dout-interrupt",
+      "diagram": "diagram.tinys3d-devkitc.json",
+      "scenario": "wokwi/tinys3d-display-checkpoints.scenario.yaml",
+      "timeoutMs": 35000,
+      "minDeviceRateHz": 65.0,
+      "maxDeviceGapMs": 250.0,
+      "maxGapsOver100ms": 5,
+      "why": "Presents splash, weight, flow, QR, status, and Pour Over canvases to the pixel-rendering Waveshare model and records deterministic framebuffer checksums."
+    },
+    {
+      "name": "tinys3d-touch-pages",
+      "env": "esp32s3-tinys3d-wokwi-devkitc-board-hx711-dout-interrupt",
+      "diagram": "diagram.tinys3d-devkitc.json",
+      "scenario": "wokwi/tinys3d-touch-pages.scenario.yaml",
+      "timeoutMs": 25000,
+      "minDeviceRateHz": 65.0,
+      "maxDeviceGapMs": 250.0,
+      "maxGapsOver100ms": 5,
+      "why": "Injects an AXS5106L touch point and verifies rotation-aware page selection."
+    },
+    {
+      "name": "tinys3d-i2c-spi-cadence",
+      "env": "esp32s3-tinys3d-wokwi-devkitc-board-hx711-dout-interrupt",
+      "diagram": "diagram.tinys3d-devkitc.json",
+      "scenario": "wokwi/tinys3d-i2c-spi-cadence.scenario.yaml",
+      "timeoutMs": 40000,
+      "minDeviceRateHz": 65.0,
+      "maxDeviceGapMs": 250.0,
+      "maxGapsOver100ms": 5,
+      "why": "Measures HX711 stream continuity while 100 Hz LIS2DW12 reads, MAX17048 diagnostics, touch polling, and one-Hz full-frame SPI updates are active."
     }
   ]
 }

@@ -3,7 +3,12 @@
 #include <Wire.h>
 #include <math.h>
 
-BatteryMonitor::BatteryMonitor(uint8_t batteryPin) : batteryPin(batteryPin) {
+BatteryMonitor::BatteryMonitor(uint8_t batteryPin)
+    : batteryPin(batteryPin)
+#if HAS_I2C_FUEL_GAUGE
+    , fuelGauge(Wire, FUEL_GAUGE_MAX17048_ADDR)
+#endif
+{
     lastVoltage = 0.0f;
     smoothedPercentage = -1.0f;
     rawPercentage = 0;
@@ -195,21 +200,13 @@ float BatteryMonitor::readRawVoltage() {
 
 bool BatteryMonitor::beginFuelGauge() {
 #if HAS_I2C_FUEL_GAUGE
-    Wire.beginTransmission(FUEL_GAUGE_MAX17048_ADDR);
-    if (Wire.endTransmission() != 0) {
+    if (!fuelGauge.begin()) {
         Serial.printf("MAX17048 fuel gauge not found at 0x%02X\n", FUEL_GAUGE_MAX17048_ADDR);
         return false;
     }
-
-    uint16_t version = 0;
-    if (!readFuelGaugeRegister16(0x08, version)) {
-        Serial.println("MAX17048 fuel gauge detected but version read failed");
-        return false;
-    }
-
     Serial.printf("MAX17048 fuel gauge detected at 0x%02X version=0x%04X\n",
                   FUEL_GAUGE_MAX17048_ADDR,
-                  version);
+                  fuelGauge.version());
     return true;
 #else
     return false;
@@ -218,49 +215,15 @@ bool BatteryMonitor::beginFuelGauge() {
 
 bool BatteryMonitor::readFuelGaugeSnapshot(float& voltage, float& stateOfCharge) {
 #if HAS_I2C_FUEL_GAUGE
-    uint16_t vcell = 0;
-    uint16_t soc = 0;
-
-    if (!readFuelGaugeRegister16(0x02, vcell) ||
-        !readFuelGaugeRegister16(0x04, soc)) {
+    if (!fuelGauge.readVoltageAndSoc(voltage, stateOfCharge)) {
         return false;
     }
-
-    // MAX17048 VCELL is a 12-bit value left-aligned in the 16-bit register.
-    // Each 12-bit count is 1.25 mV, equivalently the raw 16-bit register is
-    // 78.125 uV/LSB because the low nibble is fractional/unused.
-    voltage = static_cast<float>(vcell >> 4) * 0.00125f;
-    const uint8_t socInteger = (soc >> 8) & 0xFF;
-    const uint8_t socFraction = soc & 0xFF;
-    stateOfCharge = static_cast<float>(socInteger) + (static_cast<float>(socFraction) / 256.0f);
-
-    return voltage >= 2.0f && voltage <= 5.0f && stateOfCharge >= 0.0f && stateOfCharge <= 110.0f;
-#else
-    return false;
-#endif
-}
-
-bool BatteryMonitor::readFuelGaugeRegister16(uint8_t reg, uint16_t& value) {
-#if HAS_I2C_FUEL_GAUGE
-    Wire.beginTransmission(FUEL_GAUGE_MAX17048_ADDR);
-    Wire.write(reg);
-    if (Wire.endTransmission(false) != 0) {
-        return false;
+    if (fuelGauge.lastDiagnosticMillis() == 0 ||
+        millis() - fuelGauge.lastDiagnosticMillis() >= FUEL_GAUGE_DIAGNOSTIC_INTERVAL_MS) {
+        fuelGauge.refreshDiagnostics();
     }
-
-    const uint8_t bytesRead = Wire.requestFrom(static_cast<uint8_t>(FUEL_GAUGE_MAX17048_ADDR),
-                                               static_cast<uint8_t>(2));
-    if (bytesRead != 2 || Wire.available() < 2) {
-        return false;
-    }
-
-    const uint8_t msb = Wire.read();
-    const uint8_t lsb = Wire.read();
-    value = (static_cast<uint16_t>(msb) << 8) | lsb;
     return true;
 #else
-    (void)reg;
-    (void)value;
     return false;
 #endif
 }
@@ -316,6 +279,15 @@ int BatteryMonitor::getEstimatedRuntimeMinutesRemaining() {
         update();
     }
 
+    #if HAS_I2C_FUEL_GAUGE
+    if (estimatedRuntimeMinutes < 0.0f && !usbPowerPresent) {
+        const int gaugeMinutes = getFuelGaugeRateRuntimeMinutes();
+        if (gaugeMinutes >= 0) {
+            return gaugeMinutes;
+        }
+    }
+    #endif
+
     if (estimatedRuntimeMinutes < 0.0f &&
         learnedDischargeRatePercentPerHour > 0.0f &&
         chargingState != "charging_likely" &&
@@ -336,6 +308,13 @@ int BatteryMonitor::getEstimatedRuntimeMinutesRemaining() {
 }
 
 String BatteryMonitor::getRuntimeEstimateConfidence() const {
+    #if HAS_I2C_FUEL_GAUGE
+    if (estimatedRuntimeMinutes < 0.0f && !usbPowerPresent &&
+        getFuelGaugeRateRuntimeMinutes() >= 0) {
+        return "fuel-gauge-rate";
+    }
+    #endif
+
     if (estimatedRuntimeMinutes < 0.0f &&
         learnedDischargeRatePercentPerHour > 0.0f &&
         chargingState != "charging_likely" &&
@@ -364,6 +343,13 @@ String BatteryMonitor::getChargingState() {
         update();
     }
 
+    #if HAS_I2C_FUEL_GAUGE
+    if (hasFreshFuelGaugeRate() && usbPowerPresent &&
+        fuelGauge.chargeRatePercentPerHour() >= BatteryTimeEstimator::MIN_RATE_PERCENT_PER_HOUR) {
+        return "charging_likely";
+    }
+    #endif
+
     return chargingState;
 }
 
@@ -371,6 +357,15 @@ int BatteryMonitor::getEstimatedMinutesTo80() {
     if (!hasReading) {
         update();
     }
+
+    #if HAS_I2C_FUEL_GAUGE
+    if (estimatedMinutesTo80 < 0.0f) {
+        const int gaugeMinutes = getFuelGaugeRateMinutesTo80();
+        if (gaugeMinutes >= 0) {
+            return gaugeMinutes;
+        }
+    }
+    #endif
 
     if (estimatedMinutesTo80 < 0.0f &&
         learnedChargeRatePercentPerHour > 0.0f &&
@@ -398,6 +393,15 @@ int BatteryMonitor::getEstimatedMinutesTo100() {
         update();
     }
 
+    #if HAS_I2C_FUEL_GAUGE
+    if (estimatedMinutesTo100 < 0.0f) {
+        const int gaugeMinutes = getFuelGaugeRateMinutesTo100();
+        if (gaugeMinutes >= 0) {
+            return gaugeMinutes;
+        }
+    }
+    #endif
+
     if (estimatedMinutesTo100 < 0.0f &&
         learnedChargeRatePercentPerHour > 0.0f &&
         chargingState == "charging_likely") {
@@ -420,6 +424,13 @@ int BatteryMonitor::getEstimatedMinutesTo100() {
 }
 
 String BatteryMonitor::getChargeEstimateConfidence() const {
+    #if HAS_I2C_FUEL_GAUGE
+    if (estimatedMinutesTo80 < 0.0f && estimatedMinutesTo100 < 0.0f &&
+        (getFuelGaugeRateMinutesTo80() >= 0 || getFuelGaugeRateMinutesTo100() >= 0)) {
+        return "fuel-gauge-rate";
+    }
+    #endif
+
     if (estimatedMinutesTo80 < 0.0f &&
         estimatedMinutesTo100 < 0.0f &&
         learnedChargeRatePercentPerHour > 0.0f &&
@@ -477,6 +488,78 @@ float BatteryMonitor::getLearnedChargeCurrentMa() const {
     }
     return (learnedChargeRatePercentPerHour * batteryCapacityMah) / 100.0f;
 }
+
+#if HAS_I2C_FUEL_GAUGE
+namespace {
+int roundedMinutes(float minutes) {
+    return minutes < 0.0f ? -1 : static_cast<int>(roundf(minutes));
+}
+}
+
+bool BatteryMonitor::hasFreshFuelGaugeRate() const {
+    const uint32_t lastDiagnostic = fuelGauge.lastDiagnosticMillis();
+    return fuelGaugeAvailable && hasReading && lastDiagnostic != 0 &&
+           millis() - lastDiagnostic <= FUEL_GAUGE_RATE_MAX_AGE_MS;
+}
+
+int BatteryMonitor::getFuelGaugeRateRuntimeMinutes() const {
+    if (!hasFreshFuelGaugeRate()) {
+        return -1;
+    }
+    return roundedMinutes(BatteryTimeEstimator::runtimeMinutesFromGaugeRate(
+        fuelGaugeStateOfCharge, fuelGauge.chargeRatePercentPerHour()));
+}
+
+int BatteryMonitor::getFuelGaugeRateMinutesTo80() const {
+    if (!hasFreshFuelGaugeRate() || !usbPowerPresent) {
+        return -1;
+    }
+    return roundedMinutes(BatteryTimeEstimator::minutesToTargetFromGaugeRate(
+        fuelGaugeStateOfCharge, 80.0f, fuelGauge.chargeRatePercentPerHour()));
+}
+
+int BatteryMonitor::getFuelGaugeRateMinutesTo100() const {
+    if (!hasFreshFuelGaugeRate() || !usbPowerPresent) {
+        return -1;
+    }
+    return roundedMinutes(BatteryTimeEstimator::minutesToTargetFromGaugeRate(
+        fuelGaugeStateOfCharge, 100.0f, fuelGauge.chargeRatePercentPerHour()));
+}
+
+int BatteryMonitor::getProjectedRuntimeMinutes(bool wifiOn) const {
+    if (!fuelGaugeAvailable || !hasReading || fuelGaugeStateOfCharge < 0.0f) {
+        return -1;
+    }
+    return roundedMinutes(BatteryTimeEstimator::runtimeMinutesFromCurrent(
+        batteryCapacityMah, fuelGaugeStateOfCharge, getProjectedActiveCurrentMa(wifiOn)));
+}
+
+int BatteryMonitor::getProjectedMinutesTo80(bool wifiOn) const {
+    if (!fuelGaugeAvailable || !hasReading || fuelGaugeStateOfCharge < 0.0f) {
+        return -1;
+    }
+    return roundedMinutes(BatteryTimeEstimator::minutesToTargetFromCurrent(
+        batteryCapacityMah, fuelGaugeStateOfCharge, 80.0f,
+        getProjectedNetChargeCurrentMa(wifiOn)));
+}
+
+int BatteryMonitor::getProjectedMinutesTo100(bool wifiOn) const {
+    if (!fuelGaugeAvailable || !hasReading || fuelGaugeStateOfCharge < 0.0f) {
+        return -1;
+    }
+    return roundedMinutes(BatteryTimeEstimator::minutesToTargetFromCurrent(
+        batteryCapacityMah, fuelGaugeStateOfCharge, 100.0f,
+        getProjectedNetChargeCurrentMa(wifiOn)));
+}
+
+float BatteryMonitor::getProjectedActiveCurrentMa(bool wifiOn) const {
+    return BatteryTimeEstimator::activeLoadMa(wifiOn);
+}
+
+float BatteryMonitor::getProjectedNetChargeCurrentMa(bool wifiOn) const {
+    return BatteryTimeEstimator::netChargeCurrentMa(wifiOn);
+}
+#endif
 
 uint16_t BatteryMonitor::getLearnedDischargeObservations() const {
     return learnedDischargeObservations;

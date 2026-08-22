@@ -1,6 +1,8 @@
 #include "BoardHardware.h"
 #include "BoardConfig.h"
 
+#include <string.h>
+
 namespace {
 #if defined(BOARD_TYPE_TINYS3D)
 constexpr uint8_t MIN_STATUS_LED_BRIGHTNESS = 1;
@@ -141,6 +143,52 @@ void BoardHardware::setExternalAntenna(bool external) {
     saveSettings();
 }
 
+void BoardHardware::setTinyPeripheralStatus(bool colorDisplay, bool touch,
+                                            bool accelerometer) {
+#if defined(BOARD_TYPE_TINYS3D)
+    tinyColorDisplayAvailable = colorDisplay;
+    tinyTouchAvailable = touch;
+    tinyAccelerometerAvailable = accelerometer;
+#else
+    (void)colorDisplay;
+    (void)touch;
+    (void)accelerometer;
+#endif
+}
+
+void BoardHardware::updateTinyMotionDiagnostics(
+    const char* state, float vibrationRmsG, float vibrationEnergyG2,
+    float quietConfidence, float impactPeakG, float rollDegrees,
+    float pitchDegrees, uint32_t impacts, uint32_t taps,
+    uint32_t doubleTaps) {
+#if defined(BOARD_TYPE_TINYS3D)
+    if (state != nullptr) {
+        strncpy(tinyMotionState, state, sizeof(tinyMotionState) - 1);
+        tinyMotionState[sizeof(tinyMotionState) - 1] = '\0';
+    }
+    tinyVibrationRmsG = vibrationRmsG;
+    tinyVibrationEnergyG2 = vibrationEnergyG2;
+    tinyQuietConfidence = quietConfidence;
+    tinyImpactPeakG = impactPeakG;
+    tinyRollDegrees = rollDegrees;
+    tinyPitchDegrees = pitchDegrees;
+    tinyImpactCount = impacts;
+    tinyTapCount = taps;
+    tinyDoubleTapCount = doubleTaps;
+#else
+    (void)state;
+    (void)vibrationRmsG;
+    (void)vibrationEnergyG2;
+    (void)quietConfidence;
+    (void)impactPeakG;
+    (void)rollDegrees;
+    (void)pitchDegrees;
+    (void)impacts;
+    (void)taps;
+    (void)doubleTaps;
+#endif
+}
+
 String BoardHardware::toJson() const {
     String json = "{";
     json += "\"board\":\"" + String(BOARD_NAME) + "\"";
@@ -149,6 +197,19 @@ String BoardHardware::toJson() const {
     json += ",\"rgb_status_led_brightness\":" + String(rgbStatusLedBrightness);
     json += ",\"antenna_switch_available\":" + String(antennaSwitchAvailable ? "true" : "false");
     json += ",\"external_antenna_selected\":" + String(externalAntennaSelected ? "true" : "false");
+    json += ",\"tiny_color_display_available\":" + String(tinyColorDisplayAvailable ? "true" : "false");
+    json += ",\"tiny_touch_available\":" + String(tinyTouchAvailable ? "true" : "false");
+    json += ",\"tiny_accelerometer_available\":" + String(tinyAccelerometerAvailable ? "true" : "false");
+    json += ",\"tiny_motion_state\":\"" + String(tinyMotionState) + "\"";
+    json += ",\"tiny_vibration_rms_g\":" + String(tinyVibrationRmsG, 4);
+    json += ",\"tiny_vibration_energy_g2\":" + String(tinyVibrationEnergyG2, 5);
+    json += ",\"tiny_quiet_confidence\":" + String(tinyQuietConfidence, 3);
+    json += ",\"tiny_impact_peak_g\":" + String(tinyImpactPeakG, 3);
+    json += ",\"tiny_roll_degrees\":" + String(tinyRollDegrees, 2);
+    json += ",\"tiny_pitch_degrees\":" + String(tinyPitchDegrees, 2);
+    json += ",\"tiny_impact_count\":" + String(tinyImpactCount);
+    json += ",\"tiny_tap_count\":" + String(tinyTapCount);
+    json += ",\"tiny_double_tap_count\":" + String(tinyDoubleTapCount);
     json += ",\"status\":\"" + String(statusName(lastStatus)) + "\"";
     json += "}";
     return json;

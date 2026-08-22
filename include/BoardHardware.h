@@ -30,6 +30,28 @@ public:
     bool isExternalAntennaSelected() const { return externalAntennaSelected; }
     void setExternalAntenna(bool external);
 
+    void setTinyPeripheralStatus(bool colorDisplay, bool touch,
+                                 bool accelerometer);
+    void updateTinyMotionDiagnostics(const char* state, float vibrationRmsG,
+                                     float vibrationEnergyG2,
+                                     float quietConfidence, float impactPeakG,
+                                     float rollDegrees, float pitchDegrees,
+                                     uint32_t impacts, uint32_t taps,
+                                     uint32_t doubleTaps);
+    bool hasTinyColorDisplay() const { return tinyColorDisplayAvailable; }
+    bool hasTinyTouch() const { return tinyTouchAvailable; }
+    bool hasTinyAccelerometer() const { return tinyAccelerometerAvailable; }
+    const char* getTinyMotionState() const { return tinyMotionState; }
+    float getTinyVibrationRmsG() const { return tinyVibrationRmsG; }
+    float getTinyVibrationEnergyG2() const { return tinyVibrationEnergyG2; }
+    float getTinyQuietConfidence() const { return tinyQuietConfidence; }
+    float getTinyImpactPeakG() const { return tinyImpactPeakG; }
+    float getTinyRollDegrees() const { return tinyRollDegrees; }
+    float getTinyPitchDegrees() const { return tinyPitchDegrees; }
+    uint32_t getTinyImpactCount() const { return tinyImpactCount; }
+    uint32_t getTinyTapCount() const { return tinyTapCount; }
+    uint32_t getTinyDoubleTapCount() const { return tinyDoubleTapCount; }
+
     String toJson() const;
 
 private:
@@ -40,6 +62,19 @@ private:
     uint8_t rgbStatusLedBrightness = 8;
     bool antennaSwitchAvailable = false;
     bool externalAntennaSelected = false;
+    bool tinyColorDisplayAvailable = false;
+    bool tinyTouchAvailable = false;
+    bool tinyAccelerometerAvailable = false;
+    char tinyMotionState[12] = "unavailable";
+    float tinyVibrationRmsG = 0.0f;
+    float tinyVibrationEnergyG2 = 0.0f;
+    float tinyQuietConfidence = 0.0f;
+    float tinyImpactPeakG = 0.0f;
+    float tinyRollDegrees = 0.0f;
+    float tinyPitchDegrees = 0.0f;
+    uint32_t tinyImpactCount = 0;
+    uint32_t tinyTapCount = 0;
+    uint32_t tinyDoubleTapCount = 0;
     BoardHardwareStatus lastStatus = BoardHardwareStatus::Booting;
     uint32_t lastStatusWriteMillis = 0;
 

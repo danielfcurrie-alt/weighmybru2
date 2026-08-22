@@ -57,6 +57,7 @@ typedef struct {
   uint32_t voltage_attr;
   uint32_t soc_attr;
   uint32_t discharge_attr;
+  uint32_t online_attr;
 
   pin_t alrt_pin;
 
@@ -137,9 +138,7 @@ static uint16_t read_register(chip_state_t *chip) {
     }
     case REG_SOC: {
       const double soc = fmax(0.0, fmin(110.0, chip->soc_pct));
-      const uint8_t whole = (uint8_t)soc;
-      const uint8_t frac = (uint8_t)lround((soc - whole) * 256.0);
-      return ((uint16_t)whole << 8) | frac;
+      return (uint16_t)lround(soc * 256.0);
     }
     case REG_MODE: return chip->reg_mode;
     case REG_VERSION: return 0x0012;
@@ -161,10 +160,10 @@ static uint16_t read_register(chip_state_t *chip) {
 static void commit_write(chip_state_t *chip) {
   switch (chip->selected_reg) {
     case REG_MODE:
-      chip->reg_mode = chip->write_value;
       if (chip->write_value & 0x4000) {  // QuickStart
         chip->soc_pct = (double)attr_read_float(chip->soc_attr);
       }
+      chip->reg_mode = 0x0000;  // QuickStart is a self-clearing command.
       break;
     case REG_HIBRT: chip->reg_hibrt = chip->write_value; break;
     case REG_CONFIG:
@@ -184,7 +183,7 @@ static bool on_i2c_connect(void *user_data, uint32_t address, bool read) {
     chip->write_index = 0;
   }
   chip->read_index = 0;
-  return address == 0x36;
+  return address == 0x36 && attr_read_float(chip->online_attr) >= 0.5f;
 }
 
 static uint8_t on_i2c_read(void *user_data) {
@@ -220,6 +219,7 @@ void chip_init(void) {
   chip->voltage_attr = attr_init_float("voltage", 3.90f);
   chip->soc_attr = attr_init_float("soc", 70.0f);
   chip->discharge_attr = attr_init_float("dischargePctPerHour", 0.0f);
+  chip->online_attr = attr_init_float("online", 1.0f);
   chip->alrt_pin = pin_init("ALRT", OUTPUT_HIGH);
 
   chip->reg_mode = 0x0000;

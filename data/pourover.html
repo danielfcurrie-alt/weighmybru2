@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Pour Over · WMB+</title>
+  <meta name="theme-color" content="#47a864">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/icons/wmb-plus-192.png">
+  <link rel="icon" type="image/png" href="/icons/wmb-plus-192.png">
+  <link rel="stylesheet" href="/output.css">
+  <link rel="stylesheet" href="/css/all.min.css">
+  <script src="/live-client.js"></script>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #070a0c;
+      --surface: #151b1e;
+      --surface-raised: #20282c;
+      --surface-soft: #101518;
+      --line: rgba(255, 255, 255, 0.11);
+      --line-soft: rgba(255, 255, 255, 0.07);
+      --text: #f4f7f5;
+      --muted: #9ba7a1;
+      --accent: #4fd178;
+      --accent-strong: #35ad60;
+      --pour: #43a8e6;
+      --pause: #f0b84b;
+      --agitate: #e66d62;
+      --drawdown: #45b5aa;
+      --danger: #ec5a5a;
+    }
+    * { box-sizing: border-box; }
+    html { min-height: 100%; background: var(--bg); }
+    body {
+      min-height: 100vh;
+      margin: 0;
+      color: var(--text);
+      background: linear-gradient(180deg, #0d1717, var(--bg) 44%, #050607);
+      -webkit-font-smoothing: antialiased;
+    }
+    button, input, select { font: inherit; }
+    button { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+    a { color: inherit; text-decoration: none; }
+    .safe-pad { padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
+    .shell { width: min(100%, 980px); margin: 0 auto; padding: 16px 14px 28px; }
+    .topbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 58px; }
+    .back-link { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .back-icon {
+      width: 42px; height: 42px; display: grid; place-items: center; flex: 0 0 auto;
+      border: 1px solid var(--line); border-radius: 50%; background: rgba(255,255,255,0.06);
+    }
+    .back-icon { font-size: 28px; line-height: 1; }
+    h1, h2, h3, p { margin: 0; }
+    .title { font-size: 25px; line-height: 1.05; font-weight: 840; letter-spacing: 0; }
+    .back-link .title, .back-link .subtitle { display: block; }
+    .subtitle { color: var(--muted); font-size: 12px; margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .status-pill {
+      min-height: 32px; display: inline-flex; align-items: center; padding: 0 11px; border-radius: 999px;
+      border: 1px solid var(--line); background: rgba(255,255,255,0.07); color: #dbe4df;
+      font-size: 12px; font-weight: 760; white-space: nowrap;
+    }
+    .status-pill.ok { color: #caffda; border-color: rgba(79,209,120,0.35); background: rgba(79,209,120,0.16); }
+    .status-pill.bad { color: #ffd1d1; border-color: rgba(236,90,90,0.35); background: rgba(236,90,90,0.16); }
+    .segmented {
+      display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; padding: 4px;
+      margin: 10px 0 14px; border: 1px solid var(--line-soft); border-radius: 18px; background: rgba(0,0,0,0.28);
+    }
+    .segment { min-height: 44px; border: 0; border-radius: 14px; color: var(--muted); background: transparent; font-weight: 800; }
+    .segment.active { background: var(--accent); color: #06210f; }
+    .view[hidden] { display: none; }
+    .builder-layout, .live-layout { display: grid; gap: 14px; }
+    .builder-layout > *, .live-layout > * { min-width: 0; }
+    .live-primary { min-width: 0; }
+    .panel, .stage-card {
+      min-width: 0;
+      border: 1px solid var(--line); border-radius: 18px; background: var(--surface); overflow: hidden;
+      box-shadow: 0 18px 48px rgba(0,0,0,0.28);
+    }
+    .panel-body { padding: 16px; }
+    .panel-title-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .panel-title { font-size: 19px; font-weight: 820; letter-spacing: 0; }
+    .panel-subtitle { margin-top: 3px; color: var(--muted); font-size: 12px; }
+    .toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; margin-top: 14px; }
+    .icon-row { display: flex; gap: 7px; }
+    .icon-button {
+      width: 44px; height: 44px; display: grid; place-items: center; border: 1px solid var(--line);
+      border-radius: 12px; background: rgba(255,255,255,0.07); color: var(--text);
+    }
+    .icon-button:disabled { opacity: 0.35; }
+    .icon-button.danger { color: #ffb7b7; }
+    .symbol { display: inline-grid; min-width: 1.15em; place-items: center; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI Symbol", sans-serif; font-weight: 900; }
+    .control, .number-control {
+      width: 100%; min-width: 0; height: 44px; border: 1px solid var(--line); border-radius: 11px;
+      background: var(--surface-soft); color: var(--text); outline: 0; padding: 0 12px;
+    }
+    .control:focus, .number-control:focus { border-color: rgba(79,209,120,0.72); }
+    .recipe-name { margin-top: 10px; font-size: 21px; font-weight: 800; }
+    .recipe-summary { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 7px; margin-top: 12px; }
+    .summary-item { padding: 10px; border: 1px solid var(--line-soft); border-radius: 12px; background: var(--surface-soft); }
+    .summary-label { color: var(--muted); font-size: 10px; font-weight: 720; }
+    .summary-value { margin-top: 4px; font-size: 18px; font-weight: 820; font-variant-numeric: tabular-nums; }
+    .stage-list { display: grid; gap: 10px; }
+    .stage-card { box-shadow: none; }
+    .stage-accent { height: 5px; background: var(--stage-color); }
+    .stage-body { padding: 13px; }
+    .stage-head { display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; gap: 9px; align-items: center; }
+    .stage-index {
+      width: 38px; height: 38px; display: grid; place-items: center; border-radius: 11px;
+      color: #071013; background: var(--stage-color); font-weight: 900;
+    }
+    .stage-name { height: 38px; font-weight: 780; }
+    .stage-tools { display: flex; gap: 5px; }
+    .stage-tools .icon-button { width: 34px; height: 34px; border-radius: 9px; font-size: 12px; }
+    .fields { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 9px; margin-top: 12px; }
+    .field label { display: block; margin: 0 0 5px 2px; color: var(--muted); font-size: 10px; font-weight: 740; }
+    .input-unit { position: relative; }
+    .input-unit .number-control { padding-right: 34px; font-variant-numeric: tabular-nums; }
+    .input-unit span { position: absolute; right: 11px; top: 13px; color: var(--muted); font-size: 12px; pointer-events: none; }
+    .check-row { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 40px; }
+    .check-row label { margin: 0; color: #dce4e0; font-size: 13px; }
+    .switch { width: 44px; height: 25px; position: relative; flex: 0 0 auto; }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .switch span { position: absolute; inset: 0; border-radius: 999px; background: #3a4246; transition: background 120ms ease; }
+    .switch span::after { content: ""; position: absolute; width: 19px; height: 19px; left: 3px; top: 3px; border-radius: 50%; background: white; transition: transform 120ms ease; }
+    .switch input:checked + span { background: var(--accent-strong); }
+    .switch input:checked + span::after { transform: translateX(19px); }
+    .add-grid { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 7px; margin-top: 10px; }
+    .add-button { min-height: 48px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255,255,255,0.06); color: var(--text); font-size: 11px; font-weight: 780; }
+    .add-button i { display: block; margin-bottom: 5px; color: var(--type-color); font-size: 15px; }
+    .command {
+      min-height: 48px; border: 0; border-radius: 13px; padding: 0 15px; font-weight: 840;
+      background: rgba(255,255,255,0.08); color: var(--text);
+    }
+    .command.primary { background: var(--accent); color: #06210f; }
+    .command.danger { background: rgba(236,90,90,0.18); color: #ffcaca; border: 1px solid rgba(236,90,90,0.24); }
+    .command:disabled { opacity: 0.4; }
+    .hold-command { grid-column: 1 / -1; border: 1px solid rgba(230,109,98,0.35); color: #ffd4cf; background: rgba(230,109,98,0.12); }
+    .hold-command.active { color: #180806; background: var(--agitate); }
+    .start-button { width: 100%; margin-top: 12px; }
+    .brew-hero { border-top: 6px solid var(--stage-color, var(--accent)); }
+    .brew-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+    .stage-kicker { color: var(--stage-color, var(--accent)); font-size: 12px; font-weight: 820; text-transform: uppercase; }
+    .active-stage-name { margin-top: 4px; font-size: 30px; line-height: 1.05; font-weight: 860; letter-spacing: 0; }
+    .total-clock { font-size: 24px; font-weight: 830; color: var(--pause); font-variant-numeric: tabular-nums; }
+    .live-metrics { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 7px; margin-top: 18px; }
+    .live-metric { min-height: 74px; padding: 11px 8px; border: 1px solid var(--line-soft); border-radius: 12px; background: var(--surface-soft); text-align: center; }
+    .live-label { color: var(--muted); font-size: 10px; }
+    .live-value { margin-top: 7px; font-size: 21px; font-weight: 850; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .progress-track { height: 9px; margin-top: 15px; border-radius: 999px; background: #30383c; overflow: hidden; }
+    .progress-fill { width: 0; height: 100%; border-radius: 999px; background: var(--stage-color, var(--accent)); transition: width 180ms linear; }
+    .target-line { display: flex; justify-content: space-between; gap: 12px; margin-top: 8px; color: var(--muted); font-size: 12px; }
+    .target-line strong { color: var(--text); }
+    .brew-controls { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 8px; margin-top: 12px; }
+    .timeline-panel { border: 0; background: #f5f5f0; color: #18201e; }
+    .timeline-panel .panel-body { padding: 18px; }
+    .stage-board-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 0 2px 13px; border-bottom: 1px solid rgba(24,32,30,0.18); }
+    .stage-board-title { font-size: 24px; font-weight: 880; }
+    .stage-board-plan { margin-top: 3px; color: #6c7471; font-size: 11px; }
+    .stage-board-clock { color: #d69422; font-size: 25px; font-weight: 820; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .timeline { display: grid; gap: 8px; margin-top: 14px; }
+    .timeline-row { min-width: 0; }
+    .timeline-band {
+      min-height: 58px; display: grid; align-items: center; gap: 7px; padding: 8px 13px;
+      border-radius: 12px; color: #102126; font-variant-numeric: tabular-nums;
+      transition: box-shadow 120ms ease, transform 120ms ease;
+    }
+    .timeline-row.current .timeline-band { box-shadow: 0 0 0 3px #18201e, 0 0 0 6px rgba(255,255,255,0.82); transform: translateY(-1px); }
+    .timeline-row.pending { opacity: 0.68; }
+    .timeline-row.complete { opacity: 1; }
+    .timeline-band.pour { grid-template-columns: minmax(54px,0.8fr) repeat(3,minmax(50px,1fr)); background: #49a8df; }
+    .timeline-band.timed { grid-template-columns: minmax(0,1fr) auto minmax(0,1fr); background: #f3b84d; }
+    .timeline-band.agitate { background: #dc685c; color: #27100e; }
+    .timeline-cell { min-width: 0; text-align: center; font-size: 16px; font-weight: 770; white-space: nowrap; }
+    .timeline-mark { display: flex; align-items: center; justify-content: flex-start; gap: 7px; text-align: left; }
+    .timeline-symbol { font-size: 18px; }
+    .timed-center { grid-column: 2; display: inline-flex; align-items: center; justify-content: center; gap: 8px; font-size: 18px; font-weight: 800; white-space: nowrap; }
+    .timeline-live-tag { justify-self: end; padding: 4px 7px; border-radius: 999px; background: rgba(255,255,255,0.34); font-size: 9px; font-weight: 900; }
+    .timeline-rail { min-height: 25px; display: grid; grid-template-columns: auto minmax(16px,1fr) auto; align-items: center; gap: 8px; padding: 2px 9px 0; color: #59625f; font-size: 11px; font-variant-numeric: tabular-nums; }
+    .timeline-rail-line { height: 1px; background: rgba(24,32,30,0.13); }
+    .message { min-height: 18px; margin-top: 10px; color: var(--muted); font-size: 12px; }
+    .chart-panel { margin-top: 14px; }
+    .chart-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+    .chart-legend { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 9px; color: var(--muted); font-size: 10px; }
+    .legend-item { display: inline-flex; align-items: center; gap: 5px; }
+    .legend-line { width: 18px; height: 3px; border-radius: 4px; background: var(--legend); }
+    .legend-line.reference { height: 0; border-top: 2px dashed #7f8a86; background: transparent; }
+    .chart-wrap { position: relative; width: 100%; aspect-ratio: 16 / 7; min-height: 180px; }
+    #brewChart { width: 100%; height: 100%; display: block; border: 1px solid var(--line-soft); border-radius: 12px; background: var(--surface-soft); }
+    .chart-empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); font-size: 12px; pointer-events: none; }
+    .chart-empty[hidden] { display: none; }
+    .empty { padding: 26px 12px; text-align: center; color: var(--muted); }
+    @media (min-width: 760px) {
+      .shell { padding: 22px; }
+      .builder-layout { grid-template-columns: 290px minmax(0,1fr); align-items: start; }
+      .builder-layout > .panel:first-child { position: sticky; top: 18px; }
+      .live-layout { grid-template-columns: minmax(0,1.05fr) minmax(350px,0.95fr); grid-template-areas: "hero timeline" "chart timeline"; align-items: start; }
+      .live-primary { grid-area: hero; }
+      .chart-panel { grid-area: chart; }
+      .timeline-panel { position: sticky; top: 18px; }
+      .timeline-panel { grid-area: timeline; }
+    }
+    @media (max-width: 370px) {
+      .shell { padding-left: 10px; padding-right: 10px; }
+      .title { font-size: 22px; }
+      .fields { grid-template-columns: 1fr; }
+      .check-row { grid-column: 1; }
+      .add-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+      .live-value { font-size: 18px; }
+    }
+    @media (max-width: 520px) {
+      .chart-head { flex-direction: column; }
+      .chart-legend { justify-content: flex-start; }
+      .timeline-panel .panel-body { padding: 14px; }
+      .timeline-band { padding-left: 10px; padding-right: 10px; }
+      .timeline-band.pour { grid-template-columns: minmax(50px,0.75fr) repeat(3,minmax(46px,1fr)); }
+      .timeline-cell { font-size: 14px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .progress-fill, .switch span, .switch span::after { transition: none; }
+    }
+  </style>
+</head>
+<body class="font-sans">
+  <main class="safe-pad shell">
+    <header class="topbar">
+      <a href="/app.html" class="back-link" aria-label="Back to WMB+ app">
+        <span class="back-icon" aria-hidden="true">‹</span>
+        <span>
+          <span class="title">Pour Over</span>
+          <span id="headerSubtitle" class="subtitle">Recipes and guided brewing</span>
+        </span>
+      </a>
+      <span id="connectionPill" class="status-pill">Connecting</span>
+    </header>
+
+    <div class="segmented" role="tablist" aria-label="Pour-over section">
+      <button id="builderTab" class="segment active" type="button" role="tab" aria-selected="true">Recipes</button>
+      <button id="brewTab" class="segment" type="button" role="tab" aria-selected="false">Live Brew</button>
+    </div>
+
+    <section id="builderView" class="view" role="tabpanel">
+      <div class="builder-layout">
+        <section class="panel">
+          <div class="panel-body">
+            <div class="panel-title-row">
+              <div>
+                <h2 class="panel-title">Recipe</h2>
+                <p id="saveState" class="panel-subtitle">Saved on this device</p>
+              </div>
+            </div>
+            <div class="toolbar">
+              <select id="recipeSelect" class="control" aria-label="Recipe"></select>
+              <div class="icon-row">
+                <button id="newRecipeButton" class="icon-button" type="button" title="New recipe" aria-label="New recipe"><span class="symbol">+</span></button>
+                <button id="duplicateRecipeButton" class="icon-button" type="button" title="Duplicate recipe" aria-label="Duplicate recipe"><span class="symbol">⧉</span></button>
+                <button id="deleteRecipeButton" class="icon-button danger" type="button" title="Delete recipe" aria-label="Delete recipe"><span class="symbol">×</span></button>
+              </div>
+            </div>
+            <input id="recipeName" class="control recipe-name" type="text" maxlength="42" aria-label="Recipe name">
+            <div class="recipe-summary">
+              <div class="summary-item"><div class="summary-label">WATER</div><div id="summaryWater" class="summary-value">—</div></div>
+              <div class="summary-item"><div class="summary-label">STAGES</div><div id="summaryStages" class="summary-value">—</div></div>
+              <div class="summary-item"><div class="summary-label">PLAN</div><div id="summaryTime" class="summary-value">—</div></div>
+            </div>
+            <button id="prepareButton" class="command primary start-button" type="button"><i class="fa fa-play mr-2"></i>Open Live Brew</button>
+          </div>
+        </section>
+
+        <section>
+          <div class="panel-title-row" style="margin: 2px 2px 10px;">
+            <div>
+              <h2 class="panel-title">Brew Stages</h2>
+              <p class="panel-subtitle">Targets are added water per pour</p>
+            </div>
+          </div>
+          <div id="stageList" class="stage-list"></div>
+          <div class="add-grid" aria-label="Add stage">
+            <button class="add-button" type="button" data-add-stage="pour" style="--type-color: var(--pour);"><span class="symbol" aria-hidden="true">●</span>Pour</button>
+            <button class="add-button" type="button" data-add-stage="pause" style="--type-color: var(--pause);"><span class="symbol" aria-hidden="true">Ⅱ</span>Pause</button>
+            <button class="add-button" type="button" data-add-stage="agitate" style="--type-color: var(--agitate);"><span class="symbol" aria-hidden="true">↻</span>Agitate</button>
+            <button class="add-button" type="button" data-add-stage="drawdown" style="--type-color: var(--drawdown);"><span class="symbol" aria-hidden="true">▽</span>Drawdown</button>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <section id="brewView" class="view" role="tabpanel" hidden>
+      <div class="live-layout">
+        <div class="live-primary">
+          <section id="brewHero" class="panel brew-hero">
+            <div class="panel-body">
+              <div class="brew-top">
+                <div>
+                  <div id="stageKicker" class="stage-kicker">Ready</div>
+                  <h2 id="activeStageName" class="active-stage-name">Choose a recipe</h2>
+                </div>
+                <div id="totalClock" class="total-clock">0:00</div>
+              </div>
+              <div class="live-metrics">
+                <div class="live-metric"><div class="live-label">WEIGHT</div><div id="liveWeight" class="live-value">—</div></div>
+                <div class="live-metric"><div id="flowMetricLabel" class="live-label">FLOW</div><div id="liveFlow" class="live-value">—</div></div>
+                <div class="live-metric"><div id="stageMetricLabel" class="live-label">STAGE</div><div id="stageMetric" class="live-value">—</div></div>
+              </div>
+              <div class="progress-track"><div id="stageProgress" class="progress-fill"></div></div>
+              <div class="target-line"><span id="stageProgressText">Ready to begin</span><strong id="stageTargetText">—</strong></div>
+              <div class="brew-controls">
+                <button id="tareButton" class="command" type="button"><i class="fa fa-balance-scale mr-2"></i>Tare</button>
+                <button id="startPauseButton" class="command primary" type="button"><i class="fa fa-play mr-2"></i>Start</button>
+                <button id="previousStageButton" class="command" type="button"><span class="symbol">‹</span> Previous</button>
+                <button id="nextStageButton" class="command" type="button">Next <span class="symbol">›</span></button>
+                <button id="wakeButton" class="command" type="button"><span class="symbol">◉</span> Keep Awake</button>
+                <button id="finishButton" class="command danger" type="button"><i class="fa fa-stop mr-2"></i>Finish</button>
+                <button id="agitationButton" class="command hold-command" type="button"><span class="symbol">↻</span> Hold while swirling</button>
+              </div>
+              <div id="brewMessage" class="message"></div>
+            </div>
+          </section>
+
+        </div>
+
+        <section class="panel timeline-panel">
+          <div class="panel-body">
+            <div class="stage-board-head">
+              <div>
+                <h2 class="stage-board-title">Brew Stages</h2>
+                <p id="liveRecipeSummary" class="stage-board-plan">No active recipe</p>
+              </div>
+              <div id="timelineClock" class="stage-board-clock">0:00</div>
+            </div>
+            <div id="timeline" class="timeline"></div>
+          </div>
+        </section>
+
+        <section class="panel chart-panel">
+            <div class="panel-body">
+              <div class="chart-head">
+                <div>
+                  <h2 class="panel-title">Brew Trace</h2>
+                  <p class="panel-subtitle">Live weight and flow · up to 10 samples/s</p>
+                </div>
+                <div class="chart-legend" aria-label="Chart legend">
+                  <span class="legend-item"><span class="legend-line" style="--legend: var(--pour);"></span>Weight</span>
+                  <span class="legend-item"><span class="legend-line" style="--legend: var(--accent);"></span>Flow</span>
+                  <span class="legend-item"><span class="legend-line reference"></span>Previous</span>
+                </div>
+              </div>
+              <div class="chart-wrap">
+                <canvas id="brewChart" aria-label="Live brew weight and flow chart"></canvas>
+                <div id="chartEmpty" class="chart-empty">Start a brew to record its curve</div>
+              </div>
+            </div>
+        </section>
+      </div>
+    </section>
+  </main>
+  <script src="/pourover.js"></script>
+</body>
+</html>

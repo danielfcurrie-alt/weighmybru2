@@ -17,6 +17,7 @@
       "left": 250,
       "attrs": {
         "sps": "80",
+        "useRatePin": "1",
         "actualSps": "94.22",
         "jitterMicros": "100",
         "weight": "0.0",
@@ -29,12 +30,34 @@
       }
     },
     {
-      "type": "board-ssd1306",
-      "id": "oled",
-      "top": -120,
+      "type": "wokwi-slide-switch",
+      "id": "rateSwitch",
+      "top": 250,
       "left": 250,
       "attrs": {
-        "i2cAddress": "0x3c"
+        "bounce": "0"
+      }
+    },
+    {
+      "type": "wokwi-pushbutton",
+      "id": "sleepTouch",
+      "top": -170,
+      "left": 245,
+      "attrs": {
+        "label": "SLEEP",
+        "color": "blue",
+        "bounce": "0"
+      }
+    },
+    {
+      "type": "wokwi-pushbutton",
+      "id": "tareTouch",
+      "top": -170,
+      "left": 310,
+      "attrs": {
+        "label": "TARE",
+        "color": "green",
+        "bounce": "0"
       }
     },
     {
@@ -68,6 +91,17 @@
       "attrs": {}
     },
     {
+      "type": "chip-waveshare-147-touch",
+      "id": "waveshare",
+      "top": 170,
+      "left": 510,
+      "attrs": {
+        "touchCount": "0",
+        "touch1X": "86",
+        "touch1Y": "305"
+      }
+    },
+    {
       "type": "wokwi-led",
       "id": "antennaSelect",
       "top": 145,
@@ -81,13 +115,11 @@
   "connections": [
     ["hx711:VCC", "tinys3d:3V3", "red", []],
     ["hx711:GND", "tinys3d:GND.1", "black", []],
-    ["hx711:DT", "tinys3d:5", "green", []],
-    ["hx711:SCK", "tinys3d:6", "blue", []],
-
-    ["oled:VCC", "tinys3d:3V3", "red", []],
-    ["oled:GND", "tinys3d:GND.1", "black", []],
-    ["oled:SDA", "tinys3d:8", "green", []],
-    ["oled:SCL", "tinys3d:9", "blue", []],
+    ["hx711:DT", "tinys3d:21", "green", []],
+    ["hx711:SCK", "tinys3d:2", "blue", []],
+    ["hx711:RATE", "rateSwitch:2", "orange", []],
+    ["rateSwitch:1", "tinys3d:3V3", "red", []],
+    ["rateSwitch:3", "tinys3d:GND.1", "black", []],
 
     ["fg:VCC", "tinys3d:3V3", "red", []],
     ["fg:GND", "tinys3d:GND.1", "black", []],
@@ -99,19 +131,33 @@
     ["accel:GND", "tinys3d:GND.1", "black", []],
     ["accel:SDA", "tinys3d:8", "green", []],
     ["accel:SCL", "tinys3d:9", "blue", []],
-    ["accel:INT1", "tinys3d:2", "orange", []],
 
-    ["tinys3d:3", "tinys3d:GND.1", "black", ["v-18", "h-20"]],
-    ["tinys3d:4", "tinys3d:GND.1", "black", ["v-24", "h-28"]],
+    ["sleepTouch:1.l", "tinys3d:37", "blue", []],
+    ["sleepTouch:2.l", "tinys3d:3V3", "red", []],
+    ["tareTouch:1.l", "tinys3d:RX", "green", []],
+    ["tareTouch:2.l", "tinys3d:3V3", "red", []],
     ["tinys3d:$vbusSense", "tinys3d:3V3", "red", []],
 
     ["rgb:DIN", "tinys3d:$rgbData", "green", []],
     ["rgb:VDD", "tinys3d:$rgbPower", "red", []],
     ["rgb:VSS", "tinys3d:GND.1", "black", []],
 
+    ["waveshare:VCC", "tinys3d:3V3", "red", []],
+    ["waveshare:GND", "tinys3d:GND.1", "black", []],
+    ["waveshare:TP_SDA", "tinys3d:8", "green", []],
+    ["waveshare:TP_SCL", "tinys3d:9", "blue", []],
+    ["waveshare:TP_RST", "tinys3d:7", "orange", []],
+    ["waveshare:TP_INT", "tinys3d:6", "magenta", []],
+    ["waveshare:SCLK", "tinys3d:36", "blue", []],
+    ["waveshare:MOSI", "tinys3d:35", "green", []],
+    ["waveshare:LCD_CS", "tinys3d:34", "purple", []],
+    ["waveshare:LCD_DC", "tinys3d:1", "cyan", []],
+    ["waveshare:LCD_RST", "tinys3d:4", "orange", []],
+    ["waveshare:LCD_BL", "tinys3d:5", "yellow", []],
+
     ["antennaSelect:A", "tinys3d:$antennaSwitch", "blue", []],
     ["antennaSelect:C", "tinys3d:GND.1", "black", []]
   ],
   "dependencies": {},
-  "_comment": "Custom-board candidate using the real TinyS3[D] header and internal GPIO mapping. The GPIO38 LED is instrumentation for switch state, not an RF model. Requires loading wokwi/boards/tinys3d as a custom board before opening this diagram; current wokwi-cli cannot resolve unpublished custom boards."
+  "_comment": "Exact builder-confirmed TinyS3[D] wiring on the custom board: HX711 21/2 plus SPDT RATE, I2C 8/9, JD9853 36/35/unconnected-MISO/34/1/4/5, AXS5106L 7/6, sleep/tare 37/RX(GPIO44), and LIS2DW12 polling with both interrupt pins unconnected. Internal VBUS sense, MAX17048 alert, RGB, and antenna signals use the custom board's virtual pins. The GPIO38 LED is instrumentation, not an RF model. Requires loading wokwi/boards/tinys3d before opening; current wokwi-cli cannot resolve unpublished custom boards."
 }

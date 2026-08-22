@@ -1,3 +1,5 @@
+#if defined(BOARD_TINYS3D) || defined(WMBP_HOST_TEST)
+
 #include "LIS2DW12Driver.h"
 
 namespace {
@@ -169,3 +171,5 @@ float LIS2DW12Driver::rawToG(int16_t raw) const {
     const int16_t highPerformanceSample = raw >> 2;
     return highPerformanceSample * MG_PER_LSB[scaleIndex] / 1000.0f;
 }
+
+#endif  // BOARD_TINYS3D || WMBP_HOST_TEST

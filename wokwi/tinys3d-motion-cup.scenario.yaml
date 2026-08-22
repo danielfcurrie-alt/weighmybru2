@@ -1,0 +1,16 @@
+name: TinyS3D proxy LIS2DW12 cup-placement ring pattern
+version: 1
+author: WMB+
+steps:
+  - wait-serial: 'WMBP_TINY_LIS_RANGES_OK'
+  - set-control:
+      part-id: accel
+      control: pattern
+      value: 4
+  - set-control:
+      part-id: accel
+      control: amplitudeG
+      value: 0.85
+  - wait-serial: 'WMBP_TINY_MOTION_IMPACT_OK'
+  - wait-serial: 'WMBP_TINY_MOTION_VIBRATION_OK'
+  - delay: 5000ms

@@ -5,6 +5,7 @@
   "controls": [
     { "id": "voltage", "label": "Cell voltage", "type": "range", "min": 3.0, "max": 4.25, "step": 0.01 },
     { "id": "soc", "label": "State of charge", "type": "range", "min": 0, "max": 100, "step": 1 },
-    { "id": "dischargePctPerHour", "label": "Discharge %/hr (neg = charging)", "type": "range", "min": -60, "max": 60, "step": 0.5 }
+    { "id": "dischargePctPerHour", "label": "Discharge %/hr (neg = charging)", "type": "range", "min": -60, "max": 60, "step": 0.5 },
+    { "id": "online", "label": "I2C online", "type": "range", "min": 0, "max": 1, "step": 1 }
   ]
 }

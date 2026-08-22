@@ -1,0 +1,44 @@
+name: TinyS3D DevKitC display touch and cadence integration
+version: 1
+author: WMB+
+steps:
+  - wait-serial: 'WMBP_TINY_LIS_DATA_READY_OK'
+  - wait-serial: 'WMBP_TINY_DISPLAY_SPLASH_OK'
+  - wait-serial: 'WMBP_TINY_DISPLAY_weight_OK'
+  # Rotation zero mirrors touch X, so raw X=111 maps to Flow at display X=60.
+  - set-control:
+      part-id: waveshare
+      control: touch1X
+      value: 111
+  - set-control:
+      part-id: waveshare
+      control: touch1Y
+      value: 305
+  - set-control:
+      part-id: waveshare
+      control: touchCount
+      value: 1
+  - wait-serial: 'WMBP_TINY_TOUCH_PAGE,flow'
+  - wait-serial: 'WMBP_TINY_DISPLAY_flow_OK'
+  - set-control:
+      part-id: waveshare
+      control: touchCount
+      value: 0
+  - set-control:
+      part-id: accel
+      control: pattern
+      value: 2
+  - set-control:
+      part-id: accel
+      control: amplitudeG
+      value: 0.20
+  - set-control:
+      part-id: fg
+      control: dischargePctPerHour
+      value: 12
+  - wait-serial: 'WMBP_TINY_MOTION_VIBRATION_OK'
+  - wait-serial: 'WMBP_TINY_MAX17048_DISCHARGE_OK'
+  - wait-serial: 'WMBP_TINY_DISPLAY_connect_OK'
+  - wait-serial: 'WMBP_TINY_DISPLAY_status_OK'
+  - wait-serial: 'WMBP_TINY_DISPLAY_pourover_OK'
+  - delay: 8000ms

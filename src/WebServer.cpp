@@ -66,10 +66,12 @@ static String cachedWeightFastText[2];
 static String cachedBrewWeightText[2];
 static String cachedBrewStatusJson[2];
 static String cachedLiveSnapshotJson[2];
+static String cachedPourOverJson[2];
 static String cachedScaleStatusJson[2];
 static volatile uint8_t cachedDashboardActiveIndex = 0;
 static volatile uint8_t cachedRuntimeApiActiveIndex = 0;
 static volatile uint8_t cachedLiveApiActiveIndex = 0;
+static volatile uint8_t cachedPourOverActiveIndex = 0;
 static unsigned long lastDashboardCacheUpdateMs = 0;
 static unsigned long lastLiveApiCacheUpdateMs = 0;
 static unsigned long lastLiveSseSendMs = 0;
@@ -83,6 +85,81 @@ static bool parseFiniteFloat(const String& input, float& output);
 static bool isSaneScaleCalibrationFactor(float value);
 static bool firmwareOtaSupported();
 static const esp_partition_t* filesystemPartition();
+
+static String buildPourOverJson(const PourOverSession& session) {
+  String json;
+  json.reserve(2600);
+  const PourOverRecipe& recipe = session.recipe();
+  const PourOverStage* current = session.currentStage();
+  json += "{\"supported\":true";
+  json += ",\"status\":\"" + String(PourOverSession::statusName(session.status())) + "\"";
+  json += ",\"transition_count\":" + String(session.transitionCount());
+  json += ",\"current_stage_index\":" + String(session.currentStageIndex());
+  json += ",\"stage_elapsed_ms\":" + String(session.stageElapsedMs());
+  json += ",\"total_elapsed_ms\":" + String(session.totalElapsedMs());
+  json += ",\"stage_baseline_weight_g\":" + String(session.stageBaselineWeightGrams(), 2);
+  json += ",\"current_added_g\":" + String(session.currentAddedGrams(), 2);
+  json += ",\"weight_g\":" + String(session.currentWeightGrams(), 2);
+  json += ",\"flow_gps\":" + String(session.currentFlowGramsPerSecond(), 2);
+  json += ",\"peak_flow_gps\":" + String(session.peakFlowGramsPerSecond(), 2);
+  json += ",\"average_stage_flow_gps\":" + String(session.averageStageFlowGramsPerSecond(), 2);
+  json += ",\"recipe\":{\"name\":\"" + jsonEscape(String(recipe.name)) + "\"";
+  json += ",\"stage_count\":" + String(recipe.stageCount) + ",\"stages\":[";
+  for (uint8_t i = 0; i < recipe.stageCount; i++) {
+    if (i > 0) json += ',';
+    const PourOverStage& stage = recipe.stages[i];
+    const PourOverStageResult& result = session.result(i);
+    json += "{\"type\":\"" + String(PourOverSession::stageTypeName(stage.type)) + "\"";
+    json += ",\"name\":\"" + jsonEscape(String(stage.name)) + "\"";
+    json += ",\"target_g\":" + String(stage.targetGrams, 2);
+    json += ",\"duration_ms\":" + String(stage.durationMs);
+    json += ",\"flow_min_gps\":" + String(stage.flowMin, 2);
+    json += ",\"flow_max_gps\":" + String(stage.flowMax, 2);
+    json += ",\"auto_advance\":" + String(stage.autoAdvance ? "true" : "false");
+    json += ",\"result\":";
+    if (!result.complete) {
+      json += "null";
+    } else {
+      json += "{\"actual_added_g\":" + String(result.actualAddedGrams, 2);
+      json += ",\"duration_ms\":" + String(result.durationMs);
+      json += ",\"average_flow_gps\":" + String(result.averageFlow, 2);
+      json += ",\"completed_at_ms\":" + String(result.completedAtMs) + "}";
+    }
+    json += "}";
+  }
+  json += "]}";
+  if (current != nullptr) {
+    json += ",\"current_stage_type\":\"" + String(PourOverSession::stageTypeName(current->type)) + "\"";
+    json += ",\"current_stage_name\":\"" + jsonEscape(String(current->name)) + "\"";
+    json += ",\"current_stage_target_g\":" + String(current->targetGrams, 2);
+    json += ",\"current_stage_duration_ms\":" + String(current->durationMs);
+  }
+  json += "}";
+  return json;
+}
+
+static String buildPourOverLiveJson(const PourOverSession& session) {
+  String json;
+  json.reserve(520);
+  const PourOverStage* current = session.currentStage();
+  json += "{\"supported\":true";
+  json += ",\"status\":\"" + String(PourOverSession::statusName(session.status())) + "\"";
+  json += ",\"transition_count\":" + String(session.transitionCount());
+  json += ",\"current_stage_index\":" + String(session.currentStageIndex());
+  json += ",\"stage_elapsed_ms\":" + String(session.stageElapsedMs());
+  json += ",\"total_elapsed_ms\":" + String(session.totalElapsedMs());
+  json += ",\"stage_baseline_weight_g\":" + String(session.stageBaselineWeightGrams(), 2);
+  json += ",\"current_added_g\":" + String(session.currentAddedGrams(), 2);
+  json += ",\"peak_flow_gps\":" + String(session.peakFlowGramsPerSecond(), 2);
+  if (current != nullptr) {
+    json += ",\"current_stage_type\":\"" + String(PourOverSession::stageTypeName(current->type)) + "\"";
+    json += ",\"current_stage_name\":\"" + jsonEscape(String(current->name)) + "\"";
+    json += ",\"current_stage_target_g\":" + String(current->targetGrams, 2);
+    json += ",\"current_stage_duration_ms\":" + String(current->durationMs);
+  }
+  json += "}";
+  return json;
+}
 
 static void restartAfterOta() {
     ESP.restart();
@@ -901,7 +978,8 @@ static String buildDashboardJson(Scale &scale,
                                  Display &display,
                                  BatteryMonitor &battery,
                                  DiagnosticEventLog &diagnosticEvents,
-                                 BoardHardware &boardHardware) {
+                                 BoardHardware &boardHardware,
+                                 PourOverSession &pourOverSession) {
   // Built from loopTask through updateDashboardCache(). AsyncTCP request
   // handlers serve the cached string and avoid touching live acquisition state
   // while the HX711 is running at 80 SPS.
@@ -1006,6 +1084,10 @@ static String buildDashboardJson(Scale &scale,
   json += ",\"battery_capacity_mah\":" + String(battery.getBatteryCapacityMah());
   json += ",\"battery_backend\":\"" + battery.getBatteryBackend() + "\"";
   json += ",\"battery_fuel_gauge\":" + String(battery.hasFuelGauge() ? "true" : "false");
+#if HAS_I2C_FUEL_GAUGE
+  json += ",\"battery_gauge_rate_percent_per_hour\":" + String(battery.getFuelGaugeChargeRatePercentPerHour(), 3);
+  json += ",\"battery_gauge_alert\":" + String(battery.isFuelGaugeAlertAsserted() ? "true" : "false");
+#endif
   json += ",\"usb_power_present\":" + String(battery.isUsbPowerPresent() ? "true" : "false");
   json += ",\"usb_present\":" + String(battery.isUsbPowerPresent() ? "true" : "false");
   json += ",\"usb_only_power\":" + String(battery.isUsbOnlyPower() ? "true" : "false");
@@ -1021,6 +1103,19 @@ static String buildDashboardJson(Scale &scale,
   json += ",\"diagnostic_event_log_psram\":" + String(diagnosticEvents.isPsramBacked() ? "true" : "false");
   json += ",\"board_rgb_status_led_available\":" + String(boardHardware.hasRgbStatusLed() ? "true" : "false");
   json += ",\"board_antenna_switch_available\":" + String(boardHardware.hasAntennaSwitch() ? "true" : "false");
+  json += ",\"tiny_color_display_available\":" + String(boardHardware.hasTinyColorDisplay() ? "true" : "false");
+  json += ",\"tiny_touch_available\":" + String(boardHardware.hasTinyTouch() ? "true" : "false");
+  json += ",\"tiny_accelerometer_available\":" + String(boardHardware.hasTinyAccelerometer() ? "true" : "false");
+  json += ",\"tiny_motion_state\":\"" + String(boardHardware.getTinyMotionState()) + "\"";
+  json += ",\"tiny_vibration_rms_g\":" + String(boardHardware.getTinyVibrationRmsG(), 4);
+  json += ",\"tiny_vibration_energy_g2\":" + String(boardHardware.getTinyVibrationEnergyG2(), 5);
+  json += ",\"tiny_quiet_confidence\":" + String(boardHardware.getTinyQuietConfidence(), 3);
+  json += ",\"tiny_impact_peak_g\":" + String(boardHardware.getTinyImpactPeakG(), 3);
+  json += ",\"tiny_roll_degrees\":" + String(boardHardware.getTinyRollDegrees(), 2);
+  json += ",\"tiny_pitch_degrees\":" + String(boardHardware.getTinyPitchDegrees(), 2);
+  json += ",\"tiny_impact_count\":" + String(boardHardware.getTinyImpactCount());
+  json += ",\"tiny_tap_count\":" + String(boardHardware.getTinyTapCount());
+  json += ",\"tiny_double_tap_count\":" + String(boardHardware.getTinyDoubleTapCount());
 
   const bool wifiConnected = WiFi.status() == WL_CONNECTED;
   json += ",\"wifi_connected\":" + String(wifiConnected ? "true" : "false");
@@ -1028,6 +1123,23 @@ static String buildDashboardJson(Scale &scale,
   json += ",\"wifi_signal_quality\":\"" + getWiFiSignalQuality() + "\"";
   json += ",\"bluetooth_connected\":" + String(bluetoothScale.isConnected() ? "true" : "false");
   json += ",\"bluetooth_signal_strength\":" + String(bluetoothScale.getBluetoothSignalStrength());
+  json += ",\"wmb_output_profile\":\"" + String(bluetoothScale.getWmbOutputProfileName()) + "\"";
+  json += ",\"wmb_output_rate_hz\":" + String(bluetoothScale.getWmbOutputRateHz());
+  json += ",\"wmb_output_interval_ms\":" + String(bluetoothScale.getWmbOutputIntervalMillis());
+  json += ",\"wmb_effective_output_interval_ms\":" + String(bluetoothScale.getWmbEffectiveOutputIntervalMillis());
+  json += ",\"wmb_under_source_rate\":" + String(bluetoothScale.isWmbUnderSourceRate() ? "true" : "false");
+  json += ",\"wmb_last_weight_g\":" + String(bluetoothScale.getLastWmbCleanWeight(), 3);
+  json += ",\"wmb_source_valid\":" + String(bluetoothScale.hasLastWmbSelectedSource() ? "true" : "false");
+  json += ",\"wmb_source_sample_count\":" + String(bluetoothScale.getLastWmbSelectedSourceCount());
+  json += ",\"wmb_source_sequence\":" + String(bluetoothScale.getLastWmbSelectedSourceSequence());
+  json += ",\"wmb_source_sample_ms\":" + (bluetoothScale.hasLastWmbSelectedSource() ? String(bluetoothScale.getLastWmbSelectedSourceMillis()) : String("null"));
+  json += ",\"wmb_source_age_ms\":" + (bluetoothScale.hasLastWmbSelectedSource() ? String(bluetoothScale.getLastWmbSelectedSourceAgeMs()) : String("null"));
+  json += ",\"wmb_source_window_range_g\":" + String(bluetoothScale.getLastWmbSelectedWindowRangeGrams(), 3);
+  json += ",\"wmb_source_stale\":" + String(bluetoothScale.isLastWmbSourceStale() ? "true" : "false");
+  json += ",\"wmb_stale_source_count\":" + String(bluetoothScale.getWmbStaleSourceCount());
+  json += ",\"wmb_last_selection_suspect\":" + String(bluetoothScale.wasLastWmbSelectionSuspect() ? "true" : "false");
+  json += ",\"wmb_clean_flowrate\":" + String(bluetoothScale.getLastWmbCleanFlowRate(), 2);
+  json += ",\"wmb_clean_flow_valid\":" + String(bluetoothScale.isLastWmbFlowValid() ? "true" : "false");
   json += ",\"float32_notify_count\":" + String(bluetoothScale.getFloat32NotifyCount());
   json += ",\"float32_notify_drop_count\":" + String(bluetoothScale.getFloat32NotifyDropCount());
   json += ",\"float32_last_weight_g\":" + String(bluetoothScale.getLastFloat32Weight(), 3);
@@ -1057,6 +1169,7 @@ static String buildDashboardJson(Scale &scale,
   json += ",\"device_build_number\":" + String(WEIGHMYBRU_BUILD_NUMBER);
   json += ",\"device_commit_hash\":\"" + String(WEIGHMYBRU_COMMIT_HASH) + "\"";
   json += ",\"device_full_version\":\"" + String(WEIGHMYBRU_FULL_VERSION) + "\"";
+  json += ",\"pour_over\":" + buildPourOverJson(pourOverSession);
 
   json += "}";
   return json;
@@ -1086,7 +1199,8 @@ static String buildBrewStatusJson(Scale &scale, FlowRate &flowRate) {
 static String buildLiveSnapshotJson(Scale &scale,
                                     FlowRate &flowRate,
                                     Display &display,
-                                    BatteryMonitor &battery) {
+                                    BatteryMonitor &battery,
+                                    PourOverSession &pourOverSession) {
   String json;
   json.reserve(360);
   const unsigned long elapsedTime = display.getElapsedTime();
@@ -1110,14 +1224,15 @@ static String buildLiveSnapshotJson(Scale &scale,
   json += "\"hx711_connected\":" + String(scale.isHX711Connected() ? "true" : "false") + ",";
   json += "\"scale_connected\":" + String(scale.isHX711Connected() ? "true" : "false") + ",";
   json += "\"hx711_rate_hz\":" + String(scale.getDetectedSampleRateHz(), 2) + ",";
-  json += "\"firmware_quality\":" + String(scale.getScaleQualityScore());
+  json += "\"firmware_quality\":" + String(scale.getScaleQualityScore()) + ",";
+  json += "\"pour_over\":" + buildPourOverLiveJson(pourOverSession);
   json += "}";
   return json;
 }
 
 static String buildBatteryJson(BatteryMonitor &battery) {
   String json;
-  json.reserve(2200);
+  json.reserve(3600);
   json += "{";
   json += "\"voltage\":" + String(battery.getBatteryVoltage(), 3);
   json += ",\"percentage\":" + String(battery.getBatteryPercentage());
@@ -1126,6 +1241,60 @@ static String buildBatteryJson(BatteryMonitor &battery) {
   json += ",\"backend\":\"" + battery.getBatteryBackend() + "\"";
   json += ",\"fuel_gauge\":" + String(battery.hasFuelGauge() ? "true" : "false");
   json += ",\"fuel_gauge_soc\":" + String(battery.getFuelGaugeStateOfCharge(), 2);
+#if HAS_I2C_FUEL_GAUGE
+  json += ",\"fuel_gauge_version\":" + String(battery.getFuelGaugeVersion());
+  json += ",\"fuel_gauge_charge_rate_percent_per_hour\":" + String(battery.getFuelGaugeChargeRatePercentPerHour(), 3);
+  json += ",\"fuel_gauge_status\":" + String(battery.getFuelGaugeStatus());
+  json += ",\"fuel_gauge_configuration\":" + String(battery.getFuelGaugeConfiguration());
+  json += ",\"fuel_gauge_alert_asserted\":" + String(battery.isFuelGaugeAlertAsserted() ? "true" : "false");
+  json += ",\"fuel_gauge_soc_alert_threshold_percent\":" + String(battery.getFuelGaugeSocAlertThresholdPercent());
+  json += ",\"fuel_gauge_minimum_voltage_alert\":" + String(battery.getFuelGaugeMinimumVoltageAlert(), 2);
+  json += ",\"fuel_gauge_maximum_voltage_alert\":" + String(battery.getFuelGaugeMaximumVoltageAlert(), 2);
+  json += ",\"fuel_gauge_communication_errors\":" + String(battery.getFuelGaugeCommunicationErrors());
+  json += ",\"fuel_gauge_last_diagnostic_ms\":" + String(battery.getFuelGaugeLastDiagnosticMillis());
+  json += ",\"fuel_gauge_rate_fresh\":" + String(battery.hasFreshFuelGaugeRate() ? "true" : "false");
+  const int gaugeRuntimeMinutes = battery.getFuelGaugeRateRuntimeMinutes();
+  const int gaugeMinutesTo80 = battery.getFuelGaugeRateMinutesTo80();
+  const int gaugeMinutesTo100 = battery.getFuelGaugeRateMinutesTo100();
+  const int projectedRuntimeWifiOff = battery.getProjectedRuntimeMinutes(false);
+  const int projectedRuntimeWifiOn = battery.getProjectedRuntimeMinutes(true);
+  const int projectedTo80WifiOff = battery.getProjectedMinutesTo80(false);
+  const int projectedTo80WifiOn = battery.getProjectedMinutesTo80(true);
+  const int projectedTo100WifiOff = battery.getProjectedMinutesTo100(false);
+  const int projectedTo100WifiOn = battery.getProjectedMinutesTo100(true);
+  json += ",\"fuel_gauge_rate_runtime_minutes\":";
+  json += gaugeRuntimeMinutes >= 0 ? String(gaugeRuntimeMinutes) : "null";
+  json += ",\"fuel_gauge_rate_runtime_display\":\"" + formatRuntimeEstimate(gaugeRuntimeMinutes) + "\"";
+  json += ",\"fuel_gauge_rate_minutes_to_80\":";
+  json += gaugeMinutesTo80 >= 0 ? String(gaugeMinutesTo80) : "null";
+  json += ",\"fuel_gauge_rate_minutes_to_100\":";
+  json += gaugeMinutesTo100 >= 0 ? String(gaugeMinutesTo100) : "null";
+  json += ",\"projection_model\":\"" + String(battery.getBatteryProjectionModel()) + "\"";
+  json += ",\"projected_active_current_wifi_off_ma\":" + String(battery.getProjectedActiveCurrentMa(false), 1);
+  json += ",\"projected_active_current_wifi_on_ma\":" + String(battery.getProjectedActiveCurrentMa(true), 1);
+  json += ",\"projected_net_charge_current_wifi_off_ma\":" + String(battery.getProjectedNetChargeCurrentMa(false), 1);
+  json += ",\"projected_net_charge_current_wifi_on_ma\":" + String(battery.getProjectedNetChargeCurrentMa(true), 1);
+  json += ",\"projected_charger_current_ma\":" + String(battery.getProjectedChargerCurrentMa(), 1);
+  json += ",\"projected_charge_efficiency_percent\":" + String(battery.getProjectedChargeEfficiency() * 100.0f, 1);
+  json += ",\"projected_runtime_wifi_off_minutes\":";
+  json += projectedRuntimeWifiOff >= 0 ? String(projectedRuntimeWifiOff) : "null";
+  json += ",\"projected_runtime_wifi_off_display\":\"" + formatRuntimeEstimate(projectedRuntimeWifiOff) + "\"";
+  json += ",\"projected_runtime_wifi_on_minutes\":";
+  json += projectedRuntimeWifiOn >= 0 ? String(projectedRuntimeWifiOn) : "null";
+  json += ",\"projected_runtime_wifi_on_display\":\"" + formatRuntimeEstimate(projectedRuntimeWifiOn) + "\"";
+  json += ",\"projected_minutes_to_80_wifi_off\":";
+  json += projectedTo80WifiOff >= 0 ? String(projectedTo80WifiOff) : "null";
+  json += ",\"projected_minutes_to_80_wifi_off_display\":\"" + formatRuntimeEstimate(projectedTo80WifiOff) + "\"";
+  json += ",\"projected_minutes_to_80_wifi_on\":";
+  json += projectedTo80WifiOn >= 0 ? String(projectedTo80WifiOn) : "null";
+  json += ",\"projected_minutes_to_80_wifi_on_display\":\"" + formatRuntimeEstimate(projectedTo80WifiOn) + "\"";
+  json += ",\"projected_minutes_to_100_wifi_off\":";
+  json += projectedTo100WifiOff >= 0 ? String(projectedTo100WifiOff) : "null";
+  json += ",\"projected_minutes_to_100_wifi_off_display\":\"" + formatRuntimeEstimate(projectedTo100WifiOff) + "\"";
+  json += ",\"projected_minutes_to_100_wifi_on\":";
+  json += projectedTo100WifiOn >= 0 ? String(projectedTo100WifiOn) : "null";
+  json += ",\"projected_minutes_to_100_wifi_on_display\":\"" + formatRuntimeEstimate(projectedTo100WifiOn) + "\"";
+#endif
   json += ",\"usb_power_present\":" + String(battery.isUsbPowerPresent() ? "true" : "false");
   json += ",\"usb_only_power\":" + String(battery.isUsbOnlyPower() ? "true" : "false");
   json += ",\"status\":\"" + battery.getBatteryStatus() + "\"";
@@ -1194,7 +1363,7 @@ static String buildDiagnosticsSelfTestJson(Scale &scale,
   json += "\"free_psram\":" + String(ESP.getFreePsram()) + ",";
   json += "\"psram_size\":" + String(ESP.getPsramSize()) + ",";
   json += "\"scale_connected\":" + String(scale.isHX711Connected() ? "true" : "false") + ",";
-  json += "\"display_connected\":" + String(display.isConnected() ? "true" : "false") + ",";
+  json += "\"display_connected\":" + String((display.isConnected() || boardHardware.hasTinyColorDisplay()) ? "true" : "false") + ",";
   json += "\"ble_connected\":" + String(bluetoothScale.isConnected() ? "true" : "false") + ",";
   json += "\"battery_valid\":" + String(battery.hasValidReading() ? "true" : "false") + ",";
   json += "\"battery_backend\":\"" + battery.getBatteryBackend() + "\",";
@@ -1353,7 +1522,8 @@ void updateDashboardCache(Scale &scale,
                           BatteryMonitor &battery,
                           PowerManager &powerManager,
                           DiagnosticEventLog &diagnosticEvents,
-                          BoardHardware &boardHardware) {
+                          BoardHardware &boardHardware,
+                          PourOverSession &pourOverSession) {
   const unsigned long now = millis();
   if (cachedWeightText[cachedLiveApiActiveIndex].length() == 0 ||
       now - lastLiveApiCacheUpdateMs >= LIVE_API_CACHE_INTERVAL_MS) {
@@ -1363,7 +1533,7 @@ void updateDashboardCache(Scale &scale,
     cachedWeightFastText[liveInactiveIndex] = String(currentWeight, 2);
     cachedBrewWeightText[liveInactiveIndex] = String(currentWeight, 1);
     cachedBrewStatusJson[liveInactiveIndex] = buildBrewStatusJson(scale, flowRate);
-    cachedLiveSnapshotJson[liveInactiveIndex] = buildLiveSnapshotJson(scale, flowRate, display, battery);
+    cachedLiveSnapshotJson[liveInactiveIndex] = buildLiveSnapshotJson(scale, flowRate, display, battery, pourOverSession);
     cachedLiveApiActiveIndex = liveInactiveIndex;
     lastLiveApiCacheUpdateMs = now;
     if (now - lastLiveSseSendMs >= LIVE_SSE_INTERVAL_MS) {
@@ -1385,8 +1555,11 @@ void updateDashboardCache(Scale &scale,
       display,
       battery,
       diagnosticEvents,
-      boardHardware);
+      boardHardware,
+      pourOverSession);
+  cachedPourOverJson[inactiveIndex] = buildPourOverJson(pourOverSession);
   cachedDashboardActiveIndex = inactiveIndex;
+  cachedPourOverActiveIndex = inactiveIndex;
 
   const uint8_t runtimeInactiveIndex = cachedRuntimeApiActiveIndex == 0 ? 1 : 0;
   cachedBatteryJson[runtimeInactiveIndex] = buildBatteryJson(battery);
@@ -1407,7 +1580,7 @@ void updateDashboardCache(Scale &scale,
   lastDashboardCacheUpdateMs = now;
 }
 
-void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothScale, Display &display, BatteryMonitor &battery, SmbComms &smb, PowerManager &powerManager, DiagnosticEventLog &diagnosticEvents, BoardHardware &boardHardware, BatteryDrainSession &batteryDrainSession, TouchSensor &touchSensor, ScaleCommandQueue &scaleCommandQueue) {
+void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothScale, Display &display, BatteryMonitor &battery, SmbComms &smb, PowerManager &powerManager, DiagnosticEventLog &diagnosticEvents, BoardHardware &boardHardware, BatteryDrainSession &batteryDrainSession, TouchSensor &touchSensor, ScaleCommandQueue &scaleCommandQueue, PourOverSession &pourOverSession, PourOverCommandQueue &pourOverCommandQueue) {
   if (!LittleFS.begin()) {
     Serial.println();
     Serial.println("=====================================");
@@ -1436,7 +1609,7 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
   getCachedDecimals();        // This will cache the decimal setting
   getStoredSSID();            // This will cache WiFi credentials
 
-  updateDashboardCache(scale, flowRate, bluetoothScale, display, battery, powerManager, diagnosticEvents, boardHardware);
+  updateDashboardCache(scale, flowRate, bluetoothScale, display, battery, powerManager, diagnosticEvents, boardHardware, pourOverSession);
 
   // Register API route first. Serve a loop-owned cached dashboard snapshot so
   // browser/PWA polling cannot make AsyncTCP walk live HX711/battery state.
@@ -1445,6 +1618,78 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
   server.on("/api/dashboard", HTTP_GET, [](AsyncWebServerRequest *request) {
     request->send(200, "application/json", cachedJsonOrWarming(cachedDashboardJson, cachedDashboardActiveIndex));
   });
+
+  server.on("/api/pourover/state", HTTP_GET, [](AsyncWebServerRequest *request) {
+    request->send(200, "application/json", cachedJsonOrWarming(cachedPourOverJson, cachedPourOverActiveIndex));
+  });
+
+  server.on("/api/pourover/recipe", HTTP_POST, [&pourOverCommandQueue](AsyncWebServerRequest *request) {
+    if (!request->hasParam("name", true) || !request->hasParam("stageCount", true)) {
+      request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"name and stageCount are required\"}");
+      return;
+    }
+    PourOverRecipe recipe;
+    strlcpy(recipe.name, request->getParam("name", true)->value().c_str(), sizeof(recipe.name));
+    const int stageCount = request->getParam("stageCount", true)->value().toInt();
+    if (stageCount < 1 || stageCount > static_cast<int>(PourOverRecipe::MAX_STAGES)) {
+      request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"stageCount must be 1-12\"}");
+      return;
+    }
+    recipe.stageCount = static_cast<uint8_t>(stageCount);
+    for (uint8_t i = 0; i < recipe.stageCount; i++) {
+      const String prefix = "s" + String(i);
+      const String typeKey = prefix + "Type";
+      const String nameKey = prefix + "Name";
+      if (!request->hasParam(typeKey, true) || !request->hasParam(nameKey, true)) {
+        request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"stage type and name are required\"}");
+        return;
+      }
+      PourOverStage& stage = recipe.stages[i];
+      const String type = request->getParam(typeKey, true)->value();
+      if (type == "pour") stage.type = PourOverStageType::Pour;
+      else if (type == "pause") stage.type = PourOverStageType::Pause;
+      else if (type == "agitate") stage.type = PourOverStageType::Agitate;
+      else if (type == "drawdown") stage.type = PourOverStageType::Drawdown;
+      else {
+        request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"unknown stage type\"}");
+        return;
+      }
+      strlcpy(stage.name, request->getParam(nameKey, true)->value().c_str(), sizeof(stage.name));
+      const String targetKey = prefix + "TargetGrams";
+      const String durationKey = prefix + "DurationSec";
+      const String flowMinKey = prefix + "FlowMin";
+      const String flowMaxKey = prefix + "FlowMax";
+      const String autoKey = prefix + "AutoAdvance";
+      stage.targetGrams = request->hasParam(targetKey, true) ? request->getParam(targetKey, true)->value().toFloat() : 0.0f;
+      const float durationSeconds = request->hasParam(durationKey, true) ? request->getParam(durationKey, true)->value().toFloat() : 0.0f;
+      stage.durationMs = durationSeconds > 0.0f ? static_cast<uint32_t>(durationSeconds * 1000.0f) : 0;
+      stage.flowMin = request->hasParam(flowMinKey, true) ? request->getParam(flowMinKey, true)->value().toFloat() : 0.0f;
+      stage.flowMax = request->hasParam(flowMaxKey, true) ? request->getParam(flowMaxKey, true)->value().toFloat() : 0.0f;
+      stage.autoAdvance = !request->hasParam(autoKey, true) || request->getParam(autoKey, true)->value() != "false";
+    }
+    if (!pourOverCommandQueue.requestRecipe(recipe)) {
+      request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"invalid recipe\"}");
+      return;
+    }
+    request->send(202, "application/json", "{\"status\":\"queued\"}");
+  });
+
+  auto registerPourOverCommand = [&pourOverCommandQueue](const char* path, PourOverCommandQueue::Command command) {
+    server.on(path, HTTP_POST, [&pourOverCommandQueue, command](AsyncWebServerRequest *request) {
+      if (!pourOverCommandQueue.requestCommand(command)) {
+        request->send(503, "application/json", "{\"status\":\"error\",\"message\":\"command queue full\"}");
+        return;
+      }
+      request->send(202, "application/json", "{\"status\":\"queued\"}");
+    });
+  };
+  registerPourOverCommand("/api/pourover/start", PourOverCommandQueue::Command::Start);
+  registerPourOverCommand("/api/pourover/pause", PourOverCommandQueue::Command::Pause);
+  registerPourOverCommand("/api/pourover/resume", PourOverCommandQueue::Command::Resume);
+  registerPourOverCommand("/api/pourover/next", PourOverCommandQueue::Command::Next);
+  registerPourOverCommand("/api/pourover/previous", PourOverCommandQueue::Command::Previous);
+  registerPourOverCommand("/api/pourover/finish", PourOverCommandQueue::Command::Finish);
+  registerPourOverCommand("/api/pourover/reset", PourOverCommandQueue::Command::Reset);
 
   // Timer control endpoints
   server.on("/api/timer/start", HTTP_POST, [&display, &smb](AsyncWebServerRequest *request) {
@@ -1672,7 +1917,7 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
     request->send(200, "application/json", json);
   });
 
-  server.on("/api/battery/benchmark", HTTP_GET, [&battery, &batteryDrainSession, &scale, &display, &bluetoothScale](AsyncWebServerRequest *request) {
+  server.on("/api/battery/benchmark", HTTP_GET, [&battery, &batteryDrainSession, &scale, &display, &bluetoothScale, &boardHardware](AsyncWebServerRequest *request) {
     String json = "{";
     json += "\"label\":\"" + String(batteryDrainSession.getLabel()) + "\"";
     json += ",\"capacity_mah\":" + String(battery.getBatteryCapacityMah());
@@ -1731,7 +1976,7 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
     json += ",\"wifi_radio_on\":" + String(WiFi.getMode() != WIFI_OFF ? "true" : "false");
     json += ",\"wifi_sleep\":" + String(WiFi.getSleep() ? "true" : "false");
     json += ",\"ble_connected\":" + String(bluetoothScale.isConnected() ? "true" : "false");
-    json += ",\"display_connected\":" + String(display.isConnected() ? "true" : "false");
+    json += ",\"display_connected\":" + String((display.isConnected() || boardHardware.hasTinyColorDisplay()) ? "true" : "false");
     json += ",\"hx711_connected\":" + String(scale.isHX711Connected() ? "true" : "false");
     json += ",\"hx711_rate_hz\":" + String(scale.getDetectedSampleRateHz(), 2);
     json += ",\"hx711_rate_mode\":\"" + scale.getDetectedHx711RateMode() + "\"";
@@ -2202,8 +2447,65 @@ void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothS
   server.on("/api/bluetooth/status", HTTP_GET, [&bluetoothScale](AsyncWebServerRequest *request) {
     String json = "{";
     json += "\"connected\":" + String(bluetoothScale.isConnected() ? "true" : "false");
+    json += ",\"wmb_output_profile\":\"" + String(bluetoothScale.getWmbOutputProfileName()) + "\"";
+    json += ",\"wmb_output_rate_hz\":" + String(bluetoothScale.getWmbOutputRateHz());
+    json += ",\"wmb_effective_output_interval_ms\":" + String(bluetoothScale.getWmbEffectiveOutputIntervalMillis());
+    json += ",\"wmb_under_source_rate\":" + String(bluetoothScale.isWmbUnderSourceRate() ? "true" : "false");
+    json += ",\"wmb_clean_flow_valid\":" + String(bluetoothScale.isLastWmbFlowValid() ? "true" : "false");
     json += "}";
     request->send(200, "application/json", json);
+  });
+
+  server.on("/api/bluetooth/wmb-output-rate", HTTP_POST, [&bluetoothScale](AsyncWebServerRequest *request) {
+    const bool wantsDiagnosticProfile =
+      request->hasParam("profile", true) &&
+      request->getParam("profile", true)->value() == "diagnostic-high-rate";
+    if (wantsDiagnosticProfile) {
+      bluetoothScale.requestWmbDiagnosticHighRateProfile();
+      request->send(202, "application/json", "{\"status\":\"queued\",\"wmb_output_profile\":\"diagnostic-high-rate\"}");
+      return;
+    }
+    if (!request->hasParam("rate", true)) {
+      request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"rate is required for clean WMB output\"}");
+      return;
+    }
+    const int rate = request->getParam("rate", true)->value().toInt();
+    if (!bluetoothScale.requestWmbCleanOutputRateHz(static_cast<uint8_t>(rate))) {
+      request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"rate must be 10, 20, 40, or 80\"}");
+      return;
+    }
+    String json = "{\"status\":\"queued\",\"wmb_output_profile\":\"clean\",\"wmb_output_rate_hz\":";
+    json += String(rate);
+    json += "}";
+    request->send(200, "application/json", json);
+  });
+
+  server.on("/api/bluetooth/wmb-output-profile", HTTP_POST, [&bluetoothScale](AsyncWebServerRequest *request) {
+    if (!request->hasParam("profile", true)) {
+      request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"profile is required\"}");
+      return;
+    }
+    const String profile = request->getParam("profile", true)->value();
+    if (profile == "diagnostic-high-rate") {
+      bluetoothScale.requestWmbDiagnosticHighRateProfile();
+      request->send(202, "application/json", "{\"status\":\"queued\",\"wmb_output_profile\":\"diagnostic-high-rate\"}");
+      return;
+    }
+    if (profile != "clean") {
+      request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"profile must be diagnostic-high-rate or clean\"}");
+      return;
+    }
+    const uint8_t rate = request->hasParam("rate", true)
+      ? static_cast<uint8_t>(request->getParam("rate", true)->value().toInt())
+      : bluetoothScale.getWmbOutputRateHz();
+    if (!bluetoothScale.requestWmbCleanOutputRateHz(rate)) {
+      request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"rate must be 10, 20, 40, or 80\"}");
+      return;
+    }
+    String json = "{\"status\":\"queued\",\"wmb_output_profile\":\"clean\",\"wmb_output_rate_hz\":";
+    json += String(rate);
+    json += "}";
+    request->send(202, "application/json", json);
   });
 
   // Filter settings API endpoints

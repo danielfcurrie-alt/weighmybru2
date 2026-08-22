@@ -1,6 +1,8 @@
 #ifndef LIS2DW12_DRIVER_H
 #define LIS2DW12_DRIVER_H
 
+#if defined(BOARD_TINYS3D) || defined(WMBP_HOST_TEST)
+
 #include <Arduino.h>
 #include <Wire.h>
 
@@ -74,4 +76,5 @@ private:
     float rawToG(int16_t raw) const;
 };
 
+#endif  // BOARD_TINYS3D || WMBP_HOST_TEST
 #endif

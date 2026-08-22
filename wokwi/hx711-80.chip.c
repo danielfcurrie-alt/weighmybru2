@@ -8,8 +8,10 @@
 typedef struct {
   pin_t dout;
   pin_t sck;
+  pin_t rate;
   timer_t ready_timer;
   uint32_t sps_attr;
+  uint32_t use_rate_pin_attr;
   uint32_t actual_sps_attr;
   uint32_t jitter_micros_attr;
   uint32_t weight_attr;
@@ -30,9 +32,14 @@ typedef struct {
 } chip_state_t;
 
 static uint32_t sample_interval_micros(chip_state_t *chip) {
-  const uint32_t requested_mode = attr_read(chip->sps_attr);
+  const bool use_rate_pin = attr_read(chip->use_rate_pin_attr) != 0;
+  const uint32_t requested_mode = use_rate_pin
+                                      ? (pin_read(chip->rate) == HIGH ? 80U : 10U)
+                                      : attr_read(chip->sps_attr);
   const float actual_sps = attr_read_float(chip->actual_sps_attr);
-  float rate = actual_sps > 0.1f ? actual_sps : (requested_mode >= 80 ? 80.0f : 10.0f);
+  float rate = requested_mode >= 80
+                   ? (actual_sps > 0.1f ? actual_sps : 80.0f)
+                   : 10.0f;
 
   if (rate < 1.0f) {
     rate = 1.0f;
@@ -171,10 +178,12 @@ void chip_init(void) {
   chip_state_t *chip = (chip_state_t *)calloc(1, sizeof(chip_state_t));
   chip->dout = pin_init("DT", OUTPUT_HIGH);
   chip->sck = pin_init("SCK", INPUT);
+  chip->rate = pin_init("RATE", INPUT);
   (void)pin_init("VCC", INPUT);
   (void)pin_init("GND", INPUT);
 
   chip->sps_attr = attr_init("sps", 80);
+  chip->use_rate_pin_attr = attr_init("useRatePin", 0);
   chip->actual_sps_attr = attr_init_float("actualSps", 94.22f);
   chip->jitter_micros_attr = attr_init("jitterMicros", 0);
   chip->weight_attr = attr_init_float("weight", 0.0f);

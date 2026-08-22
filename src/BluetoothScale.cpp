@@ -169,7 +169,24 @@ BluetoothScale::BluetoothScale()
       commandCharacteristic(nullptr), capabilitiesCharacteristic(nullptr), batteryLevelCharacteristic(nullptr), advertising(nullptr), deviceConnected(false),
       oldDeviceConnected(false), lastHeartbeat(0), lastBatterySent(0),
       lastNotifiedSampleSequence(0), lastNotifiedScaleSampleMillis(0),
-      weightNotifyCount(0), weightNotifyDropCount(0), float32EstimatorTickCount(0), float32NotifyCount(0), float32NotifyDropCount(0), packetSequence(0), batteryNotifyCount(0),
+      weightNotifyCount(0), weightNotifyDropCount(0),
+      wmbOutputProfile(static_cast<uint8_t>(WMB_DEFAULT_OUTPUT_PROFILE)),
+      wmbOutputRateHz(WMB_DEFAULT_OUTPUT_RATE_HZ),
+      pendingWmbOutputConfig(false),
+      pendingWmbOutputProfile(static_cast<uint8_t>(WMB_DEFAULT_OUTPUT_PROFILE)),
+      pendingWmbOutputRateHz(WMB_DEFAULT_OUTPUT_RATE_HZ),
+      wmbEstimatorTickCount(0),
+      lastWmbScheduleMillis(0), lastWmbWeight(0.0f), hasLastWmbWeight(false),
+      lastWmbObservedTareMillis(0), wmbConsecutiveSuppressedSelectionCount(0),
+      lastWmbSelectedSourceCount(0), lastWmbSelectedSourceSequence(0),
+      lastWmbSelectedSourceMillis(0),
+      lastWmbSelectedSourceAgeMs(0), lastWmbSelectedWindowRangeGrams(0.0f),
+      lastWmbEmittedSourceSequence(0),
+      lastWmbSelectedSourceValid(false), lastWmbSelectionSuspect(false),
+      lastWmbSourceStale(true), wmbStaleSourceCount(0),
+      lastWmbFlowRate(0.0f), lastWmbFlowWeight(0.0f), lastWmbFlowSourceMillis(0),
+      lastWmbFlowValid(false),
+      float32EstimatorTickCount(0), float32NotifyCount(0), float32NotifyDropCount(0), packetSequence(0), batteryNotifyCount(0),
       lastWeightNotifyMillis(0), lastFloat32NotifyMillis(0), lastFloat32EstimatorMillis(0), lastFloat32ScheduleMillis(0), lastBatteryNotifyMillis(0),
       lastFloat32Weight(0.0f), hasLastFloat32Weight(false),
       lastFloat32ObservedTareMillis(0), float32SuspectSelectionCount(0),
@@ -426,6 +443,7 @@ void BluetoothScale::update() {
     }
     
     uint32_t now = millis();
+    applyPendingWmbOutputConfig();
     
     // Handle connection state changes
     if (!deviceConnected && oldDeviceConnected) {
@@ -441,6 +459,7 @@ void BluetoothScale::update() {
         lastHeartbeat = now;
         lastNotifiedSampleSequence = scale ? scale->getSampleSequence() : 0;
         lastNotifiedScaleSampleMillis = scale ? scale->getLastSampleMillis() : 0;
+        resetWmbCleanEstimator(scale ? scale->getCurrentWeight() : 0.0f);
         // Send initialization response for WeighMyBru client
         delay(100); // Give time for connection to stabilize
         sendNotificationRequest();
@@ -448,18 +467,13 @@ void BluetoothScale::update() {
     }
 
     updateFloat32Estimator(now);
+    if (getWmbOutputProfile() == WmbOutputProfile::Clean) {
+        updateWmbCleanEstimator(now);
+    } else {
+        updateWmbDiagnosticHighRate(now);
+    }
     
     if (deviceConnected) {
-        // Send weight updates only when the scale has produced a fresh public
-        // weight value. This avoids timer-driven duplicate packets and lets BLE
-        // cadence follow the actual scale acquisition cadence.
-        const uint32_t sampleSequence = scale->getSampleSequence();
-        if (sampleSequence != lastNotifiedSampleSequence) {
-            float currentWeight = scale->getCurrentWeight();
-            sendWeightNotification(currentWeight);
-            lastNotifiedSampleSequence = sampleSequence;
-            lastNotifiedScaleSampleMillis = scale->getLastSampleMillis();
-        }
         if (now - lastBatterySent >= BATTERY_SEND_INTERVAL) {
             updateBatteryLevel(false);
             lastBatterySent = now;
@@ -473,22 +487,220 @@ void BluetoothScale::update() {
     }
 }
 
+const char* BluetoothScale::getWmbOutputProfileName() const {
+    return getWmbOutputProfile() == WmbOutputProfile::Clean
+        ? "clean"
+        : "diagnostic-high-rate";
+}
+
+uint32_t BluetoothScale::getWmbOutputIntervalMillis() const {
+    switch (wmbOutputRateHz) {
+        case 10: return 100;
+        case 20: return 50;
+        case 40: return 25;
+        case 80: return 13;
+        default: return 50;
+    }
+}
+
+bool BluetoothScale::isWmbUnderSourceRate() const {
+    if (!scale) {
+        return false;
+    }
+    const float detectedHz = scale->getDetectedSampleRateHz();
+    return isfinite(detectedHz) && detectedHz > 1.0f && detectedHz < static_cast<float>(wmbOutputRateHz) * 0.92f;
+}
+
+uint32_t BluetoothScale::getWmbEffectiveOutputIntervalMillis() const {
+    uint32_t intervalMs = getWmbOutputIntervalMillis();
+    if (!scale) {
+        return intervalMs;
+    }
+    const float detectedHz = scale->getDetectedSampleRateHz();
+    if (isfinite(detectedHz) && detectedHz > 1.0f && detectedHz < static_cast<float>(wmbOutputRateHz) * 0.92f) {
+        const uint32_t sourceLimitedInterval = static_cast<uint32_t>(ceilf(1000.0f / detectedHz));
+        intervalMs = max(intervalMs, sourceLimitedInterval);
+    }
+    return intervalMs;
+}
+
+bool BluetoothScale::isValidWmbOutputRateHz(uint8_t rateHz) {
+    return rateHz >= WMB_MIN_OUTPUT_RATE_HZ &&
+        rateHz <= WMB_MAX_OUTPUT_RATE_HZ &&
+        (rateHz == 10 || rateHz == 20 || rateHz == 40 || rateHz == 80);
+}
+
+bool BluetoothScale::requestWmbDiagnosticHighRateProfile() {
+    pendingWmbOutputProfile = static_cast<uint8_t>(WmbOutputProfile::DiagnosticHighRate);
+    pendingWmbOutputRateHz = wmbOutputRateHz;
+    pendingWmbOutputConfig = true;
+    return true;
+}
+
+bool BluetoothScale::requestWmbCleanOutputRateHz(uint8_t rateHz) {
+    if (!isValidWmbOutputRateHz(rateHz)) {
+        return false;
+    }
+    pendingWmbOutputProfile = static_cast<uint8_t>(WmbOutputProfile::Clean);
+    pendingWmbOutputRateHz = rateHz;
+    pendingWmbOutputConfig = true;
+    return true;
+}
+
+void BluetoothScale::applyPendingWmbOutputConfig() {
+    if (!pendingWmbOutputConfig) {
+        return;
+    }
+
+    const WmbOutputProfile profile =
+        pendingWmbOutputProfile == static_cast<uint8_t>(WmbOutputProfile::Clean)
+            ? WmbOutputProfile::Clean
+            : WmbOutputProfile::DiagnosticHighRate;
+    const uint8_t rateHz = isValidWmbOutputRateHz(pendingWmbOutputRateHz)
+        ? pendingWmbOutputRateHz
+        : WMB_DEFAULT_OUTPUT_RATE_HZ;
+    pendingWmbOutputConfig = false;
+    applyWmbOutputConfig(profile, rateHz);
+}
+
+void BluetoothScale::applyWmbOutputConfig(WmbOutputProfile profile, uint8_t rateHz) {
+    const bool profileChanged = wmbOutputProfile != static_cast<uint8_t>(profile);
+    const bool rateChanged = wmbOutputRateHz != rateHz;
+    if (!profileChanged && !rateChanged) {
+        return;
+    }
+
+    wmbOutputProfile = static_cast<uint8_t>(profile);
+    wmbOutputRateHz = rateHz;
+    lastWmbScheduleMillis = 0;
+    lastWmbEmittedSourceSequence = 0;
+    lastNotifiedSampleSequence = scale ? scale->getSampleSequence() : 0;
+    lastNotifiedScaleSampleMillis = scale ? scale->getLastSampleMillis() : 0;
+    resetWmbCleanEstimator(scale ? scale->getCurrentWeight() : lastWmbWeight);
+    Serial.printf("BluetoothScale: WMB output profile=%s rate=%uHz\n",
+                  getWmbOutputProfileName(),
+                  wmbOutputRateHz);
+}
+
 bool BluetoothScale::isConnected() {
     return deviceConnected;
 }
 
-void BluetoothScale::sendWeightNotification(float weight) {
+bool BluetoothScale::sendWeightNotification(float weight, WmbOutputProfile profile) {
     if (!deviceConnected) {
-        return;
+        return false;
     }
     
     // Send to GaggiMate first (WeighMyBru protocol format) - critical for backward compatibility
-    if (sendGaggiMateWeight(weight)) {
+    if (sendGaggiMateWeight(weight, profile)) {
         weightNotifyCount++;
         lastWeightNotifyMillis = millis();
+        return true;
     } else {
         weightNotifyDropCount++;
     }
+    return false;
+}
+
+void BluetoothScale::resetWmbCleanEstimator(float seedWeight) {
+    lastWmbWeight = isfinite(seedWeight) ? seedWeight : 0.0f;
+    hasLastWmbWeight = true;
+    lastWmbObservedTareMillis = scale ? scale->getLastTareMillis() : 0;
+    lastWmbSelectedSourceCount = 0;
+    lastWmbSelectedSourceSequence = 0;
+    lastWmbSelectedSourceMillis = 0;
+    lastWmbSelectedSourceAgeMs = 0;
+    lastWmbSelectedWindowRangeGrams = 0.0f;
+    lastWmbEmittedSourceSequence = 0;
+    lastWmbSelectedSourceValid = false;
+    lastWmbSelectionSuspect = false;
+    lastWmbSourceStale = true;
+    wmbConsecutiveSuppressedSelectionCount = 0;
+    lastWmbFlowRate = 0.0f;
+    lastWmbFlowWeight = lastWmbWeight;
+    lastWmbFlowSourceMillis = 0;
+    lastWmbFlowValid = false;
+}
+
+void BluetoothScale::updateWmbDiagnosticHighRate(uint32_t now) {
+    (void)now;
+    if (!scale || !deviceConnected) {
+        return;
+    }
+
+    const uint32_t sampleSequence = scale->getSampleSequence();
+    if (sampleSequence == lastNotifiedSampleSequence) {
+        return;
+    }
+
+    const float weight = scale->getCurrentWeight();
+    if (sendWeightNotification(weight, WmbOutputProfile::DiagnosticHighRate)) {
+        lastNotifiedSampleSequence = sampleSequence;
+        lastNotifiedScaleSampleMillis = scale->getLastSampleMillis();
+    }
+}
+
+void BluetoothScale::updateWmbCleanEstimator(uint32_t now) {
+    if (!scale || !deviceConnected) {
+        return;
+    }
+
+    const uint32_t intervalMs = getWmbEffectiveOutputIntervalMillis();
+    if (lastWmbScheduleMillis == 0) {
+        lastWmbScheduleMillis = now;
+        resetWmbCleanEstimator(scale->getCurrentWeight());
+    } else if (now - lastWmbScheduleMillis < intervalMs) {
+        return;
+    } else if (now - lastWmbScheduleMillis > intervalMs * 2) {
+        lastWmbScheduleMillis = now;
+    } else {
+        lastWmbScheduleMillis += intervalMs;
+    }
+
+    lastWmbWeight = getWmbCleanWeight(now);
+    hasLastWmbWeight = true;
+    wmbEstimatorTickCount++;
+    const bool selectedNewerThanLastEmission =
+        lastWmbSelectedSourceValid &&
+        (lastWmbEmittedSourceSequence == 0 ||
+         lastWmbSelectedSourceSequence > lastWmbEmittedSourceSequence);
+    if (selectedNewerThanLastEmission &&
+        sendWeightNotification(lastWmbWeight, WmbOutputProfile::Clean)) {
+        lastWmbEmittedSourceSequence = lastWmbSelectedSourceSequence;
+    }
+}
+
+void BluetoothScale::updateWmbCleanFlow(float weight, uint32_t selectedSourceMillis, bool valid) {
+    if (!valid || selectedSourceMillis == 0) {
+        lastWmbFlowValid = false;
+        lastWmbFlowRate = 0.0f;
+        return;
+    }
+
+    if (lastWmbFlowSourceMillis == 0 || selectedSourceMillis <= lastWmbFlowSourceMillis) {
+        lastWmbFlowWeight = weight;
+        lastWmbFlowSourceMillis = selectedSourceMillis;
+        lastWmbFlowValid = false;
+        lastWmbFlowRate = 0.0f;
+        return;
+    }
+
+    const float dtSeconds = (selectedSourceMillis - lastWmbFlowSourceMillis) / 1000.0f;
+    const float instantFlow = dtSeconds > 0.0f ? (weight - lastWmbFlowWeight) / dtSeconds : 0.0f;
+    lastWmbFlowWeight = weight;
+    lastWmbFlowSourceMillis = selectedSourceMillis;
+
+    if (!isfinite(instantFlow) || fabsf(instantFlow) > WMB_FLOW_MAX_VALID_GPS || lastWmbSelectionSuspect || lastWmbSourceStale) {
+        lastWmbFlowValid = false;
+        lastWmbFlowRate = 0.0f;
+        return;
+    }
+
+    const float cleanedFlow = fabsf(instantFlow) < WMB_FLOW_DEADBAND_GPS ? 0.0f : instantFlow;
+    lastWmbFlowRate = lastWmbFlowValid
+        ? (lastWmbFlowRate * 0.65f) + (cleanedFlow * 0.35f)
+        : cleanedFlow;
+    lastWmbFlowValid = true;
 }
 
 void BluetoothScale::resetFloat32CompatibilityEstimator(float seedWeight) {
@@ -549,15 +761,18 @@ void BluetoothScale::updateFloat32Estimator(uint32_t now) {
     }
 }
 
-float BluetoothScale::selectFloat32WindowWeight(uint32_t now,
-                                                uint8_t* selectedSampleCount,
-                                                float* selectedWindowRange,
-                                                uint32_t* selectedSourceSequence,
-                                                uint32_t* selectedSourceMillis,
-                                                bool* selectedConfirmedLoadStep) {
+float BluetoothScale::selectObservedWindowWeight(uint32_t now,
+                                                 uint32_t windowMillis,
+                                                 float previousWeight,
+                                                 bool hasPreviousWeight,
+                                                 uint8_t* selectedSampleCount,
+                                                 float* selectedWindowRange,
+                                                 uint32_t* selectedSourceSequence,
+                                                 uint32_t* selectedSourceMillis,
+                                                 bool* selectedConfirmedLoadStep) {
     Scale::InputSample sourceSamples[FLOAT32_MAX_SOURCE_SAMPLES];
     const uint8_t count = scale
-        ? scale->copyRecentQualifiedInputSamples(now, FLOAT32_SELECTION_WINDOW_MS, sourceSamples, FLOAT32_MAX_SOURCE_SAMPLES)
+        ? scale->copyRecentQualifiedInputSamples(now, windowMillis, sourceSamples, FLOAT32_MAX_SOURCE_SAMPLES)
         : 0;
     float candidates[FLOAT32_MAX_SOURCE_SAMPLES];
     float minWeight = 0.0f;
@@ -592,7 +807,7 @@ float BluetoothScale::selectFloat32WindowWeight(uint32_t now,
     }
 
     if (count == 0) {
-        return hasLastFloat32Weight ? lastFloat32Weight : (scale ? scale->getCurrentWeight() : 0.0f);
+        return hasPreviousWeight ? previousWeight : (scale ? scale->getCurrentWeight() : 0.0f);
     }
 
     for (uint8_t i = 1; i < count; i++) {
@@ -635,11 +850,11 @@ float BluetoothScale::selectFloat32WindowWeight(uint32_t now,
     }
 
     const auto detectConfirmedLoadStep = [&](float selectedWeight) -> bool {
-        if (!hasLastFloat32Weight || count < FLOAT32_LOAD_STEP_MIN_CLUSTER_SAMPLES) {
+        if (!hasPreviousWeight || count < FLOAT32_LOAD_STEP_MIN_CLUSTER_SAMPLES) {
             return false;
         }
 
-        const float step = selectedWeight - lastFloat32Weight;
+        const float step = selectedWeight - previousWeight;
         if (fabsf(step) < FLOAT32_LOAD_STEP_MIN_GRAMS) {
             return false;
         }
@@ -655,7 +870,7 @@ float BluetoothScale::selectFloat32WindowWeight(uint32_t now,
             if (fabsf(sample.weightGrams - selectedWeight) > FLOAT32_LOAD_STEP_CLUSTER_GRAMS) {
                 continue;
             }
-            if ((sample.weightGrams - lastFloat32Weight) * direction < FLOAT32_LOAD_STEP_MIN_GRAMS * 0.60f) {
+            if ((sample.weightGrams - previousWeight) * direction < FLOAT32_LOAD_STEP_MIN_GRAMS * 0.60f) {
                 continue;
             }
             clusterCount++;
@@ -709,6 +924,66 @@ float BluetoothScale::selectFloat32WindowWeight(uint32_t now,
     return bestWeight;
 }
 
+float BluetoothScale::getWmbCleanWeight(uint32_t now) {
+    const uint32_t currentTareMillis = scale ? scale->getLastTareMillis() : 0;
+    if (currentTareMillis != lastWmbObservedTareMillis) {
+        resetWmbCleanEstimator(scale ? scale->getCurrentWeight() : 0.0f);
+    }
+
+    uint8_t selectedSampleCount = 0;
+    float selectedWindowRange = 0.0f;
+    uint32_t selectedSourceSequence = 0;
+    uint32_t selectedSourceMillis = 0;
+    bool selectedConfirmedLoadStep = false;
+    const float selectedWeight = selectObservedWindowWeight(
+        now,
+        WMB_SELECTION_WINDOW_MS,
+        lastWmbWeight,
+        hasLastWmbWeight,
+        &selectedSampleCount,
+        &selectedWindowRange,
+        &selectedSourceSequence,
+        &selectedSourceMillis,
+        &selectedConfirmedLoadStep);
+
+    lastWmbSelectedSourceCount = selectedSampleCount;
+    lastWmbSelectedWindowRangeGrams = selectedWindowRange;
+    lastWmbSelectedSourceSequence = selectedSourceSequence;
+    lastWmbSelectedSourceMillis = selectedSourceMillis;
+    lastWmbSelectedSourceValid = selectedSourceSequence != 0;
+    lastWmbSelectedSourceAgeMs =
+        lastWmbSelectedSourceValid ? now - selectedSourceMillis : 0;
+    lastWmbSourceStale =
+        !lastWmbSelectedSourceValid || lastWmbSelectedSourceAgeMs > WMB_SOURCE_STALE_MS;
+    if (lastWmbSourceStale) {
+        wmbStaleSourceCount++;
+        updateWmbCleanFlow(selectedWeight, selectedSourceMillis, false);
+        return lastWmbWeight;
+    }
+
+    lastWmbSelectionSuspect =
+        !selectedConfirmedLoadStep &&
+        selectedSampleCount > 0 &&
+        selectedWindowRange > FLOAT32_SUSPECT_SELECTION_GRAMS &&
+        fabsf(selectedWeight - lastWmbWeight) > FLOAT32_SUSPECT_SELECTION_GRAMS;
+    const bool suppressSuspectSelection =
+        !selectedConfirmedLoadStep &&
+        selectedSampleCount > 0 &&
+        selectedWindowRange > FLOAT32_SUPPRESS_SELECTION_GRAMS &&
+        fabsf(selectedWeight - lastWmbWeight) > FLOAT32_SUPPRESS_SELECTION_GRAMS;
+    if (suppressSuspectSelection &&
+        wmbConsecutiveSuppressedSelectionCount < FLOAT32_MAX_CONSECUTIVE_SUPPRESSED_SELECTIONS) {
+        wmbConsecutiveSuppressedSelectionCount++;
+        lastWmbSelectedSourceValid = false;
+        updateWmbCleanFlow(lastWmbWeight, selectedSourceMillis, false);
+        return lastWmbWeight;
+    }
+
+    wmbConsecutiveSuppressedSelectionCount = 0;
+    updateWmbCleanFlow(selectedWeight, selectedSourceMillis, true);
+    return selectedWeight;
+}
+
 float BluetoothScale::getFloat32CompatibilityWeight(uint32_t now) {
     const uint32_t currentTareMillis = scale ? scale->getLastTareMillis() : 0;
     if (currentTareMillis != lastFloat32ObservedTareMillis) {
@@ -720,8 +995,11 @@ float BluetoothScale::getFloat32CompatibilityWeight(uint32_t now) {
     uint32_t selectedSourceSequence = 0;
     uint32_t selectedSourceMillis = 0;
     bool selectedConfirmedLoadStep = false;
-    const float selectedWeight = selectFloat32WindowWeight(
+    const float selectedWeight = selectObservedWindowWeight(
         now,
+        FLOAT32_SELECTION_WINDOW_MS,
+        lastFloat32Weight,
+        hasLastFloat32Weight,
         &selectedSampleCount,
         &selectedWindowRange,
         &selectedSourceSequence,
@@ -806,7 +1084,7 @@ bool BluetoothScale::sendBeanConquerorWeight(float weight) {
     return false;
 }
 
-bool BluetoothScale::sendGaggiMateWeight(float weight) {
+bool BluetoothScale::sendGaggiMateWeight(float weight, WmbOutputProfile profile) {
     if (!gaggiMateWeightCharacteristic) {
         Serial.println("BluetoothScale: WARNING - GaggiMate characteristic is null!");
         return false;
@@ -825,8 +1103,12 @@ bool BluetoothScale::sendGaggiMateWeight(float weight) {
         payload[0] = PRODUCT_NUMBER; // Product number
         payload[1] = static_cast<uint8_t>(WeighMyBruMessageType::WEIGHT); // Message type
 
-        const uint32_t sampleTimestampMs =
-            scale ? (scale->getLastSampleMillis() & 0x00FFFFFFUL) : (millis() & 0x00FFFFFFUL);
+        const bool cleanPacket = profile == WmbOutputProfile::Clean;
+        const uint32_t packetSourceMillis =
+            cleanPacket && lastWmbSelectedSourceValid
+                ? lastWmbSelectedSourceMillis
+                : (scale ? scale->getLastSampleMillis() : millis());
+        const uint32_t sampleTimestampMs = packetSourceMillis & 0x00FFFFFFUL;
         payload[2] = (sampleTimestampMs >> 16) & 0xFF;
         payload[3] = (sampleTimestampMs >> 8) & 0xFF;
         payload[4] = sampleTimestampMs & 0xFF;
@@ -841,7 +1123,16 @@ bool BluetoothScale::sendGaggiMateWeight(float weight) {
         payload[8] = (absWeight >> 8) & 0xFF;
         payload[9] = absWeight & 0xFF;
         
-        const float currentFlowRate = flowRate ? flowRate->getFlowRate() : 0.0f;
+        bool packetFlowValid = false;
+        float currentFlowRate = 0.0f;
+        if (cleanPacket) {
+            packetFlowValid = lastWmbFlowValid;
+            currentFlowRate = packetFlowValid ? lastWmbFlowRate : 0.0f;
+        } else if (flowRate) {
+            const float diagnosticFlow = flowRate->getFlowRate();
+            packetFlowValid = isfinite(diagnosticFlow);
+            currentFlowRate = packetFlowValid ? diagnosticFlow : 0.0f;
+        }
         const int32_t flowCentiPerSecond = static_cast<int32_t>(roundf(currentFlowRate * 100.0f));
         const uint16_t absFlow = clampUnsigned16(abs(flowCentiPerSecond));
         payload[10] = (flowCentiPerSecond >= 0) ? 43 : 45;
@@ -909,7 +1200,7 @@ bool BluetoothScale::sendGaggiMateWeight(float weight) {
             }
             diagnosticFlags |= DIAG_QUALITY_VALID;
         }
-        if (flowRate) {
+        if (packetFlowValid) {
             diagnosticFlags |= DIAG_FLOW_PRESENT;
         }
         payload[18] = diagnosticFlags;
@@ -1249,7 +1540,13 @@ void BluetoothScale::printDiagnostics() {
                   WMB_PLUS_EXTENSION_PACKET_LENGTH);
     Serial.printf("  batteryService=%s batteryLevel=%s\n", BATTERY_SERVICE_UUID, BATTERY_LEVEL_CHARACTERISTIC_UUID);
     Serial.printf("  connected=%s\n", deviceConnected ? "true" : "false");
-    Serial.println("  wmbPlusExtendedCadence=fresh-scale-sample");
+    Serial.printf("  wmbPlusExtendedProfile=%s requestedRate=%uHz interval=%lums effectiveInterval=%lums underSource=%s cleanWindow=%lums output=observed-sample-only-in-clean-profile\n",
+                  getWmbOutputProfileName(),
+                  wmbOutputRateHz,
+                  static_cast<unsigned long>(getWmbOutputIntervalMillis()),
+                  static_cast<unsigned long>(getWmbEffectiveOutputIntervalMillis()),
+                  isWmbUnderSourceRate() ? "true" : "false",
+                  static_cast<unsigned long>(WMB_SELECTION_WINDOW_MS));
     Serial.printf("  legacyFloat32Cadence=20Hz interval=%lums source=zero-qualified-input selectionWindow=%lums suspectSelection=%.2fg suppressSelection=%.2fg/%u coherentRange=%.2fg newestMedianBand=%.2fg rampResidual=%.2fg rampMaxRate=%.1fg/s loadStep>=%.2fg cluster=%.2fg/%u output=observed-sample-only\n",
                   static_cast<unsigned long>(FLOAT32_COMPAT_INTERVAL_MS),
                   static_cast<unsigned long>(FLOAT32_SELECTION_WINDOW_MS),
@@ -1263,7 +1560,7 @@ void BluetoothScale::printDiagnostics() {
                   FLOAT32_LOAD_STEP_MIN_GRAMS,
                   FLOAT32_LOAD_STEP_CLUSTER_GRAMS,
                   FLOAT32_LOAD_STEP_MIN_CLUSTER_SAMPLES);
-    Serial.printf("  scaleSampleSequence=%lu notifiedSequence=%lu scaleSampleMs=%lu\n",
+    Serial.printf("  scaleSampleSequence=%lu diagnosticNotifiedSequence=%lu scaleSampleMs=%lu\n",
                   static_cast<unsigned long>(scale ? scale->getSampleSequence() : 0),
                   static_cast<unsigned long>(lastNotifiedSampleSequence),
                   static_cast<unsigned long>(lastNotifiedScaleSampleMillis));
@@ -1271,6 +1568,18 @@ void BluetoothScale::printDiagnostics() {
                   static_cast<unsigned long>(weightNotifyCount),
                   static_cast<unsigned long>(weightNotifyDropCount), extendedWeightRate,
                   static_cast<unsigned long>(lastWeightNotifyMillis));
+    Serial.printf("  wmbCleanSource valid=%s count=%u ageMs=%lu seq=%lu emittedSeq=%lu windowRange=%.3fg stale=%s lastSuspect=%s flowValid=%s flow=%.2fg/s staleSources=%lu\n",
+                  lastWmbSelectedSourceValid ? "true" : "false",
+                  lastWmbSelectedSourceCount,
+                  static_cast<unsigned long>(lastWmbSelectedSourceAgeMs),
+                  static_cast<unsigned long>(lastWmbSelectedSourceSequence),
+                  static_cast<unsigned long>(lastWmbEmittedSourceSequence),
+                  lastWmbSelectedWindowRangeGrams,
+                  lastWmbSourceStale ? "true" : "false",
+                  lastWmbSelectionSuspect ? "true" : "false",
+                  lastWmbFlowValid ? "true" : "false",
+                  lastWmbFlowRate,
+                  static_cast<unsigned long>(wmbStaleSourceCount));
     Serial.printf("  float32NotifyCount=%lu dropCount=%lu rate=%.2f/s lastScheduleMs=%lu lastEmissionMs=%lu lastWeight=%.2f suspectSelections=%lu confirmedLoadSteps=%lu staleSources=%lu\n",
                   static_cast<unsigned long>(float32NotifyCount),
                   static_cast<unsigned long>(float32NotifyDropCount),

@@ -1,0 +1,10 @@
+name: TinyS3D proxy missing MAX17048
+version: 1
+author: WMB+
+steps:
+  - set-control:
+      part-id: fg
+      control: online
+      value: 0
+  - wait-serial: 'WMBP_TINY_MAX17048_MISSING_OK'
+  - delay: 5000ms

@@ -1,0 +1,19 @@
+name: TinyS3D proxy HX711 cadence under LIS/MAX/display traffic
+version: 1
+author: WMB+
+steps:
+  - wait-serial: 'WMBP_TINY_LIS_DATA_READY_OK'
+  - wait-serial: 'WMBP_TINY_DISPLAY_SPLASH_OK'
+  - set-control:
+      part-id: accel
+      control: pattern
+      value: 2
+  - set-control:
+      part-id: accel
+      control: amplitudeG
+      value: 0.20
+  - set-control:
+      part-id: fg
+      control: dischargePctPerHour
+      value: 12
+  - delay: 25000ms

@@ -23,6 +23,11 @@ enum class BeanConquerorCommand : uint8_t {
   TARE_AND_START_TIMER = 0x07
 };
 
+enum class WmbOutputProfile : uint8_t {
+  DiagnosticHighRate = 0,
+  Clean = 1
+};
+
 class BluetoothScale : public NimBLEServerCallbacks, public NimBLECharacteristicCallbacks {
 public:
     BluetoothScale();
@@ -48,6 +53,29 @@ public:
     String getBluetoothConnectionInfo(); // Get detailed BLE connection information
     uint32_t getExtendedWeightNotifyCount() const { return weightNotifyCount; }
     uint32_t getExtendedWeightNotifyDropCount() const { return weightNotifyDropCount; }
+    WmbOutputProfile getWmbOutputProfile() const { return static_cast<WmbOutputProfile>(wmbOutputProfile); }
+    const char* getWmbOutputProfileName() const;
+    bool isWmbCleanOutputProfile() const { return getWmbOutputProfile() == WmbOutputProfile::Clean; }
+    uint8_t getWmbOutputRateHz() const { return wmbOutputRateHz; }
+    uint32_t getWmbOutputIntervalMillis() const;
+    uint32_t getWmbEffectiveOutputIntervalMillis() const;
+    bool requestWmbDiagnosticHighRateProfile();
+    bool requestWmbCleanOutputRateHz(uint8_t rateHz);
+    bool isWmbUnderSourceRate() const;
+    float getLastWmbCleanWeight() const { return lastWmbWeight; }
+    bool hasLastWmbCleanWeight() const { return hasLastWmbWeight; }
+    uint8_t getLastWmbSelectedSourceCount() const { return lastWmbSelectedSourceCount; }
+    uint32_t getLastWmbSelectedSourceSequence() const { return lastWmbSelectedSourceSequence; }
+    uint32_t getLastWmbSelectedSourceAgeMs() const { return lastWmbSelectedSourceAgeMs; }
+    uint32_t getLastWmbSelectedSourceMillis() const { return lastWmbSelectedSourceMillis; }
+    float getLastWmbSelectedWindowRangeGrams() const { return lastWmbSelectedWindowRangeGrams; }
+    bool hasLastWmbSelectedSource() const { return lastWmbSelectedSourceValid; }
+    bool wasLastWmbSelectionSuspect() const { return lastWmbSelectionSuspect; }
+    bool isLastWmbSourceStale() const { return lastWmbSourceStale; }
+    uint32_t getWmbStaleSourceCount() const { return wmbStaleSourceCount; }
+    uint32_t getLastWmbNotifyMillis() const { return lastWeightNotifyMillis; }
+    bool isLastWmbFlowValid() const { return lastWmbFlowValid; }
+    float getLastWmbCleanFlowRate() const { return lastWmbFlowRate; }
     uint32_t getFloat32EstimatorTickCount() const { return float32EstimatorTickCount; }
     uint32_t getFloat32NotifyCount() const { return float32NotifyCount; }
     uint32_t getFloat32NotifyDropCount() const { return float32NotifyDropCount; }
@@ -103,6 +131,31 @@ private:
     uint32_t lastNotifiedScaleSampleMillis;
     uint32_t weightNotifyCount;
     uint32_t weightNotifyDropCount;
+    uint8_t wmbOutputProfile;
+    uint8_t wmbOutputRateHz;
+    volatile bool pendingWmbOutputConfig;
+    volatile uint8_t pendingWmbOutputProfile;
+    volatile uint8_t pendingWmbOutputRateHz;
+    uint32_t wmbEstimatorTickCount;
+    uint32_t lastWmbScheduleMillis;
+    float lastWmbWeight;
+    bool hasLastWmbWeight;
+    uint32_t lastWmbObservedTareMillis;
+    uint8_t wmbConsecutiveSuppressedSelectionCount;
+    uint8_t lastWmbSelectedSourceCount;
+    uint32_t lastWmbSelectedSourceSequence;
+    uint32_t lastWmbSelectedSourceMillis;
+    uint32_t lastWmbSelectedSourceAgeMs;
+    float lastWmbSelectedWindowRangeGrams;
+    uint32_t lastWmbEmittedSourceSequence;
+    bool lastWmbSelectedSourceValid;
+    bool lastWmbSelectionSuspect;
+    bool lastWmbSourceStale;
+    uint32_t wmbStaleSourceCount;
+    float lastWmbFlowRate;
+    float lastWmbFlowWeight;
+    uint32_t lastWmbFlowSourceMillis;
+    bool lastWmbFlowValid;
     uint32_t float32EstimatorTickCount;
     uint32_t float32NotifyCount;
     uint32_t float32NotifyDropCount;
@@ -138,6 +191,14 @@ private:
     static const size_t PROTOCOL_LENGTH = 20;
     static const uint32_t HEARTBEAT_INTERVAL = 2000; // 2 seconds
     static const uint32_t BATTERY_SEND_INTERVAL = 1000; // Standard battery service update cadence
+    static constexpr WmbOutputProfile WMB_DEFAULT_OUTPUT_PROFILE = WmbOutputProfile::Clean;
+    static const uint8_t WMB_DEFAULT_OUTPUT_RATE_HZ = 20;
+    static const uint8_t WMB_MIN_OUTPUT_RATE_HZ = 10;
+    static const uint8_t WMB_MAX_OUTPUT_RATE_HZ = 80;
+    static const uint32_t WMB_SELECTION_WINDOW_MS = 300;
+    static const uint32_t WMB_SOURCE_STALE_MS = WMB_SELECTION_WINDOW_MS + 100;
+    static constexpr float WMB_FLOW_DEADBAND_GPS = 0.08f;
+    static constexpr float WMB_FLOW_MAX_VALID_GPS = 30.0f;
     static const uint32_t FLOAT32_COMPAT_INTERVAL_MS = 50; // Legacy Float32 compatibility stream: 20 Hz
     static const uint32_t FLOAT32_SELECTION_WINDOW_MS = 300;
     static const uint32_t FLOAT32_SOURCE_STALE_MS = FLOAT32_SELECTION_WINDOW_MS + FLOAT32_COMPAT_INTERVAL_MS;
@@ -173,17 +234,28 @@ private:
     void sendNotificationRequest();
     void processIncomingMessage(uint8_t* data, size_t length);
     uint8_t calculateChecksum(const uint8_t* data, size_t length);
-    void sendWeightNotification(float weight);
+    bool sendWeightNotification(float weight, WmbOutputProfile profile);
+    static bool isValidWmbOutputRateHz(uint8_t rateHz);
+    void applyPendingWmbOutputConfig();
+    void applyWmbOutputConfig(WmbOutputProfile profile, uint8_t rateHz);
+    void resetWmbCleanEstimator(float seedWeight);
+    void updateWmbDiagnosticHighRate(uint32_t now);
+    void updateWmbCleanEstimator(uint32_t now);
+    float getWmbCleanWeight(uint32_t now);
+    void updateWmbCleanFlow(float weight, uint32_t selectedSourceMillis, bool valid);
     void resetFloat32CompatibilityEstimator(float seedWeight);
     float getFloat32CompatibilityWeight(uint32_t now);
-    float selectFloat32WindowWeight(uint32_t now,
-                                    uint8_t* selectedSampleCount,
-                                    float* selectedWindowRange,
-                                    uint32_t* selectedSourceSequence,
-                                    uint32_t* selectedSourceMillis,
-                                    bool* selectedConfirmedLoadStep);
+    float selectObservedWindowWeight(uint32_t now,
+                                     uint32_t windowMillis,
+                                     float previousWeight,
+                                     bool hasPreviousWeight,
+                                     uint8_t* selectedSampleCount,
+                                     float* selectedWindowRange,
+                                     uint32_t* selectedSourceSequence,
+                                     uint32_t* selectedSourceMillis,
+                                     bool* selectedConfirmedLoadStep);
     bool sendBeanConquerorWeight(float weight);    // Send simple float format
-    bool sendGaggiMateWeight(float weight);        // Send WeighMyBru protocol format
+    bool sendGaggiMateWeight(float weight, WmbOutputProfile profile); // Send WeighMyBru protocol format
     void updateCapabilities();
     void updateBatteryLevel(bool forceNotify = false);
 };

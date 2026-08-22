@@ -133,9 +133,27 @@ Packet byte layout:
 | `18` | diagnostic flags | UInt8 bitmask | bump, gap, cadence, rate mode, quality, flow, extension state |
 | `19` | checksum | UInt8 | XOR of bytes `0...18` |
 
+Beta 10 development builds support two explicit WMB packet profiles:
+
+- `clean` is the default Crema/WMB+ profile. It schedules the WMB packet lane at
+  requested output rates of `10`, `20`, `40`, or `80 Hz`; the default target is
+  `20 Hz`.
+- `diagnostic-high-rate` preserves the existing fresh-public-sample WMB/GaggiMate
+  behavior for diagnostic captures and compatibility testing.
+
+The selected clean rate is an output target only. If acquisition is unknown or
+below the requested target, firmware suppresses duplicate selected-source
+samples instead of fabricating extra measurements. Once detected acquisition is
+available, firmware also caps the effective output interval to the source
+cadence. Byte `17` continues to report detected acquisition rate, not BLE output
+rate.
+
 Timestamp behavior:
 
-- The timestamp is the firmware-side sample time, not the phone/app receive time.
+- In `diagnostic-high-rate`, the timestamp is the latest public scale sample
+  time.
+- In `clean`, the timestamp is the selected-source sample time, not the
+  phone/app receive time.
 - It is truncated to 24 bits and rolls over every `16,777,216 ms` / about `4.66 hours`.
 - Apps should preserve both device timestamp and host arrival time if they care about BLE transport jitter.
 
@@ -144,6 +162,12 @@ Weight and flow units:
 - Weight is signed centigrams, reconstructed from bytes `6...9`.
 - Flow is signed centigrams/sec, reconstructed from bytes `10...12`.
 - The firmware clamps flow magnitude to UInt16 range.
+- In `diagnostic-high-rate`, the flow field preserves the existing public flow
+  estimator semantics.
+- In `clean`, the flow field is derived from the same selected samples as the
+  packet weight. Diagnostic flag bit `6` is set only when that flow value is
+  valid for the current packet; otherwise apps should treat the field as
+  unavailable even though legacy bytes still carry `0.00 g/s`.
 
 Checksum:
 
@@ -231,3 +255,16 @@ POST /api/board/antenna      external=true|false
 ```
 
 Board hardware controls are no-ops or return an error on boards that do not expose the relevant hardware. TinyS3[D] supports the RF antenna switch and optional RGB status LED; the LED defaults off for power testing.
+
+Beta 10 development builds also expose:
+
+```text
+GET  /api/bluetooth/status
+POST /api/bluetooth/wmb-output-rate     rate=10|20|40|80
+POST /api/bluetooth/wmb-output-rate     profile=diagnostic-high-rate
+POST /api/bluetooth/wmb-output-profile  profile=diagnostic-high-rate|clean [& rate=10|20|40|80]
+```
+
+The Bluetooth status response includes the active WMB profile, requested clean
+output rate, effective output interval, whether the requested rate is
+source-limited, and whether the current clean WMB flow value is valid.

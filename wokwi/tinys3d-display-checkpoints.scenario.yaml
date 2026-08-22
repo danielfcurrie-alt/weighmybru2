@@ -1,0 +1,11 @@
+name: TinyS3D proxy Waveshare rendered checkpoints
+version: 1
+author: WMB+
+steps:
+  - wait-serial: 'WMBP_TINY_DISPLAY_SPLASH_OK'
+  - wait-serial: 'WMBP_TINY_DISPLAY_weight_OK'
+  - wait-serial: 'WMBP_TINY_DISPLAY_flow_OK'
+  - wait-serial: 'WMBP_TINY_DISPLAY_connect_OK'
+  - wait-serial: 'WMBP_TINY_DISPLAY_status_OK'
+  - wait-serial: 'WMBP_TINY_DISPLAY_pourover_OK'
+  - delay: 3000ms

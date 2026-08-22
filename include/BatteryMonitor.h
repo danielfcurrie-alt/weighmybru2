@@ -4,6 +4,10 @@
 #include <Arduino.h>
 #include <Preferences.h>
 #include "BoardConfig.h"
+#if HAS_I2C_FUEL_GAUGE
+  #include "MAX17048Driver.h"
+  #include "BatteryTimeEstimator.h"
+#endif
 
 class BatteryMonitor {
 public:
@@ -51,6 +55,45 @@ public:
     bool isUsbPowerPresent() const { return usbPowerPresent; }
     bool isUsbOnlyPower() const { return usbOnlyPower; }
     float getFuelGaugeStateOfCharge() const { return fuelGaugeStateOfCharge; }
+#if HAS_I2C_FUEL_GAUGE
+    uint16_t getFuelGaugeVersion() const { return fuelGauge.version(); }
+    float getFuelGaugeChargeRatePercentPerHour() const { return fuelGauge.chargeRatePercentPerHour(); }
+    uint16_t getFuelGaugeStatus() const { return fuelGauge.status(); }
+    uint16_t getFuelGaugeConfiguration() const { return fuelGauge.configuration(); }
+    bool isFuelGaugeAlertAsserted() const { return fuelGauge.alertAsserted(); }
+    uint8_t getFuelGaugeSocAlertThresholdPercent() const { return fuelGauge.socAlertThresholdPercent(); }
+    float getFuelGaugeMinimumVoltageAlert() const { return fuelGauge.minimumVoltageAlert(); }
+    float getFuelGaugeMaximumVoltageAlert() const { return fuelGauge.maximumVoltageAlert(); }
+    uint32_t getFuelGaugeCommunicationErrors() const { return fuelGauge.communicationErrors(); }
+    uint32_t getFuelGaugeLastDiagnosticMillis() const { return fuelGauge.lastDiagnosticMillis(); }
+    bool hasFreshFuelGaugeRate() const;
+    int getFuelGaugeRateRuntimeMinutes() const;
+    int getFuelGaugeRateMinutesTo80() const;
+    int getFuelGaugeRateMinutesTo100() const;
+    int getProjectedRuntimeMinutes(bool wifiOn) const;
+    int getProjectedMinutesTo80(bool wifiOn) const;
+    int getProjectedMinutesTo100(bool wifiOn) const;
+    float getProjectedActiveCurrentMa(bool wifiOn) const;
+    float getProjectedNetChargeCurrentMa(bool wifiOn) const;
+    float getProjectedChargerCurrentMa() const { return BatteryTimeEstimator::TINYS3D_CHARGER_MA; }
+    float getProjectedChargeEfficiency() const { return BatteryTimeEstimator::TINYS3D_CHARGE_EFFICIENCY; }
+    const char* getBatteryProjectionModel() const { return BatteryTimeEstimator::TINYS3D_MODEL_NAME; }
+    bool quickStartFuelGauge() { return fuelGaugeAvailable && fuelGauge.quickStart(); }
+    bool clearFuelGaugeAlerts(uint16_t mask = 0x3F00) { return fuelGaugeAvailable && fuelGauge.clearAlerts(mask); }
+#else
+    uint16_t getFuelGaugeVersion() const { return 0; }
+    float getFuelGaugeChargeRatePercentPerHour() const { return 0.0f; }
+    uint16_t getFuelGaugeStatus() const { return 0; }
+    uint16_t getFuelGaugeConfiguration() const { return 0; }
+    bool isFuelGaugeAlertAsserted() const { return false; }
+    uint8_t getFuelGaugeSocAlertThresholdPercent() const { return 0; }
+    float getFuelGaugeMinimumVoltageAlert() const { return 0.0f; }
+    float getFuelGaugeMaximumVoltageAlert() const { return 0.0f; }
+    uint32_t getFuelGaugeCommunicationErrors() const { return 0; }
+    uint32_t getFuelGaugeLastDiagnosticMillis() const { return 0; }
+    bool quickStartFuelGauge() { return false; }
+    bool clearFuelGaugeAlerts(uint16_t = 0x3F00) { return false; }
+#endif
     
     // Battery state indicators
     bool isCharging();
@@ -71,6 +114,9 @@ public:
 private:
     uint8_t batteryPin;
     Preferences preferences;
+#if HAS_I2C_FUEL_GAUGE
+    MAX17048Driver fuelGauge;
+#endif
     
     // Li-ion voltage thresholds optimized for ESP32 operation. Capacity is
     // separately configurable for runtime/current estimates.
@@ -130,6 +176,8 @@ private:
     unsigned long lastLearningSaveMillis = 0;
     unsigned long lastUpdate = 0;
     static constexpr unsigned long UPDATE_INTERVAL = 1000; // Update every 1 second
+    static constexpr unsigned long FUEL_GAUGE_DIAGNOSTIC_INTERVAL_MS = 5000;
+    static constexpr unsigned long FUEL_GAUGE_RATE_MAX_AGE_MS = 15000;
     static constexpr float VOLTAGE_EMA_ALPHA = 0.2f;
     static constexpr float PERCENT_EMA_ALPHA = 0.18f;
     static constexpr float PERCENT_MAX_STEP = 2.0f;
@@ -152,7 +200,6 @@ private:
     float readRawVoltage();
     bool beginFuelGauge();
     bool readFuelGaugeSnapshot(float& voltage, float& stateOfCharge);
-    bool readFuelGaugeRegister16(uint8_t reg, uint16_t& value);
     bool readUsbPowerPresent();
     int voltageToPercentage(float voltage) const;
     int stateOfChargeToPercentage(float stateOfCharge) const;

@@ -1,0 +1,67 @@
+name: TinyS3D proxy compact motion sequence
+version: 1
+author: WMB+
+steps:
+  - wait-serial: 'WMBP_TINY_LIS_RANGES_OK'
+  - set-control:
+      part-id: accel
+      control: pattern
+      value: 1
+  - set-control:
+      part-id: accel
+      control: amplitudeG
+      value: 1.0
+  - wait-serial: 'WMBP_TINY_MOTION_QUIET_OK'
+  - set-control:
+      part-id: accel
+      control: pattern
+      value: 2
+  - set-control:
+      part-id: accel
+      control: amplitudeG
+      value: 0.20
+  - wait-serial: 'WMBP_TINY_MOTION_VIBRATION_OK'
+  - set-control:
+      part-id: accel
+      control: pattern
+      value: 1
+  - delay: 1200ms
+  - set-control:
+      part-id: accel
+      control: pattern
+      value: 3
+  - set-control:
+      part-id: accel
+      control: amplitudeG
+      value: 0.8
+  - wait-serial: 'WMBP_TINY_MOTION_IMPACT_OK'
+  - wait-serial: 'WMBP_TINY_MOTION_KNOCK_OK'
+  - set-control:
+      part-id: accel
+      control: pattern
+      value: 1
+  - delay: 1200ms
+  - set-control:
+      part-id: accel
+      control: pattern
+      value: 4
+  - set-control:
+      part-id: accel
+      control: amplitudeG
+      value: 0.85
+  - wait-serial: 'WMBP_TINY_MOTION_IMPACT_OK'
+  - set-control:
+      part-id: accel
+      control: pattern
+      value: 1
+  - delay: 1200ms
+  - set-control:
+      part-id: accel
+      control: pattern
+      value: 5
+  - set-control:
+      part-id: accel
+      control: amplitudeG
+      value: 0.8
+  - wait-serial: 'WMBP_TINY_MOTION_DOUBLE_TAP_OK'
+  - delay: 5000ms

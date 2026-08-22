@@ -26,6 +26,10 @@ POWER_PINS = {
     "VBUS",
 }
 
+PSEUDO_PART_PINS = {
+    "$serialMonitor": {"RX", "TX"},
+}
+
 
 def signal_class(part_type: str, pin: str) -> str:
     pin = pin.upper()
@@ -34,9 +38,9 @@ def signal_class(part_type: str, pin: str) -> str:
             return "spi-clock"
         if pin in {"SDA", "MOSI", "DIN"}:
             return "spi-mosi"
-    if pin == "SDA":
+    if pin in {"SDA", "TP_SDA"}:
         return "i2c-sda"
-    if pin == "SCL":
+    if pin in {"SCL", "TP_SCL"}:
         return "i2c-scl"
     return pin.lower()
 
@@ -113,11 +117,20 @@ def check(path: Path) -> list[str]:
         except ValueError as exc:
             errors.append(f"connection {index}: {exc}")
             continue
-        if left_id not in by_id or right_id not in by_id:
+        unknown_ids = [
+            part_id
+            for part_id in (left_id, right_id)
+            if part_id not in by_id and part_id not in PSEUDO_PART_PINS
+        ]
+        if unknown_ids:
             errors.append(f"connection {index}: unknown part in {connection[0]} -> {connection[1]}")
             continue
 
         for part_id, pin in ((left_id, left_pin), (right_id, right_pin)):
+            if part_id in PSEUDO_PART_PINS:
+                if pin not in PSEUDO_PART_PINS[part_id]:
+                    errors.append(f"connection {index}: {part_id}:{pin} is not a supported pseudo-part pin")
+                continue
             part_type = str(by_id[part_id].get("type", ""))
             allowed = custom_pins.get(part_type)
             if allowed is not None and pin not in allowed:
@@ -126,8 +139,8 @@ def check(path: Path) -> list[str]:
             if allowed is not None and pin not in allowed:
                 errors.append(f"connection {index}: {part_id}:{pin} is not a declared custom-board pin")
 
-        left_type = str(by_id[left_id].get("type", ""))
-        right_type = str(by_id[right_id].get("type", ""))
+        left_type = str(by_id.get(left_id, {}).get("type", ""))
+        right_type = str(by_id.get(right_id, {}).get("type", ""))
         if is_board(left_type) and is_board(right_type):
             continue
         if is_board(left_type):

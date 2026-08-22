@@ -5,6 +5,8 @@
 #include <cstring>
 #include <iostream>
 
+#include "BatteryTimeEstimator.h"
+
 namespace {
 
 constexpr float kBatteryFull = 4.20f;
@@ -245,6 +247,33 @@ static void testSleepChargeEstimates() {
     assert(tinyTo80 < xiaoTo80 * 0.40f);
 }
 
+static void testTinyS3FuelGaugeTimeEstimates() {
+    using namespace BatteryTimeEstimator;
+
+    assert(near(activeLoadMa(false), 39.0f, 0.001f));
+    assert(near(activeLoadMa(true), 81.0f, 0.001f));
+    assert(near(netChargeCurrentMa(false), 216.0f, 0.001f));
+    assert(near(netChargeCurrentMa(true), 174.0f, 0.001f));
+
+    const float runtimeWifiOff = runtimeMinutesFromCurrent(700.0f, 40.0f, activeLoadMa(false));
+    const float runtimeWifiOn = runtimeMinutesFromCurrent(700.0f, 40.0f, activeLoadMa(true));
+    assert(near(runtimeWifiOff, 430.77f, 0.01f));
+    assert(near(runtimeWifiOn, 207.41f, 0.01f));
+
+    assert(near(minutesToTargetFromCurrent(700.0f, 40.0f, 80.0f,
+                                          netChargeCurrentMa(false)),
+                77.78f, 0.01f));
+    assert(near(minutesToTargetFromCurrent(700.0f, 40.0f, 100.0f,
+                                          netChargeCurrentMa(true)),
+                144.83f, 0.01f));
+
+    assert(near(runtimeMinutesFromGaugeRate(40.0f, -8.0f), 300.0f, 0.001f));
+    assert(near(minutesToTargetFromGaugeRate(40.0f, 80.0f, 20.0f), 120.0f, 0.001f));
+    assert(minutesToTargetFromGaugeRate(85.0f, 80.0f, 20.0f) == 0.0f);
+    assert(runtimeMinutesFromGaugeRate(40.0f, -0.2f) < 0.0f);
+    assert(minutesToTargetFromGaugeRate(40.0f, 80.0f, -8.0f) < 0.0f);
+}
+
 static void testDrainSessionTrendExamples() {
     BatteryDrainSession drain;
     drain.begin(0, 4.000f, 75, 75, true, "runtime-xiao-80sps");
@@ -272,6 +301,7 @@ int main() {
     testCriticalSleepAndRecoveryHysteresis();
     testBoardRuntimeMatrix();
     testSleepChargeEstimates();
+    testTinyS3FuelGaugeTimeEstimates();
     testDrainSessionTrendExamples();
 
     std::cout << "Battery simulation matrix host tests passed\n";

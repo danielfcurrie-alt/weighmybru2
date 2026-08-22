@@ -13,11 +13,13 @@
 #include "BatteryDrainSession.h"
 #include "TouchSensor.h"
 #include "ScaleCommandQueue.h"
+#include "PourOverCommandQueue.h"
+#include "PourOverSession.h"
 
 extern float calibrationFactor;
 
-void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothScale, Display &display, BatteryMonitor &battery, SmbComms &smb, PowerManager &powerManager, DiagnosticEventLog &diagnosticEvents, BoardHardware &boardHardware, BatteryDrainSession &batteryDrainSession, TouchSensor &touchSensor, ScaleCommandQueue &scaleCommandQueue);
-void updateDashboardCache(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothScale, Display &display, BatteryMonitor &battery, PowerManager &powerManager, DiagnosticEventLog &diagnosticEvents, BoardHardware &boardHardware);
+void setupWebServer(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothScale, Display &display, BatteryMonitor &battery, SmbComms &smb, PowerManager &powerManager, DiagnosticEventLog &diagnosticEvents, BoardHardware &boardHardware, BatteryDrainSession &batteryDrainSession, TouchSensor &touchSensor, ScaleCommandQueue &scaleCommandQueue, PourOverSession &pourOverSession, PourOverCommandQueue &pourOverCommandQueue);
+void updateDashboardCache(Scale &scale, FlowRate &flowRate, BluetoothScale &bluetoothScale, Display &display, BatteryMonitor &battery, PowerManager &powerManager, DiagnosticEventLog &diagnosticEvents, BoardHardware &boardHardware, PourOverSession &pourOverSession);
 void startWebServer();
 void stopWebServer();
 

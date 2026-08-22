@@ -21,14 +21,33 @@
   
 #endif
 
-// Pin definitions. The WMB+ reference wiring keeps the HX711, touch sensors,
-// and OLED on the same GPIOs across supported ESP32-S3 boards.
-#define HX711_DATA_PIN      5   // GPIO5 - HX711 Data pin
-#define HX711_CLOCK_PIN     6   // GPIO6 - HX711 Clock pin  
-#define TOUCH_TARE_PIN      4   // GPIO4 - Touch sensor for tare (T0)
-#define TOUCH_SLEEP_PIN     3   // GPIO3 - Touch sensor for sleep functionality
-#define I2C_SDA_PIN         8   // GPIO8 - I2C Data pin for display
-#define I2C_SCL_PIN         9   // GPIO9 - I2C Clock pin for display
+// Builder-confirmed TinyS3[D] production wiring. XIAO and SuperMini retain the
+// existing WMB+ reference wiring below.
+#ifdef BOARD_TYPE_TINYS3D
+  #define HX711_DATA_PIN          21
+  #define HX711_CLOCK_PIN         2
+  #define TOUCH_TARE_PIN          44
+  #define TOUCH_SLEEP_PIN         37
+  #define I2C_SDA_PIN             8
+  #define I2C_SCL_PIN             9
+  #define TINYS3D_LIS_INT_PIN     -1
+  #define TINYS3D_LCD_SCLK_PIN    36
+  #define TINYS3D_LCD_MOSI_PIN    35
+  #define TINYS3D_LCD_MISO_PIN    -1
+  #define TINYS3D_LCD_CS_PIN      34
+  #define TINYS3D_LCD_DC_PIN      1
+  #define TINYS3D_LCD_RST_PIN     4
+  #define TINYS3D_LCD_BL_PIN      5
+  #define TINYS3D_TOUCH_RST_PIN   7
+  #define TINYS3D_TOUCH_INT_PIN   6
+#else
+  #define HX711_DATA_PIN          5
+  #define HX711_CLOCK_PIN         6
+  #define TOUCH_TARE_PIN          4
+  #define TOUCH_SLEEP_PIN         3
+  #define I2C_SDA_PIN             8
+  #define I2C_SCL_PIN             9
+#endif
 
 #define BATTERY_PIN_NONE    255
 
@@ -132,6 +151,14 @@
 
 #ifndef WMBP_WOKWI_RUNTIME_HARNESS
   #define WMBP_WOKWI_RUNTIME_HARNESS 0
+#endif
+
+#ifndef WMBP_WOKWI_SOURCE_STREAM
+  #define WMBP_WOKWI_SOURCE_STREAM 1
+#endif
+
+#ifndef WMBP_TINY_WOKWI_PERIPHERAL_HARNESS
+  #define WMBP_TINY_WOKWI_PERIPHERAL_HARNESS 1
 #endif
 
 // Diagnostic event log policy. This stores exception/error events only, not raw

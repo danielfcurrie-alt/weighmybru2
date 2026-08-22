@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Stress the current beta9 Float32 observed-sample selector.
+"""Stress the current beta9/beta10 observed-sample selector.
 
 This mirrors the firmware selector in BluetoothScale.cpp:
 
-* 20 Hz output ticks.
+* configurable output ticks, defaulting to the Float32 20 Hz lane.
 * 300 ms trailing qualified-input window by default.
 * median target over source samples in the window.
 * emit the newest observed sample when the window is flat-coherent or fits a
@@ -36,6 +36,7 @@ FLOAT32_UUID = "6E400004-B5A3-F393-E0A9-E50E24DCCA9E"
 
 DEFAULT_WINDOW_MS = 300
 DEFAULT_INTERVAL_MS = 50
+WMB_OUTPUT_RATES_HZ = (10, 20, 40, 80)
 COHERENT_WINDOW_GRAMS = 2.0
 NEWEST_MEDIAN_BAND_GRAMS = 0.5
 COHERENT_RAMP_RESIDUAL_GRAMS = 0.45
@@ -115,12 +116,15 @@ def finite_wmb_samples(recording: dict[str, Any]) -> list[SourceSample]:
             continue
         if not isinstance(mono, (int, float)) or not math.isfinite(mono):
             continue
-        seq = sample.get("sequence")
         samples.append(SourceSample(
             millis=int(device_ms),
             monotonic=float(mono),
             weight=float(weight),
-            sequence=int(seq) if isinstance(seq, int) else index,
+            # WMB exports carry the BLE transport sequence, not firmware raw
+            # source sequence. For replay identity, use capture order so
+            # duplicate-selected-source suppression does not confuse transport
+            # wrap/loss with raw-source reuse.
+            sequence=index,
         ))
     samples.sort(key=lambda s: (s.millis, s.monotonic))
     return samples
@@ -240,6 +244,7 @@ def replay_selector(
     interval_ms: int = DEFAULT_INTERVAL_MS,
     phase_ms: int = 0,
     stale_ms: int = 250,
+    suppress_duplicate_source_sequence: bool = False,
 ) -> list[OutputSample]:
     if not source:
         return []
@@ -254,6 +259,7 @@ def replay_selector(
     outputs: list[OutputSample] = []
     last_weight: float | None = None
     consecutive_suppressed = 0
+    last_emitted_source_sequence: int | None = None
 
     while tick <= last_ms:
         while index < len(source) and source[index].millis <= tick:
@@ -270,6 +276,10 @@ def replay_selector(
             if source_age_ms > stale_ms:
                 tick += interval_ms
                 continue
+            if suppress_duplicate_source_sequence and last_emitted_source_sequence is not None:
+                if selected.sequence <= last_emitted_source_sequence:
+                    tick += interval_ms
+                    continue
             confirmed_load_step = is_confirmed_load_step(ring, selected, last_weight)
             suspect = (
                 not confirmed_load_step
@@ -302,6 +312,7 @@ def replay_selector(
                 confirmed_load_step=confirmed_load_step,
                 reason=reason,
             ))
+            last_emitted_source_sequence = selected.sequence
             last_weight = selected.weight
         tick += interval_ms
     return outputs
@@ -336,7 +347,7 @@ def longest_frozen_ms(samples: list[OutputSample], tolerance_g: float = 0.005) -
     return longest, worst_release
 
 
-def summarize_outputs(samples: list[OutputSample]) -> dict[str, Any]:
+def summarize_outputs(samples: list[OutputSample], *, source_reuse_interval_ms: int = DEFAULT_INTERVAL_MS) -> dict[str, Any]:
     if not samples:
         return {"count": 0}
     steps = [samples[i].weight - samples[i - 1].weight for i in range(1, len(samples))]
@@ -375,7 +386,7 @@ def summarize_outputs(samples: list[OutputSample]) -> dict[str, Any]:
         "sourceAgeP95Ms": percentile(source_ages, 0.95),
         "sourceAgeMaxMs": max(source_ages) if source_ages else None,
         "sourceLimitedPercent": 100.0 * sum(1 for c in source_counts if c < 3) / len(source_counts) if source_counts else None,
-        "sourceReusedPercent": 100.0 * sum(1 for age in source_ages if age >= DEFAULT_INTERVAL_MS) / len(source_ages) if source_ages else None,
+        "sourceReusedPercent": 100.0 * sum(1 for age in source_ages if age >= source_reuse_interval_ms) / len(source_ages) if source_ages else None,
         "selectorSuspectCount": sum(1 for sample in samples if sample.suspect),
         "confirmedLoadStepCount": sum(1 for sample in samples if sample.confirmed_load_step),
         "newestSelectionPercent": 100.0 * sum(1 for sample in samples if sample.reason == "newest") / len(samples),
@@ -396,6 +407,48 @@ def capture_summary(path: Path, window_ms: int, phase_ms: int) -> dict[str, Any]
         },
         "originalFloat32": summarize_outputs(original_float32),
         "beta9Replay": summarize_outputs(replay),
+    }
+
+
+def output_rate_interval_ms(rate_hz: int) -> int:
+    return max(1, int(math.ceil(1000.0 / rate_hz)))
+
+
+def effective_interval_ms(source_hz: float | None, requested_rate_hz: int) -> int:
+    requested_interval = output_rate_interval_ms(requested_rate_hz)
+    if source_hz is None or not math.isfinite(source_hz) or source_hz <= 1.0:
+        return requested_interval
+    if source_hz < requested_rate_hz * 0.92:
+        return max(requested_interval, int(math.ceil(1000.0 / source_hz)))
+    return requested_interval
+
+
+def wmb_rate_sweep_summary(path: Path, window_ms: int) -> dict[str, Any]:
+    recording = load_json(path)
+    source = finite_wmb_samples(recording)
+    source_summary = summarize_outputs([OutputSample(s.millis, s.monotonic, s.weight) for s in source])
+    source_hz = numeric_metric(source_summary, "effectiveHz")
+    rows = []
+    for rate_hz in WMB_OUTPUT_RATES_HZ:
+        interval_ms = effective_interval_ms(source_hz, rate_hz)
+        replay = replay_selector(
+            source,
+            window_ms=window_ms,
+            interval_ms=interval_ms,
+            stale_ms=window_ms + 100,
+            suppress_duplicate_source_sequence=True,
+        )
+        rows.append({
+            "requestedRateHz": rate_hz,
+            "effectiveIntervalMs": interval_ms,
+            "sourceLimited": bool(source_hz is not None and source_hz < rate_hz * 0.92),
+            "metrics": summarize_outputs(replay, source_reuse_interval_ms=interval_ms),
+        })
+    return {
+        "capture": path.name,
+        "sourceProxyHz": source_hz,
+        "windowMs": window_ms,
+        "rates": rows,
     }
 
 
@@ -522,6 +575,40 @@ def flow_rate_sweep_summary(window_ms: int) -> list[dict[str, Any]]:
     return rows
 
 
+def synthetic_wmb_rate_summaries(window_ms: int) -> list[dict[str, Any]]:
+    scenarios = [
+        ("quiet_80sps_ramp", 80.0, "quiet_80sps"),
+        ("noisy_80sps_ramp", 80.0, "noisy_80sps"),
+        ("hx711_10sps_ramp", 10.0, "quiet_80sps"),
+        ("under_15sps_ramp", 15.0, "quiet_80sps"),
+    ]
+    rows = []
+    for label, source_hz, kind in scenarios:
+        source = make_synthetic(kind, source_hz, 16.0)
+        rate_rows = []
+        for rate_hz in WMB_OUTPUT_RATES_HZ:
+            interval_ms = effective_interval_ms(source_hz, rate_hz)
+            replay = replay_selector(
+                source,
+                window_ms=window_ms,
+                interval_ms=interval_ms,
+                stale_ms=window_ms + 100,
+                suppress_duplicate_source_sequence=True,
+            )
+            rate_rows.append({
+                "requestedRateHz": rate_hz,
+                "effectiveIntervalMs": interval_ms,
+                "sourceLimited": source_hz < rate_hz * 0.92,
+                "metrics": summarize_outputs(replay, source_reuse_interval_ms=interval_ms),
+            })
+        rows.append({
+            "scenario": label,
+            "inputHz": source_hz,
+            "rates": rate_rows,
+        })
+    return rows
+
+
 def synthetic_summaries(window_ms: int) -> list[dict[str, Any]]:
     scenarios = [
         ("quiet_80sps_ramp", 80.0, "quiet_80sps"),
@@ -547,8 +634,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("captures", nargs="*", type=Path)
     parser.add_argument("--window-ms", type=int, default=DEFAULT_WINDOW_MS)
+    parser.add_argument("--interval-ms", type=int, default=DEFAULT_INTERVAL_MS)
     parser.add_argument("--phase-ms", type=int, default=0)
     parser.add_argument("--phase-sweep", action="store_true")
+    parser.add_argument("--wmb-rate-sweep", action="store_true")
     parser.add_argument("--out", type=Path, default=Path("analysis/float32-stress/current-firmware-float32-stress.json"))
     args = parser.parse_args()
 
@@ -556,7 +645,7 @@ def main() -> int:
         "algorithm": {
             "name": "beta9-current-firmware-float32-observed-selector",
             "windowMs": args.window_ms,
-            "intervalMs": DEFAULT_INTERVAL_MS,
+            "intervalMs": args.interval_ms,
             "coherentWindowGrams": COHERENT_WINDOW_GRAMS,
             "newestMedianBandGrams": NEWEST_MEDIAN_BAND_GRAMS,
             "coherentRampResidualGrams": COHERENT_RAMP_RESIDUAL_GRAMS,
@@ -574,7 +663,9 @@ def main() -> int:
         },
         "captures": [capture_summary(path, args.window_ms, args.phase_ms) for path in args.captures],
         "phaseSweeps": [phase_sweep_summary(path, args.window_ms) for path in args.captures] if args.phase_sweep else [],
+        "wmbRateSweeps": [wmb_rate_sweep_summary(path, args.window_ms) for path in args.captures] if args.wmb_rate_sweep else [],
         "flowRateSweep": flow_rate_sweep_summary(args.window_ms),
+        "syntheticWmbRateSweeps": synthetic_wmb_rate_summaries(args.window_ms) if args.wmb_rate_sweep else [],
         "synthetic": synthetic_summaries(args.window_ms),
     }
     args.out.parent.mkdir(parents=True, exist_ok=True)

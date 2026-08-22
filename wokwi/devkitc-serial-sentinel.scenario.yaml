@@ -1,0 +1,6 @@
+name: WMB+ DevKitC UART0 serial sentinel
+version: 1
+author: WMB+
+steps:
+  - wait-serial: 'WMBP_SERIAL_SENTINEL_BOOT'
+  - delay: 3000ms

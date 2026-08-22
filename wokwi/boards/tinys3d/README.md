@@ -44,8 +44,10 @@ Wokwi's documented custom-board workflow currently uses the web editor:
 
 `diagram.example.json` contains the minimal diagram from this workflow.
 The repository-root `diagram.tinys3d-custom-board.json` contains the complete
-WMB+ HX711/OLED/MAX17048/LIS2DW12/RGB test circuit. It also uses a blue LED as
-an instrumentation-only indication of GPIO38 antenna-switch state.
+builder-confirmed WMB+ HX711/JD9853/AXS5106L/MAX17048/LIS2DW12/touch/RGB test
+circuit. Display MISO and LIS2DW12 interrupts are deliberately unwired. It also
+uses a blue LED as an instrumentation-only indication of GPIO38 antenna-switch
+state.
 
 Validate that diagram and all custom-board pin references without starting the
 simulator:

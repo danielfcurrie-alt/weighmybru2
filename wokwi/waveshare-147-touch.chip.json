@@ -5,6 +5,10 @@
     "TP_RST", "TP_SDA", "TP_SCL", "TP_INT", "LCD_BL", "LCD_RST",
     "LCD_CS", "LCD_DC", "MISO", "MOSI", "SCLK", "GND", "VCC"
   ],
+  "display": {
+    "width": 172,
+    "height": 320
+  },
   "controls": [
     {
       "id": "touchCount",

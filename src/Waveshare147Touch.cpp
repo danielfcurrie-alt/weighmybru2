@@ -1,3 +1,5 @@
+#if defined(BOARD_TINYS3D) || defined(WMBP_HOST_TEST)
+
 #include "Waveshare147Touch.h"
 
 namespace {
@@ -373,3 +375,5 @@ void AXS5106TouchDriver::transform(uint16_t rawX, uint16_t rawY, Point& point) c
             break;
     }
 }
+
+#endif  // BOARD_TINYS3D || WMBP_HOST_TEST

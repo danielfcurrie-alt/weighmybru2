@@ -1,0 +1,24 @@
+name: TinyS3D proxy compact MAX17048 sequence
+version: 1
+author: WMB+
+steps:
+  - set-control:
+      part-id: fg
+      control: dischargePctPerHour
+      value: 18
+  - wait-serial: 'WMBP_TINY_MAX17048_DISCHARGE_OK'
+  - set-control:
+      part-id: fg
+      control: dischargePctPerHour
+      value: -24
+  - wait-serial: 'WMBP_TINY_MAX17048_CHARGE_OK'
+  - set-control:
+      part-id: fg
+      control: dischargePctPerHour
+      value: 0
+  - set-control:
+      part-id: fg
+      control: soc
+      value: 1
+  - wait-serial: 'WMBP_TINY_MAX17048_ALERT_OK'
+  - delay: 5000ms

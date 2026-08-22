@@ -1,5 +1,9 @@
 # WMB+ 0.2.0-beta.9 release notes
 
+**Withdrawn:** beta9 was withdrawn before broad tester use because its WMB
+packet lane could remain too noisy for Crema/GaggiMate-style clients. Use
+`0.2.0-beta.10` or newer instead.
+
 Beta 9 is focused on cleaner compatibility output, self-update readiness, and a smaller web UI footprint.
 
 ## What changed from beta 8

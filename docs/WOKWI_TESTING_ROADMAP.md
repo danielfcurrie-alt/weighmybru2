@@ -12,22 +12,67 @@ Use Wokwi for:
 - USB serial weight stream validation;
 - scenario-driven tare/load/disconnect/glitch tests;
 - early TinyS3[D] firmware-feature proxy testing with simulated MAX17048/LIS2DW12 pieces and
-  a separately isolated JD9853/AXS5106L display/touch model.
+  a separately isolated pixel-rendering JD9853/AXS5106L display/touch model.
 
 The current TinyS3[D] firmware-feature proxy runs on Wokwi's XIAO ESP32-S3
 board model. It is not a TinyS3[D] hardware or board-variant model. It has two
 distinct coverage levels:
 
-- MAX17048: current firmware probes and reads VCELL/SOC, so the baseline proves
-  the fuel-gauge backend is selected and basic register decoding works.
-- LIS2DW12: a standalone firmware driver and I2C model exist, but production
-  firmware does not instantiate the driver. It is test-bed infrastructure, not
-  passing accelerometer product coverage.
+- MAX17048: firmware reads VCELL/SOC plus VERSION, CRATE, STATUS, CONFIG, and
+  voltage-alert thresholds. The model also latches SOC/voltage alerts and
+  drives ALRT, so focused scenarios can cover more than basic backend selection.
+- LIS2DW12: the standalone firmware driver and I2C model are instantiated only
+  by the TinyS3[D] Wokwi harness. Focused profiles exercise identity/reset,
+  scaling, data-ready, and diagnostic motion analysis. Production firmware
+  remains gated on verified physical pins.
 
 A second `tinys3d-devkitc-feature-proxy` runtime target uses Wokwi's DevKitC
 Arduino variant with TinyS3[D] feature macros. This makes GPIO17/18 and the
-GPIO35 USB-sense substitute observable while retaining working USB serial. It
+GPIO35 USB-sense substitute observable. A 2026-08-20 baseline produced native
+USB Serial/JTAG output, but the expanded display/touch integration profile did
+not reach application serial on 2026-08-21 and remains a red runtime gate. It
 still does not model the real TinyS3 variant, physical GPIO33, or GPIO38.
+
+A bounded 2026-08-21 boot A/B used 24 simulator seconds to narrow that red
+gate. The no-color build, first with the complete custom-chip diagram and then
+with the Waveshare display/touch chip removed, reached the same ROM entry point
+but emitted no application serial in either 12-second run. Color UI
+construction/rendering and the Waveshare custom chip are therefore not the
+cause. The next useful discriminator is the newer Tiny peripheral harness (or
+another source/configuration change since the known-good 2026-08-20 DevKitC
+baseline); do not rerun the color/no-color or Waveshare/no-Waveshare pairs.
+
+The follow-up `tinys3d-devkitc-boot-no-peripherals` control compiled the entire
+Tiny peripheral coordinator out of the linked image while retaining the same
+DevKitC runtime, HX711 path, diagram, and native USB settings. It also reached
+only `entry 0x403c98ac` with zero application serial in a bounded 12-second
+run. The coordinator and its static construction are therefore ruled out. The
+next discriminator used a minimal application rather than another peripheral
+permutation.
+
+The six-second `tinys3d-devkitc-serial-sentinel` proved that the same virtual
+DevKitC flash/QSPI-PSRAM configuration reaches Arduino `setup()` and `loop()`.
+Explicitly wiring `esp:TX` to `$serialMonitor:RX` restored one-way UART0
+capture without driving RX/GPIO44, which is the builder-confirmed tare input.
+The bounded probe delivered 300 analyzer-compatible rows at 100 Hz with no
+missing sequence or gaps over 100 ms. The full DevKitC proxy can therefore use
+normal application serial output; serial commands remain intentionally
+unavailable on this carrier because its RX pin belongs to tare.
+
+The first 15-second full-peripheral run on that route also proved application
+boot and peripheral discovery with the builder pin map. MAX17048, LIS2DW12,
+HX711, touch, and Waveshare framebuffer checkpoints all reported success, and
+the source telemetry measured 91.94 Hz with zero source-to-public acquisition
+loss. The strict public-stream gate remains red because the runtime harness
+simultaneously emits weight, per-acquisition source, Float32, motion, battery,
+and display diagnostics over one 115200-baud UART. That is a harness bandwidth
+limit, not a boot or raw-acquisition failure; keep the gate red until the
+diagnostic lanes are bounded or separated.
+
+The exact-pin DevKitC integration environment now separates those concerns by
+setting `WMBP_WOKWI_SOURCE_STREAM=0`. Its normal weight lane and bounded Tiny
+peripheral checkpoints remain active, while source-focused profiles retain the
+high-volume diagnostic rows.
 
 An initial real TinyS3[D] custom-board definition now lives under
 `wokwi/boards/tinys3d/`. It uses the `um_tinys3` FQBN, the physical header
@@ -40,11 +85,33 @@ then registered upstream before it can replace the proxies in the guarded CLI
 matrix.
 
 The builder's module is a JD9853 display with AXS5106L touch, not ST7789. Its
-13-pin protocol model remains outside the active TinyS3[D] profile until the
-real GPIO assignment is known. This keeps speculative wiring out while driver,
-fuel-gauge, and accelerometer work proceeds.
+13-pin model renders RGB565 writes into a 172x320 Wokwi framebuffer, and the
+DevKitC feature proxy now drives weight, flow-curve, QR, status, and Pour Over
+screens plus touch page selection. Its GPIOs are explicitly simulator-only;
+physical TinyS3[D] integration still waits for the verified pin table.
+
+The detailed 2026-08-21 builder drawing is transcribed in
+`docs/TINYS3D_PERIPHERAL_DRIVERS.md`, and its HX711, shared-I2C, JD9853,
+AXS5106L, and standalone-touch pins are now active in the production
+`BOARD_TINYS3D` configuration. The exact custom-board diagram uses the same
+map. The runnable DevKitC proxy matches every exposed external signal, with two
+explicit carrier substitutions: LCD CS uses GPIO39 because DevKitC does not
+expose physical GPIO34, and USB sense uses GPIO47 because it does not expose
+Tiny's internal GPIO33. The builder confirmed the left standalone touch input
+as sleep on GPIO37 and the right input as tare on RX/GPIO44.
+The HX711 SPDT rate switch is also confirmed: 3V3 selects 80 SPS and GND
+selects 10 SPS. The builder also confirmed that JD9853 MISO is intentionally
+unconnected because the display path is write-only, and LIS2DW12 interrupt pins
+are intentionally unused in I2C polling mode. The HX711 custom chip now also
+models the RATE input, with the SPDT defaulting to the 3V3/80 SPS side. Physical
+display activation still waits on active-level verification and bounded
+hardware validation.
 
 ## TinyS3[D] sensor-to-product roadmap
+
+This is the beta 10 development roadmap. Beta 9 remains the published release;
+none of the staged TinyS3[D] peripheral work should be represented as beta 9
+product coverage.
 
 The TinyS3[D] accelerometer and fuel-gauge work should lead to useful scale
 behavior, not exist only as extra telemetry. Product ideas worth evaluating
@@ -74,6 +141,15 @@ its local-first, interoperable design: <https://oscalla.com/>.
   low-battery alerts, QuickStart, and recovery from a missing fuel gauge.
 - Keep each scenario short and independently budgeted; do not run a full matrix
   while developing one sensor behavior.
+
+Implemented as focused matrix rows plus compact daily gates. The 35-second
+`tinys3d-motion-sequence` covers quiet, vibration, knock, cup placement, and
+double tap in one boot. The 25-second `tinys3d-max17048-sequence` covers signed
+discharge/charge rates and alert behavior; the 15-second
+`tinys3d-max17048-missing` keeps missing-at-boot separate. Display/touch and
+I2C/SPI cadence are combined in the 40-second `tinys3d-devkitc-integration`
+gate. Definitions and offline lint/build checks do not consume simulator
+minutes; runtime remains explicitly budgeted.
 
 ### Phase 3: scale behaviors
 
@@ -124,6 +200,11 @@ runner sums the selected timeout caps and refuses plans larger than the budget.
 Use `--dry-run` to inspect a selection without building. Rows marked
 `lintOnly:true` can be built and linted with `--budget-seconds 0`; they never
 start the simulator. Results are isolated under `.pio/wokwi/runs/<profile>/`.
+The runtime runner automatically loads the local credential from
+`~/.wokwi/cli-token.env` when `WOKWI_CLI_TOKEN` is unset; it never prints the
+credential value. A separate 45-second wall-time startup watchdog stops a run
+that produces ROM output but no WMB+ application marker, limiting the cost of
+boot-stalled profiles.
 
 Do not use Wokwi as final evidence for:
 
@@ -141,8 +222,10 @@ Do not use Wokwi as final evidence for:
 - Delayed load support so boot tare can start at 0 g and later place a simulated object.
 - Jitter, glitch, and missed-ready controls.
 - Wokwi scenarios for clean stream, midstream tare, and missed-ready recovery.
-- TinyS3[D] feature-proxy pieces for fuel gauge and accelerometer integration;
-  JD9853/AXS5106L wiring is kept out of the active profile pending verified pins.
+- TinyS3[D] feature-proxy pieces for fuel gauge and accelerometer integration,
+  plus a pixel-rendering JD9853/AXS5106L model and staged color UI on the
+  simulator-only DevKitC integration profile. Physical enablement still waits
+  for verified pins.
 - Runtime serial analyzer output under `.pio/wokwi/runs/<profile>/analysis.json`.
 
 ## Current important red test

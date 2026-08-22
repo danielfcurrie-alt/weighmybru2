@@ -1,0 +1,24 @@
+name: TinyS3D proxy Waveshare touch page selection
+version: 1
+author: WMB+
+steps:
+  - wait-serial: 'WMBP_TINY_DISPLAY_SPLASH_OK'
+  # Rotation zero mirrors touch X, so raw X=111 maps to Flow at display X=60.
+  - set-control:
+      part-id: waveshare
+      control: touch1X
+      value: 111
+  - set-control:
+      part-id: waveshare
+      control: touch1Y
+      value: 305
+  - set-control:
+      part-id: waveshare
+      control: touchCount
+      value: 1
+  - wait-serial: 'WMBP_TINY_TOUCH_PAGE,flow'
+  - set-control:
+      part-id: waveshare
+      control: touchCount
+      value: 0
+  - delay: 3000ms

@@ -1,6 +1,8 @@
 #ifndef WAVESHARE_147_TOUCH_H
 #define WAVESHARE_147_TOUCH_H
 
+#if defined(BOARD_TINYS3D) || defined(WMBP_HOST_TEST)
+
 #include <Arduino.h>
 #include <SPI.h>
 #include <Wire.h>
@@ -99,4 +101,5 @@ private:
     void transform(uint16_t rawX, uint16_t rawY, Point& point) const;
 };
 
+#endif  // BOARD_TINYS3D || WMBP_HOST_TEST
 #endif

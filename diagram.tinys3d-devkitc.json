@@ -11,8 +11,7 @@
       "attrs": {
         "flashSize": "8",
         "psramSize": "8",
-        "psramType": "quad",
-        "serialInterface": "USB_SERIAL_JTAG"
+        "psramType": "quad"
       }
     },
     {
@@ -22,6 +21,7 @@
       "left": 250,
       "attrs": {
         "sps": "80",
+        "useRatePin": "1",
         "actualSps": "94.22",
         "jitterMicros": "100",
         "weight": "0.0",
@@ -34,12 +34,34 @@
       }
     },
     {
-      "type": "board-ssd1306",
-      "id": "oled",
-      "top": -120,
+      "type": "wokwi-slide-switch",
+      "id": "rateSwitch",
+      "top": 250,
       "left": 250,
       "attrs": {
-        "i2cAddress": "0x3c"
+        "bounce": "0"
+      }
+    },
+    {
+      "type": "wokwi-pushbutton",
+      "id": "sleepTouch",
+      "top": -170,
+      "left": 245,
+      "attrs": {
+        "label": "SLEEP",
+        "color": "blue",
+        "bounce": "0"
+      }
+    },
+    {
+      "type": "wokwi-pushbutton",
+      "id": "tareTouch",
+      "top": -170,
+      "left": 310,
+      "attrs": {
+        "label": "TARE",
+        "color": "green",
+        "bounce": "0"
       }
     },
     {
@@ -71,9 +93,26 @@
       "top": -160,
       "left": 380,
       "attrs": {}
+    },
+    {
+      "type": "chip-waveshare-147-touch",
+      "id": "waveshare",
+      "top": 170,
+      "left": 510,
+      "attrs": {
+        "touchCount": "0",
+        "touch1X": "86",
+        "touch1Y": "305"
+      }
     }
   ],
   "connections": [
+    [
+      "$serialMonitor:RX",
+      "esp:TX",
+      "",
+      []
+    ],
     [
       "hx711:VCC",
       "esp:3V3.1",
@@ -88,38 +127,32 @@
     ],
     [
       "hx711:DT",
-      "esp:5",
+      "esp:21",
       "green",
       []
     ],
     [
       "hx711:SCK",
-      "esp:6",
+      "esp:2",
       "blue",
       []
     ],
     [
-      "oled:VCC",
+      "hx711:RATE",
+      "rateSwitch:2",
+      "orange",
+      []
+    ],
+    [
+      "rateSwitch:1",
       "esp:3V3.1",
       "red",
       []
     ],
     [
-      "oled:GND",
+      "rateSwitch:3",
       "esp:GND.1",
       "black",
-      []
-    ],
-    [
-      "oled:SDA",
-      "esp:8",
-      "green",
-      []
-    ],
-    [
-      "oled:SCL",
-      "esp:9",
-      "blue",
       []
     ],
     [
@@ -171,28 +204,28 @@
       []
     ],
     [
-      "accel:INT1",
-      "esp:2",
-      "orange",
+      "sleepTouch:1.l",
+      "esp:37",
+      "blue",
       []
     ],
     [
-      "esp:3",
-      "esp:GND.1",
-      "black",
-      [
-        "v-18",
-        "h-20"
-      ]
+      "sleepTouch:2.l",
+      "esp:3V3.2",
+      "red",
+      []
     ],
     [
-      "esp:4",
-      "esp:GND.1",
-      "black",
-      [
-        "v-24",
-        "h-28"
-      ]
+      "tareTouch:1.l",
+      "esp:RX",
+      "green",
+      []
+    ],
+    [
+      "tareTouch:2.l",
+      "esp:3V3.2",
+      "red",
+      []
     ],
     [
       "fg:ALRT",
@@ -219,12 +252,84 @@
       []
     ],
     [
-      "esp:35",
+      "esp:47",
       "esp:3V3.2",
       "red",
+      []
+    ],
+    [
+      "waveshare:VCC",
+      "esp:3V3.1",
+      "red",
+      []
+    ],
+    [
+      "waveshare:GND",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "waveshare:TP_SDA",
+      "esp:8",
+      "green",
+      []
+    ],
+    [
+      "waveshare:TP_SCL",
+      "esp:9",
+      "blue",
+      []
+    ],
+    [
+      "waveshare:TP_RST",
+      "esp:7",
+      "orange",
+      []
+    ],
+    [
+      "waveshare:TP_INT",
+      "esp:6",
+      "magenta",
+      []
+    ],
+    [
+      "waveshare:SCLK",
+      "esp:36",
+      "blue",
+      []
+    ],
+    [
+      "waveshare:MOSI",
+      "esp:35",
+      "green",
+      []
+    ],
+    [
+      "waveshare:LCD_CS",
+      "esp:39",
+      "purple",
+      []
+    ],
+    [
+      "waveshare:LCD_DC",
+      "esp:1",
+      "cyan",
+      []
+    ],
+    [
+      "waveshare:LCD_RST",
+      "esp:4",
+      "orange",
+      []
+    ],
+    [
+      "waveshare:LCD_BL",
+      "esp:5",
+      "yellow",
       []
     ]
   ],
   "dependencies": {},
-  "_comment": "TinyS3[D] firmware-feature proxy on Wokwi's ESP32-S3-DevKitC-1 board. The runtime build matches the virtual DevKitC Arduino variant while enabling WMB+'s TinyS3[D] feature macros. GPIO17/18 and the MAX17048/LIS2DW12 wiring are available; MAX17048 ALRT follows the TinyS3[D] GPIO10 mapping. Wokwi's DevKitC does NOT expose GPIO33, so USB power sense is deliberately remapped to GPIO35 and tied high; this exercises the logic but cannot catch a wrong physical GPIO33 mapping. GAP: RF_ANTENNA_SWITCH_PIN (38) remains unconnected and unobservable. serialInterface=USB_SERIAL_JTAG selects Wokwi's documented ESP32-S3 USB CDC monitor path. This is not a TinyS3[D] board or electrical model."
+  "_comment": "TinyS3[D] firmware-feature proxy on Wokwi's ESP32-S3-DevKitC-1 board using the builder-confirmed external wiring wherever the carrier exposes it: HX711 DT/SCK=21/2 with SPDT RATE (3V3=80 SPS, GND=10 SPS); shared I2C=8/9; LIS2DW12 interrupt pins unconnected; JD9853 SCLK/MOSI/MISO/DC/RST/BL=36/35/unconnected/1/4/5; AXS5106L RST/INT=7/6; sleep/tare=37/RX(GPIO44). MAX17048 ALRT remains on GPIO10 and RGB power/data on 17/18. Carrier exceptions: DevKitC does not expose physical LCD_CS GPIO34 or Tiny VBUS-sense GPIO33, so simulator-only GPIO39 and GPIO47 are used respectively. RF antenna GPIO38 remains unobservable. The custom Tiny board diagram retains the exact GPIO34/GPIO33 mapping."
 }

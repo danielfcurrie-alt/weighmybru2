@@ -1,7 +1,7 @@
 {
   "name": "HX711 10/80 SPS Load Cell ADC",
   "author": "WMB+",
-  "pins": [ "VCC", "GND", "DT", "SCK" ],
+  "pins": [ "VCC", "GND", "DT", "SCK", "RATE" ],
   "controls": [
     {
       "id": "sps",
@@ -10,6 +10,14 @@
       "min": 10,
       "max": 80,
       "step": 70
+    },
+    {
+      "id": "useRatePin",
+      "label": "Use RATE pin (HIGH=80 SPS, LOW=10 SPS)",
+      "type": "range",
+      "min": 0,
+      "max": 1,
+      "step": 1
     },
     {
       "id": "actualSps",

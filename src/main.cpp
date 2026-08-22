@@ -26,6 +26,14 @@
 #include "BatteryDrainSession.h"
 #include "SimulationProfiles.h"
 #include "ScaleCommandQueue.h"
+#include "PourOverCommandQueue.h"
+#include "PourOverSession.h"
+#if defined(BOARD_TINYS3D)
+#include "TinyS3DPeripherals.h"
+#endif
+#if defined(BOARD_TINYS3D) && WMBP_WOKWI_RUNTIME_HARNESS && WMBP_TINY_WOKWI_PERIPHERAL_HARNESS
+#include "WokwiTinyPeripheralHarness.h"
+#endif
 
 // Board-specific pin configuration
 uint8_t dataPin = HX711_DATA_PIN;     // HX711 Data pin
@@ -48,6 +56,14 @@ DiagnosticEventLog diagnosticEventLog;
 BoardHardware boardHardware;
 BatteryDrainSession batteryDrainSession;
 ScaleCommandQueue scaleCommandQueue;
+PourOverSession pourOverSession;
+PourOverCommandQueue pourOverCommandQueue;
+#if defined(BOARD_TINYS3D)
+TinyS3DPeripherals tinyS3DPeripherals;
+#endif
+#if defined(BOARD_TINYS3D) && WMBP_WOKWI_RUNTIME_HARNESS && WMBP_TINY_WOKWI_PERIPHERAL_HARNESS
+WokwiTinyPeripheralHarness wokwiTinyPeripheralHarness;
+#endif
 
 static constexpr uint32_t BATTERY_BENCH_LOG_INTERVAL_MS = 30000;
 static bool batteryBenchLoggingEnabled = true;
@@ -132,6 +148,9 @@ static void preparePeripheralsForDeepSleep(const char* reason, bool criticalSlee
                             batteryMonitor.getBatteryVoltage(),
                             sleepReason);
   boardHardware.prepareForSleep();
+#if defined(BOARD_TINYS3D) && !WMBP_WOKWI_RUNTIME_HARNESS
+  tinyS3DPeripherals.prepareForSleep();
+#endif
 
   // Force PD_SCK high even if HX711 connection was not confirmed yet.
   // Early critical-battery sleeps can run before scale.begin(), but the
@@ -884,6 +903,13 @@ void setup() {
 #if WMBP_WOKWI_RUNTIME_HARNESS
   Serial.println("Wokwi runtime harness: skipping OLED initialization for faster deterministic boot");
   bool displayAvailable = false;
+#elif defined(BOARD_TINYS3D)
+  Serial.println("Initializing TinyS3D color display, touch, and motion peripherals...");
+  bool displayAvailable = tinyS3DPeripherals.begin();
+  boardHardware.setTinyPeripheralStatus(
+      tinyS3DPeripherals.isDisplayReady(),
+      tinyS3DPeripherals.isTouchReady(),
+      tinyS3DPeripherals.isAccelerometerReady());
 #else
   Serial.println("Initializing display...");
   bool displayAvailable = oledDisplay.begin();
@@ -950,8 +976,11 @@ void setup() {
     Serial.println("Scale initialized successfully");
   }
   bluetoothScale.setScale(&scale);
+#if defined(BOARD_TINYS3D) && WMBP_TINY_WOKWI_PERIPHERAL_HARNESS
+  wokwiTinyPeripheralHarness.begin(batteryMonitor);
+#endif
   usbWeightStreamEnabled = true;
-  usbSourceStreamEnabled = true;
+  usbSourceStreamEnabled = WMBP_WOKWI_SOURCE_STREAM;
   printUsbWeightStreamHeader();
   return;
 #endif
@@ -1084,7 +1113,7 @@ void setup() {
   powerManager.setRelayOnCallback( [](){ smbComms.sendRelayOn();  });
   powerManager.setRelayOffCallback([](){ smbComms.sendRelayOff(); });
 
-  setupWebServer(scale, flowRate, bluetoothScale, oledDisplay, batteryMonitor, smbComms, powerManager, diagnosticEventLog, boardHardware, batteryDrainSession, touchSensor, scaleCommandQueue);
+  setupWebServer(scale, flowRate, bluetoothScale, oledDisplay, batteryMonitor, smbComms, powerManager, diagnosticEventLog, boardHardware, batteryDrainSession, touchSensor, scaleCommandQueue, pourOverSession, pourOverCommandQueue);
   
   // CRITICAL: After full initialization, check if WiFi should be disabled
   // This exactly replicates the tare button scenario: WiFi started, then disabled
@@ -1138,8 +1167,20 @@ void loop() {
     freshScaleSample = true;
   }
 
+  const uint32_t pourOverNowMs = millis();
+  pourOverCommandQueue.process(pourOverSession, pourOverNowMs, weight);
+  pourOverSession.update(
+      pourOverNowMs,
+      weight,
+      flowRate.getFlowRate(),
+      freshScaleSample);
+
 #if WMBP_WOKWI_RUNTIME_HARNESS
   batteryMonitor.update();
+#if defined(BOARD_TINYS3D) && WMBP_TINY_WOKWI_PERIPHERAL_HARNESS
+  wokwiTinyPeripheralHarness.update(weight, flowRate.getFlowRate(),
+                                    freshScaleSample, batteryMonitor);
+#endif
   bluetoothScale.updateFloat32Estimator(millis());
   printUsbSourceSample();
   printUsbFloat32Sample();
@@ -1187,7 +1228,8 @@ void loop() {
       batteryMonitor,
       powerManager,
       diagnosticEventLog,
-      boardHardware);
+      boardHardware,
+      pourOverSession);
 
   // Emit lightweight battery/runtime benchmark telemetry for old-vs-new
   // drain comparisons. This is serial-only and does not write persistent state.
@@ -1196,12 +1238,35 @@ void loop() {
   if (freshScaleSample) {
     printUsbWeightSample(weight);
   }
-  
+
+#if defined(BOARD_TINYS3D)
+  tinyS3DPeripherals.update(
+      weight,
+      flowRate.getFlowRate(),
+      scale.isHX711Connected(),
+      bluetoothScale.isConnected(),
+      batteryMonitor,
+      pourOverSession);
+  const MotionAnalyzer::Diagnostics& tinyMotion =
+      tinyS3DPeripherals.motionDiagnostics();
+  boardHardware.updateTinyMotionDiagnostics(
+      MotionAnalyzer::stateName(tinyMotion.state),
+      tinyMotion.vibrationRmsG,
+      tinyMotion.vibrationEnergyG2,
+      tinyMotion.quietConfidence,
+      tinyMotion.impactPeakG,
+      tinyMotion.rollDegrees,
+      tinyMotion.pitchDegrees,
+      tinyMotion.impactCount,
+      tinyMotion.tapCandidateCount,
+      tinyMotion.doubleTapCandidateCount);
+#else
   // Update display less frequently for power saving
   if (millis() - lastDisplayUpdate >= 100) { // Reduced display refresh rate to 10Hz
     oledDisplay.update();
     lastDisplayUpdate = millis();
   }
+#endif
   
 #if WMBP_SIMULATION_MODE
   delay(1);

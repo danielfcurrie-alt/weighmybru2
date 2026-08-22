@@ -4,6 +4,22 @@
   "pins": [ "VCC", "GND", "SCL", "SDA", "INT1" ],
   "controls": [
     {
+      "id": "pattern",
+      "label": "Motion pattern (0 manual, 1 quiet, 2 vibration, 3 knock, 4 cup, 5 double tap)",
+      "type": "range",
+      "min": 0,
+      "max": 5,
+      "step": 1
+    },
+    {
+      "id": "amplitudeG",
+      "label": "Pattern amplitude (g)",
+      "type": "range",
+      "min": 0,
+      "max": 2,
+      "step": 0.05
+    },
+    {
       "id": "ax",
       "label": "X acceleration (g)",
       "type": "range",

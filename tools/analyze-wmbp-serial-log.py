@@ -70,6 +70,11 @@ def payload_host_time(payload: str) -> float:
 
 def parse_log(path: Path):
     runtime = load_runtime_smoke_module()
+    log_text = path.read_text(encoding="utf-8", errors="replace")
+    lines = log_text.splitlines()
+    ignored_trailing_fragment = bool(log_text and not log_text.endswith(("\n", "\r")))
+    if ignored_trailing_fragment:
+        lines = lines[:-1]
     samples = []
     source_samples = []
     float32_samples = []
@@ -80,7 +85,7 @@ def parse_log(path: Path):
     total_source_lines = 0
     total_float32_lines = 0
 
-    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+    for line in lines:
         payload = extract_weight_payload(line)
         if payload is not None:
             total_weight_lines += 1
@@ -120,6 +125,7 @@ def parse_log(path: Path):
     result["malformed_weight_lines"] = malformed
     result["malformed_source_lines"] = malformed_source
     result["malformed_float32_lines"] = malformed_float32
+    result["ignored_trailing_fragment"] = ignored_trailing_fragment
     result["host_timing_note"] = "host timing is synthesized from device_ms for offline log analysis"
     return result
 
